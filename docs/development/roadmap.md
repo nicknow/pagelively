@@ -38,7 +38,7 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 | ID  | Slice                                   | Size | Status  | Depends on             |
 | --- | --------------------------------------- | ---- | ------- | ---------------------- |
 | S01 | Slug & id resolution primitives         | L    | done    | —                      |
-| S02 | Reserved-word validation                | S    | planned | S01                    |
+| S02 | Reserved-word validation                | S    | done    | S01                    |
 | S03 | Rev handling (bump policy + key layout) | S    | planned | S01, OQ-04             |
 | S04 | `<base>`-tag injection                  | S    | planned | S01, OQ-14             |
 | S05 | Markdown rendering pipeline             | M    | planned | S01, S04, OQ-05, OQ-14 |
@@ -108,13 +108,21 @@ concrete S01 details: fixed-10 ids, 1–64 `validateId` bounds, slugify `_`/exte
 rules, `%2F` → unknown). Malformed paths → `unknown`, never throw. **Done 2026-07-31**
 (77 tests incl. validator edge suite; ADR 0010).
 
-**S02 — Reserved-word validation** — every §5 name (`p, api, admin, assets, favicon.ico,
-robots.txt, health, sitemap.xml`) rejected as a slug; `_`-prefixed slugs rejected;
-near-misses (`admin2`, `p-2`) accepted. Semantics per OQ-02 (default: exact-match + `_`
-prefix, lowercase-only slugs). NOTE (S01 validation): the edge Access application protects
+**S02 — Reserved-word validation** — `validateSlug` in `src/slug.ts` (ADR 0011): every §5
+name (`p, api, admin, assets, favicon.ico, robots.txt, health, sitemap.xml`) rejected as a
+slug — exact whole-segment match, case-insensitive, consumed from the single
+`RESERVED_NAMES` source in `reserved.ts`; `_`-prefixed slugs rejected (incl. bare `_`);
+near-misses (`admin2`, `p-2`, `my-post`, `p2`, `favicon`, `healthz`) accepted; slugs
+lowercase-only (any uppercase input rejected — OQ-02 "case is moot"); bounds 1–64, charset
+`[a-z0-9_-]`; a slug equal to another page's id is allowed (separate namespaces, §4).
+Typed result `{ok: true} | {ok: false; error: AppError}` (`invalid_slug`, 400), never
+throws. Semantics per OQ-02. NOTE (S01 validation): the edge Access application protects
 `/admin*` (spec §9), so a Worker-accepted near-miss slug such as `adminx` would be
 Access-challenged at the edge before the Worker classifies it — more restrictive, not a
-security hole; record the path rules in the S20/S22 ops/smoke docs.
+security hole; record the path rules in the S20/S22 ops/smoke docs. NOTE (refinement):
+the planner's draft `Assets` near-miss example resolves to a lowercase-rule rejection
+(case is moot; the normalized `assets` is reserved — both paths reject). **In progress
+2026-07-31** (25 tests incl. validator edge suite; ADR 0011).
 
 **S03 — Rev handling** — `nextRev(1)=2`; key builder emits `pages/{id}/{rev}/{path}` (§8);
 `shouldBumpRev` true only for content-affecting actions (OQ-04 default); path-escape

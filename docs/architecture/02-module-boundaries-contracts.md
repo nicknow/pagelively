@@ -14,7 +14,7 @@ src/
   config.ts           typed, validated config accessor over Env (normalizes vars)
   errors.ts           AppError taxonomy + toErrorResponse() (ADR 0005)
   ids.ts              generateId()/validateId() — Web Crypto, URL-safe (§4)
-  slug.ts             slugify(), reserved-word check, collision suffixes (ADR 0007)
+  slug.ts             slugify(), validateSlug() — reserved-word check (S02, ADR 0011), collision suffixes (ADR 0007)
   rev.ts              nextRev(), shouldBumpRev(), buildR2Key() (ADR 0006)
   content-type.ts     MIME table (§6 whitelist + .md/.html; extensible data)
   cache-headers.ts    headersFor(routeClass) (ADR 0006)
