@@ -38,6 +38,12 @@ fetch(request) →
 | 422    | `entry_file_required`, `invalid_operation`                                                                                                                        | Semantically invalid state transitions: deleting the entry file, PATCH on a nonexistent field, etc. (Distinct from 409: 409 = uniqueness conflict, 422 = operation invalid for the resource's state.)                                                                                                                          | S18 AC      |
 | 500    | `internal`                                                                                                                                                        | Anything unexpected — the boundary converts it; never leaks stacks or internals.                                                                                                                                                                                                                                               | S12 AC      |
 
+> **Internal-invariant codes (S03, ADR 0012):** `invalid_rev` (500) and `unknown_action`
+> (500) are thrown by pure modules (`rev.ts`) for invariant violations — an invalid rev or
+> an unknown action type is a corrupt-row/caller bug, never client input. The boundary maps
+> them to the generic `internal` 500; the codes exist for logs and tests. `path_traversal`
+> (400, listed above) is the client-mappable code for rejected upload paths.
+
 ## Response shapes
 
 - **Admin/API JSON** (all `/api/*` errors):

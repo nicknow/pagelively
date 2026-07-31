@@ -39,7 +39,7 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 | --- | --------------------------------------- | ---- | ------- | ---------------------- |
 | S01 | Slug & id resolution primitives         | L    | done    | —                      |
 | S02 | Reserved-word validation                | S    | done    | S01                    |
-| S03 | Rev handling (bump policy + key layout) | S    | planned | S01, OQ-04             |
+| S03 | Rev handling (bump policy + key layout) | S    | done    | S01, OQ-04             |
 | S04 | `<base>`-tag injection                  | S    | planned | S01, OQ-14             |
 | S05 | Markdown rendering pipeline             | M    | planned | S01, S04, OQ-05, OQ-14 |
 | S06 | Content-type mapping                    | S    | planned | —                      |
@@ -126,7 +126,19 @@ the planner's draft `Assets` near-miss example resolves to a lowercase-rule reje
 
 **S03 — Rev handling** — `nextRev(1)=2`; key builder emits `pages/{id}/{rev}/{path}` (§8);
 `shouldBumpRev` true only for content-affecting actions (OQ-04 default); path-escape
-(`../`) rejected; unknown action type throws.
+(`../`) rejected; unknown action type throws. **Done 2026-07-31** (49 tests incl.
+validator edge suite + seeded 10k fuzz; ADR 0012).
+validator edge suite; ADR 0012). NOTE (reconciliation): ADR 0006 decision 5's "slug PATCH
+bumps" is amended by ADR 0012 — slug-edit does **not** bump (metadata edits are covered by
+tag purge; `<base>`/template links are serve-time/relative per ADR 0008, so slug changes
+yield identical entry HTML). NOTE (implemented surface, ADR 0012): `RevAction` is a closed
+7-member union (`file-add | file-delete | entry-change | re-render | slug-edit | meta-edit
+| create`); page deletion is handled outside `shouldBumpRev` (S18 purges + deletes objects
+— no rev to bump); `nextRev`/`buildR2Key` guard rev with `Number.isInteger(rev) && rev >= 1`
+→ `AppError("invalid_rev", 500)`; unknown action → `AppError("unknown_action", 500)`;
+`buildR2Key` rejects escapes/absolute/empty paths as `AppError("path_traversal", 400)` and
+normalizes `//`, `./`, trailing slashes, and non-escaping `..`; paths are already-decoded
+strings (`%2e%2e`/`\` are literal — S17's write-side `../` rejection is the front line).
 
 **S04 — `<base>`-tag injection** — base injected as first `<head>` element, href
 `{ASSET_BASE_URL}/pages/{id}/{rev}/` (§6); `<head>` created if absent; existing `<base>`
@@ -186,7 +198,9 @@ failure → fail closed at the gate.
 **S15 — Admin API: list & detail** — `GET /api/pages` → ordered JSON (title, slug, id,
 kind, created_at, visibility, show_source, rev); `GET /api/pages/{id}` → page + files
 list (§5, §8); unknown id → 404 JSON; invalid id → 400; unauthenticated → 403 (S16 gate
-asserted end-to-end).
+asserted end-to-end). NOTE (S03 validation, ADR 0012): call `validateId` on every id
+before it reaches `buildR2Key`/the repository — an unvalidated id interpolated into an
+R2 key is a latent escape (S15 and S18 share this caller discipline).
 
 **S16 — Access JWT verification** — verify `Cf-Access-Jwt-Assertion` on `/admin*` and
 `/api/*` (§9): signature vs JWKS at `https://{ACCESS_TEAM_DOMAIN}/cdn-cgi/access/certs`
@@ -203,12 +217,17 @@ upload body guard ~95 MB (413; verified 100 MB Cloudflare limit); `../` paths re
 partial D1 failure → best-effort R2 rollback, no orphan rows; 201 + page JSON, rev = 1.
 NOTE (S01 validation): trim the filename/title before `slugify` in the API layer —
 `"My Post 1.md "` currently slugifies to `my-post-1-md`.
+NOTES (S03 validation, ADR 0012): reject `%` in multipart filenames (literal-`%` R2 keys
+are unservable); enforce the R2 key length limit (1,024 bytes; error 10020
+`InvalidObjectName`); write-side `../` rejection is the enforcement front line for the
+key builder's relaxed `..`-collapse normalization.
 
 **S18 — Edit & delete API** — slug/title/visibility/show_source PATCH with uniqueness +
 reserved checks; file add/replace/delete with rev bump per OQ-04 (fresh folder, `files`
 rows re-pointed, old folder left for GC per OQ-10); `DELETE /api/pages/{id}` removes rows
 (cascade) + all objects (§10); entry file not deletable; every mutation purges the page's
-cache tag (§11); 404 on missing page; 409/422 on conflicts.
+cache tag (§11); 404 on missing page; 409/422 on conflicts. NOTE (S03 validation,
+ADR 0012): `validateId` before every `buildR2Key` call (see S15 NOTE).
 
 **S19 — Admin UI** — `GET /admin` dashboard (title, slug, id, kind, created, view/edit/
 delete links); upload form (multi-file, `webkitdirectory`, slug, show-source, entry picker
@@ -236,7 +255,10 @@ home modes exercised; `npm run build` size under the free limit; clean-devcontai
 quickstart works; deliverable `docs/operations/smoke-test-checklist.md` covering the
 infra seams (R2 CDN serving + immutable headers, Worker custom domain + DNS, live Access
 login → JWT verified, entry `Cf-Cache-Status: HIT`, purge-on-publish freshness, free-tier
-quota verification). All OQs closed or explicitly deferred.
+quota verification). NOTE (S03 validation, ADR 0012): add an operator check that
+traversal-ish CDN requests (`/pages/{id}/{rev}/../…`, `/%2e%2e/…`) return the bucket 404
+rather than resolving to a sibling key, and that literal-`%` keys are unservable. All OQs
+closed or explicitly deferred.
 
 ---
 

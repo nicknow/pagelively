@@ -15,7 +15,7 @@ src/
   errors.ts           AppError taxonomy + toErrorResponse() (ADR 0005)
   ids.ts              generateId()/validateId() — Web Crypto, URL-safe (§4)
   slug.ts             slugify(), validateSlug() — reserved-word check (S02, ADR 0011), collision suffixes (ADR 0007)
-  rev.ts              nextRev(), shouldBumpRev(), buildR2Key() (ADR 0006)
+  rev.ts              nextRev(), shouldBumpRev(), buildR2Key() (ADR 0006, 0012)
   content-type.ts     MIME table (§6 whitelist + .md/.html; extensible data)
   cache-headers.ts    headersFor(routeClass) (ADR 0006)
   markdown.ts         renderMarkdown(md, opts) via marked + custom html renderer (§7)
@@ -108,10 +108,26 @@ interface FileRecord {
   size: number;
 }
 
-// R2 keys are built only through rev.ts:
+// R2 keys are built only through rev.ts (spec §8 layout is a hard contract):
 function buildR2Key(pageId: string, rev: number, path: string): string; // "pages/{id}/{rev}/{path}"
 function nextRev(current: number): number; // +1
-function shouldBumpRev(action: RevAction): boolean; // ADR 0006 table
+function shouldBumpRev(action: RevAction): boolean; // ADR 0006 table, concretized by ADR 0012
+
+// RevAction — closed discriminated union (ADR 0012); anything else throws.
+type RevAction =
+  | { type: "file-add" } // add/replace a file — bumps
+  | { type: "file-delete" } // bumps
+  | { type: "entry-change" } // entry content changed — bumps
+  | { type: "re-render" } // markdown re-render — bumps
+  | { type: "slug-edit" } // metadata — no bump (ADR 0012 reconciliation)
+  | { type: "meta-edit" } // title/visibility/show_source — no bump
+  | { type: "create" }; // rev starts at 1 (§8 DEFAULT 1)
+
+// Fail-fast (typed AppError, never raw): invalid rev → "invalid_rev"/500;
+// unknown action → "unknown_action"/500; escaping/absolute/empty path in
+// buildR2Key → "path_traversal"/400. Path normalization: `//` and `./` drop,
+// trailing slashes strip, non-escaping `..` pops; input is an already-decoded
+// string (`%`-sequences and `\` are literal). Details: ADR 0012.
 ```
 
 ## Router contract (pure)

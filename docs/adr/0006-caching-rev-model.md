@@ -38,8 +38,16 @@ stale-while-revalidate=3600` + `Cache-Tag: page-{id}` (+ home tag). **Never emit
    behavior after deploys.
 5. **`rev` semantics** (spec §8):
    - `rev` is a monotonically increasing integer, bumped **only on content-affecting
-     mutations** — adding/replacing/removing a file, editing markdown or entry (slug PATCH
-     bumps; metadata-only edits do not).
+     mutations** — adding/replacing/removing a file, editing markdown or entry
+     ~~(slug PATCH bumps;~~ metadata-only edits do not).
+   - > **Amended by ADR 0012 (S03):** slug PATCH does **not** bump. The Phase-2 outputs
+     > conflicted (this sentence vs architecture 04's purge matrix + roadmap S03 AC +
+     > OQ-04); the orchestrator resolved it in favor of **no bump on slug-edit**. Reason:
+     > a slug change produces identical entry HTML bytes — the `<base>` and template
+     > links are serve-time/relative (ADR 0008) — and the `page-{id}` tag purge refreshes
+     > both old- and new-slug entry URLs at zero storage cost, whereas bumping would copy
+     > the whole rev folder per typo (OQ-04 option A). ADR 0012 implements and tests the
+     > reconciled policy.
    - **No page with `rev > 0` is ever mutated in place on R2**: every content change writes a
      fresh `pages/{id}/{rev}/…` object tree and atomically updates the row (S18 AC). This is
      what makes `rev` a safe cache-buster (immutable URLs).

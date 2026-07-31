@@ -116,4 +116,5 @@ pages/{id}/{rev}/photo.jpg         # image/raw pages: the file itself (entry_pat
 - Spec: §4 content model, §8 storage schema, §9 auth, §11 caching.
 - Docs: [02 — Module boundaries](02-module-boundaries-contracts.md),
   [04 — Caching & rev](04-caching-rev-model.md).
-- ADRs: 0002 (Web Crypto ids), 0006 (rev policy), 0007 (slug semantics).
+- ADRs: 0002 (Web Crypto ids), 0006 (rev policy), 0007 (slug semantics),
+  0012 (S03 — `RevAction` union, key builder rules, slug-edit reconciliation).

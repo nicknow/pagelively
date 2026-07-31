@@ -86,6 +86,9 @@ URLs** (cache key = path + entrypoint + version; host is not part of the key —
 - `rev` starts at 1 and increments by 1 per content-affecting publish: `nextRev(n) = n + 1`.
 - **Bump policy** — `shouldBumpRev` is true only for: file add/replace, file delete, entry
   change, markdown (re-)render. False for: slug/title/visibility/show_source edits.
+  Implemented in S03 with the concrete `RevAction` union and fail-fast throws; the
+  ADR-0006-vs-this-matrix conflict over "slug PATCH bumps" is reconciled in favor of
+  **no bump** — see ADR 0012.
   Rationale: metadata edits are invalidated by tag purge at zero storage cost; bumping them
   would copy the whole rev folder per typo (R2 free tier is 10 GB — bounded, but churn is
   waste; OQ-04 A).
