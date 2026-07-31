@@ -1,0 +1,51 @@
+# --- dependencies ---
+node_modules/
+
+# --- build output ---
+dist/
+coverage/
+
+# --- wrangler local state (emulated D1 / KV / R2 data, logs) ---
+.wrangler/
+
+# --- env files: real values are NEVER committed; only the *.example files are ---
+.env
+.dev.vars
+*.local.env
+
+# --- harness inputs: source docs persist verbatim in docs/ and .ai/ ---
+.initial-inputs/
+
+# --- disposable agent workspaces (only the READMEs are tracked) ---
+.work/*
+!.work/README.md
+!.work/planner/
+.work/planner/*
+!.work/planner/README.md
+!.work/architect/
+.work/architect/*
+!.work/architect/README.md
+!.work/implementer/
+.work/implementer/*
+!.work/implementer/README.md
+!.work/validator/
+.work/validator/*
+!.work/validator/README.md
+!.work/reviewer/
+.work/reviewer/*
+!.work/reviewer/README.md
+
+# --- agent caches / scratch / logs (only the READMEs are tracked) ---
+.ai/scratch/*
+!.ai/scratch/README.md
+.ai/cache/*
+!.ai/cache/README.md
+.ai/logs/*
+!.ai/logs/README.md
+
+# --- os / editors ---
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/

@@ -1,0 +1,34 @@
+{
+  "name": "pagelively",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Single-user, Cloudflare-hosted static content publisher (Worker + R2 + D1 + Cloudflare Access). Spec: docs/product-spec.md",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "typecheck": "tsc -p tsconfig.json && tsc -p test/tsconfig.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "db:local:migrate": "wrangler d1 migrations apply pagelively-db --local",
+    "db:migrate": "wrangler d1 migrations apply pagelively-db",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.19.1",
+    "@vitest/coverage-istanbul": "^4.1.10",
+    "eslint": "^10.8.0",
+    "prettier": "^3.9.6",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.65.0",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.116.0"
+  }
+}

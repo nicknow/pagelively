@@ -1,0 +1,5 @@
+# Local-only overrides for `wrangler dev` / the test suite. Placeholders only.
+# The app has no secrets (Cloudflare Access handles auth — spec §9); this file
+# exists so future integrations and local var overrides have a documented home.
+ACCESS_TEAM_DOMAIN=yourteam.cloudflareaccess.com
+ACCESS_AUD=00000000000000000000000000000000000000000000000000

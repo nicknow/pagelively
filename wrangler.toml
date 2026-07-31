@@ -1,0 +1,46 @@
+# ---------------------------------------------------------------------------
+# pagelively — Cloudflare Worker configuration
+#
+# LOCAL-FIRST: every binding below is emulated locally by `wrangler dev` and by
+# the test suite (Vitest Workers pool = Miniflare + workerd). Resource IDs and
+# domain names here are PLACEHOLDERS: the human-run `npm run setup` (setup.mjs,
+# built in a later phase) writes the real IDs/values at provision time.
+# Never put real credentials in this file.
+# ---------------------------------------------------------------------------
+
+name = "pagelively"
+main = "src/index.ts"
+compatibility_date = "2026-06-29"
+
+# --- Bindings (emulated locally; provisioned by setup.mjs) -------------------
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "pagelively-assets" # placeholder bucket name (spec §2, §13)
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pagelively-db"
+database_id = "00000000-0000-0000-0000-000000000000" # placeholder UUID, written by setup.mjs
+
+# Optional KV namespace for caching Access JWKS (spec §2, §9). The app must
+# work without it; uncomment once provisioned.
+# [[kv_namespaces]]
+# binding = "KV"
+# id = "00000000000000000000000000000000"
+
+# --- Vars (all strings; placeholders only) — spec §12 -------------------------
+
+[vars]
+SITE_NAME = "Pagelively"
+ASSET_BASE_URL = "https://cdn.example.com"           # placeholder — real R2 CDN host written by setup.mjs
+HOME_MODE = "404"                                    # "page" | "404"
+HOME_PAGE_SLUG = ""
+ALLOW_RAW_HTML_IN_MD = "true"
+PUBLIC_LISTING = "false"
+ACCESS_TEAM_DOMAIN = "yourteam.cloudflareaccess.com" # placeholder
+ACCESS_AUD = "00000000000000000000000000000000000000000000000000" # placeholder
+
+# The Worker host custom domain (e.g. pages.acme.com) and the R2 CDN custom
+# domain (cdn.pages.acme.com) are configured by setup.mjs at provision time —
+# see docs/operations/ (provisioning guide, later phase).
