@@ -1,0 +1,268 @@
+# 02 — Module boundaries & contracts
+
+The Worker is a small, hand-rolled router over pure functions + thin binding adapters
+(ADR 0002: no router library, deps are `marked` + `jose` only). This document fixes the module
+boundaries and the TypeScript-facing contracts — the interfaces tests assert against and the
+implementer builds to. **The spec's §14 repo structure is authoritative; this refines it.**
+
+## Directory layout (target)
+
+```
+src/
+  index.ts            entry handler: dispatch + error boundary (single try/catch)
+  router.ts           classifyPath() + route table (pure)
+  config.ts           typed, validated config accessor over Env (normalizes vars)
+  errors.ts           AppError taxonomy + toErrorResponse() (ADR 0005)
+  ids.ts              generateId()/validateId() — Web Crypto, URL-safe (§4)
+  slug.ts             slugify(), reserved-word check, collision suffixes (ADR 0007)
+  rev.ts              nextRev(), shouldBumpRev(), buildR2Key() (ADR 0006)
+  content-type.ts     MIME table (§6 whitelist + .md/.html; extensible data)
+  cache-headers.ts    headersFor(routeClass) (ADR 0006)
+  markdown.ts         renderMarkdown(md, opts) via marked + custom html renderer (§7)
+  template.ts         minimal responsive HTML template for markdown pages (§7)
+  base-inject.ts      injectBase(html, baseHref) — serve-time, first <head> element (ADR 0008)
+  redirects.ts        trailing-slash + image/raw 301 helpers (pure)
+  home.ts             home-mode resolution (pure)
+  entry-serve.ts      entry pipeline: resolve → read → inject base → respond
+  cache-service.ts    CacheService — headers + purge adapter (the cache seam, ADR 0009)
+  pages-repository.ts D1: pages rows (reads/writes)
+  files-repository.ts D1: files rows (reads/writes)
+  object-store.ts     R2: put/get/delete/list under pages/{id}/{rev} (§8 layout)
+  access-verify.ts    JWT gate: verifyAccessJwt(request, deps) (ADR 0005, OQ-12)
+  jwks-provider.ts    JwksProvider: remote (createRemoteJWKSet) + KV cache impls
+  form-parser.ts      multipart parsing + 95 MB guard + manifest validation (S17)
+  admin-api.ts        /api/* handlers (list, create, patch, delete, files)
+  admin-ui.ts         /admin dashboard HTML (buildless, §10)
+  health.ts           /health
+  utils.ts            escapeHtml, isoDate, etc.
+
+test/                 slice tests (see 06)
+```
+
+Modules are grouped by **dependency direction**: `router/config/errors/ids/slug/rev/
+content-type/cache-headers/markdown/template/base-inject/redirects/home/utils` are pure (no
+bindings, fully unit-tested); `*-repository/object-store` are binding adapters (D1/R2);
+`entry-serve/admin-api/admin-ui/health` are handlers; `cache-service/access-verify/
+jwks-provider` are seams with injectable dependencies.
+
+## Environment contract
+
+`Env` comes from `worker-configuration.d.ts` (`npm run types`, committed — ADR 0001). The
+Worker reads config only through `config.ts`, which normalizes and validates vars once:
+
+```ts
+interface Env {
+  BUCKET: R2Bucket;
+  DB: D1Database;
+  KV?: KVNamespace; // optional — Worker must work without it (§2)
+  SITE_NAME: string;
+  ASSET_BASE_URL: string; // e.g. https://cdn.pages.acme.com (§12)
+  HOME_MODE: "page" | "404";
+  HOME_PAGE_SLUG: string;
+  ALLOW_RAW_HTML_IN_MD: string; // "true" | "false" (§7, §12)
+  PUBLIC_LISTING: string; // reserved for future (§16) — no v1 behavior
+  ACCESS_TEAM_DOMAIN: string; // bare domain, e.g. yourteam.cloudflareaccess.com (OQ-12)
+  ACCESS_AUD: string; // Access application AUD tag (§9)
+}
+
+interface AppConfig {
+  siteName: string;
+  assetBaseUrl: string; // validated http(s) URL, no trailing slash
+  homeMode: "page" | "404";
+  homePageSlug: string | null;
+  allowRawHtmlInMd: boolean;
+  access: { teamDomainUrl: string; aud: string | null }; // teamDomainUrl = https://{bare}
+}
+```
+
+`access.aud === null` (unset/placeholder) ⇒ the JWT gate fails closed on every request
+(ADR 0005; S16 AC). `ACCESS_TEAM_DOMAIN` is stored bare per OQ-12; `config.ts` strips any
+scheme/trailing slash defensively and prepends `https://`.
+
+## Domain model (shared types)
+
+```ts
+type PageKind = "image" | "html" | "markdown" | "bundle"; // §4
+type Visibility = "public" | "unlisted"; // §8 (forward-looking)
+type RouteClass = "entry" | "asset" | "admin" | "public"; // cache-header classes (04)
+
+interface PageRecord {
+  id: string; // nanoid-style, 8–10 URL-safe chars (ids.ts)
+  slug: string | null; // unique, lowercase, reserved-checked (ADR 0007)
+  title: string;
+  kind: PageKind;
+  rev: number; // per-publish revision (ADR 0006)
+  entry_path: string; // "index.html" for document kinds; the file name for image/raw
+  raw_md_path: string | null; // "source.md" for markdown entries (incl. bundle w/ md entry)
+  show_source: 0 | 1;
+  visibility: Visibility;
+  created_at: string; // ISO-8601 UTC
+  updated_at: string;
+}
+
+interface FileRecord {
+  page_id: string;
+  path: string; // relative path within the bundle, e.g. images/pic.png (§6)
+  r2_key: string; // pages/{id}/{rev}/{path} (§8) — embeds rev
+  content_type: string;
+  size: number;
+}
+
+// R2 keys are built only through rev.ts:
+function buildR2Key(pageId: string, rev: number, path: string): string; // "pages/{id}/{rev}/{path}"
+function nextRev(current: number): number; // +1
+function shouldBumpRev(action: RevAction): boolean; // ADR 0006 table
+```
+
+## Router contract (pure)
+
+```ts
+type Route =
+  | { type: "home" }
+  | { type: "health" }
+  | { type: "slug"; slug: string } // /{slug} or /{slug}/
+  | { type: "id"; id: string } // /p/{id}/…
+  | { type: "admin" } // /admin…  (Access-protected at edge)
+  | { type: "api" } // /api/*    (Access-protected at edge)
+  | { type: "unknown" };
+
+function classifyPath(pathname: string): Route;
+```
+
+Rules (spec §5): root → `home`; `/health` → `health` (never redirected); `/p/{id}` → `id`;
+`/{slug}` → `slug`; `/admin` → `admin`; `/api/...` → `api`; everything else → `unknown`
+(clean 404). Trailing-slash handling is a separate pure step (`redirects.ts`): `/{slug}` →
+301 `/{slug}/`, `/p/{id}` → 301 `/p/{id}/`, never on root/health, no loops on encoded
+slashes (S08 AC). Malformed paths never throw.
+
+## Repository contracts (D1)
+
+```ts
+interface PagesRepository {
+  getById(id: string): Promise<PageRecord | null>;
+  getBySlug(slug: string): Promise<PageRecord | null>; // uses idx_pages_slug
+  list(): Promise<PageRecord[]>; // admin-only, created_at DESC
+  create(p: NewPage): Promise<PageRecord>;
+  updateMeta(id: string, patch: MetaPatch): Promise<PageRecord | null>; // no rev bump
+  applyRevBump(
+    id: string,
+    rev: number,
+    entryPath: string,
+    rawMdPath: string | null,
+  ): Promise<PageRecord | null>;
+  delete(id: string): Promise<boolean>; // files cascade (§8)
+  slugTaken(slug: string, exceptId?: string): Promise<boolean>;
+}
+
+interface FilesRepository {
+  replaceAll(pageId: string, rev: number, files: NewFile[]): Promise<void>; // delete+insert
+  deleteFile(pageId: string, path: string): Promise<boolean>;
+  listForPage(pageId: string): Promise<FileRecord[]>;
+}
+```
+
+Query discipline (S10 AC, R4): `getBySlug`/`getById` are index-covered; `list` is a plain scan
+of a small, admin-only table (no extra index on `created_at` — an index adds a written row per
+insert on a hot column for no read win at personal scale; verified D1 pricing note: indexes add
+a written row). Mutations run in a D1 batch where atomicity matters (create page + files rows).
+
+## Object store contract (R2)
+
+```ts
+interface ObjectStore {
+  put(
+    pageId: string,
+    rev: number,
+    path: string,
+    body: ArrayBuffer | ReadableStream,
+    contentType: string,
+  ): Promise<void>; // httpMetadata: content_type + immutable Cache-Control
+  get(
+    pageId: string,
+    rev: number,
+    path: string,
+  ): Promise<{ body: ReadableStream; contentType: string; size: number } | null>;
+  deletePageObjects(pageId: string): Promise<void>; // all revs, paginated list+delete
+}
+```
+
+Key layout is a hard contract (spec §8, coding standards): `pages/{id}/{rev}/{path}` — never
+invent a parallel layout. Folder uploads preserve relative paths (§6). Missing object → `null`.
+
+## Cache seam (the testable contract — ADR 0009)
+
+Workers Caching purge/HITs are **not emulated** by the local pool (spike evidence; ADR 0009).
+Handlers therefore depend on this interface, never on `ctx.cache` directly:
+
+```ts
+interface CacheService {
+  headersFor(routeClass: "entry" | "redirect" | "admin"): Headers; // includes Cache-Tag
+  purgePage(ctx: ExecutionContext, pageId: string): Promise<void>; // { tags: [`page-${id}`] }
+  purgePages(ctx: ExecutionContext, ids: string[]): Promise<void>; // batched
+}
+```
+
+- Production impl (`createCacheService(env)`): wraps `ctx.cache.purge({ tags: [...] })` — the
+  documented purge-after-write pattern; purge failures are logged and **non-fatal** (mutation
+  already committed; S13 AC).
+- Test impl: a recording fake asserted for call shape (tags, timing, absence on read-only ops).
+- `headersFor` is pure (cache-headers.ts) and fully unit-tested (S07 AC).
+- Live purge/HIT verification → operator smoke-test checklist (06, S22).
+
+## JWT verification seam (ADR 0005, OQ-12)
+
+```ts
+interface JwksProvider {
+  getKey(jwt: string): Promise<CryptoKey | undefined>; // key lookup by kid
+}
+interface AccessVerifier {
+  verify(request: Request): Promise<VerifiedIdentity | null>; // null ⇒ 403, fail closed
+}
+interface VerifiedIdentity {
+  email: string | null;
+} // §9 dashboard display
+```
+
+- Production: `jose`'s `createRemoteJWKSet(new URL(`${teamDomainUrl}/cdn-cgi/access/certs`))`
+  - `jwtVerify(token, JWKS, { issuer: teamDomainUrl, audience: aud })` — the official pattern
+    (verified docs). Claims: `iss` = `https://{ACCESS_TEAM_DOMAIN}`, `aud` = `ACCESS_AUD`,
+    `exp` checked by jose (±60 s clock skew), `kid` from JWKS.
+- KV cache (optional binding): `JwksProvider` wrapper storing `{ keys }` under key
+  `access-jwks` with `expirationTtl: 3600` (1 h); refetch on miss/stale/corrupt; write
+  failures ignored; absent KV → fetch every time; fetch failure → `null` ⇒ fail closed (S14 AC).
+- Tests: `createLocalJWKSet(jwks)` with locally generated RSA keypairs — no network, full
+  token matrix (06).
+
+## Handler contracts
+
+```ts
+// entry-serve.ts
+async function serveEntry(request: Request, deps: { config; pages; objects; cache });
+// returns entry HTML (injected base), or 301 for image/raw, or 404/500 via errors.ts
+
+// admin-api.ts — each handler: (request, ctx, deps) => Response
+async function handleListPages(...);    // GET  /api/pages
+async function handleCreatePage(...);   // POST /api/pages   (multipart + manifest, form-parser)
+async function handleGetPage(...);      // GET  /api/pages/{id}
+async function handlePatchPage(...);    // PATCH /api/pages/{id}
+async function handleDeletePage(...);   // DELETE /api/pages/{id}
+async function handleAddFiles(...);     // POST /api/pages/{id}/files
+async function handleDeleteFile(...);   // DELETE /api/pages/{id}/files/{path}
+```
+
+Every mutating handler: (1) mutate D1/R2, (2) `ctx.waitUntil(cache.purgePage(ctx, id))` (or
+await — non-fatal), (3) respond `no-store`. Admin responses are JSON with the error shape from
+05; the admin UI (`admin-ui.ts`) posts to these endpoints (§10).
+
+## Cross-cutting: error boundary
+
+`index.ts` wraps dispatch in one `try/catch`; handlers throw `AppError`; anything else becomes
+a generic 500 with `no-store` and no stack leakage (ADR 0005; S12 AC). See 05.
+
+## Cross-references
+
+- Spec: §2, §5, §6, §7, §8, §9, §10, §12, §14.
+- Docs: [01 — System overview](01-system-overview.md), [03 — Data model](03-data-model.md),
+  [05 — Error handling](05-error-handling.md), [06 — Test strategy](06-test-strategy.md).
+- ADRs: 0002 (toolchain/deps), 0005 (errors/auth), 0006 (cache/rev), 0007 (slugs),
+  0008 (base), 0009 (cache seam).

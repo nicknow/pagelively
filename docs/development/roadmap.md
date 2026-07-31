@@ -243,8 +243,8 @@ S18 → S19 → S22`. S13 and S16 can swap, but S16 must precede S15/S17 (securi
   S03/S06); S14 (standalone, feeds S16); S20/S21 in parallel with S19 (setup does not
   depend on the UI).
 - **Blocking on open questions:** S02←OQ-02, S03/S17/S18←OQ-04, S04/S05/S12←OQ-14,
-  S07/S13←OQ-01, S17←OQ-05/06/11, S16←OQ-12, S09←OQ-08. Resolve them (or record an ADR
-  default) before those slices start.
+  S07/S13←OQ-01, S17←OQ-05/06/11, S16←OQ-12, S09←OQ-08. **All resolved** (human +
+  Phase-2 architect, 2026-07-31; see §5) — no slice is blocked on an open question.
 - **Gate between planning and implementation:** Phase 2 architecture (ADRs for tooling,
   contracts, test strategy, error handling, caching/rev model) — human review, then
   implement slices one at a time via the per-slice loop.
@@ -285,22 +285,33 @@ Blocking = a slice's AC cannot be finalized without it.
 **Resolved 2026-07-30 (human-approved):** OQ-01, OQ-02, OQ-04, OQ-14 — the recommendations in
 the table below are locked as the v1 defaults; Phase 2 formalizes them as ADRs.
 
-| ID    | Question                                                                                                                      | Spec     | Recommendation                                                                                                                                                         | Decider           | Blocks        | Status  |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ------------- | ------- |
-| OQ-01 | Entry-cache design: §11's "Cache API + s-maxage + SWR" contradicts current docs (s-maxage disables SWR; no SWR in Cache API). | §11      | Workers Caching (`cache.enabled`) + `public, max-age=300, stale-while-revalidate=3600` + `Cache-Tag: page-{id}` + `ctx.cache.purge({tags})` on publish (verified API). | Human + architect | S07, S13      | decided |
-| OQ-02 | Reserved-word semantics: which §5 entries are exact-match vs prefix?                                                          | §5       | Exact-match for all names; `_` is the only prefix rule; slugs lowercase-only.                                                                                          | Human             | S02           | decided |
-| OQ-03 | Slug auto-generation algorithm + collision handling.                                                                          | §4       | slugify (lowercase, `-` for non-alnum); collisions get deterministic `-2`/`-3`; fallback to id-prefix.                                                                 | Architect         | —             | open    |
-| OQ-04 | Which admin actions bump `rev`.                                                                                               | §8, §11  | Content-affecting only (file/entry changes, re-render); metadata edits don't bump — cache purge covers them.                                                           | Architect + human | S03, S17, S18 | decided |
-| OQ-05 | Bundle with `.md` entry: render through §7 pipeline?                                                                          | §4, §7   | Yes — one Markdown code path; kind stays `bundle`.                                                                                                                     | Architect         | S05, S17      | open    |
-| OQ-06 | Non-image single raw file (PDF): new kind or reject?                                                                          | §4, §6   | Allow as `bundle` with 301-to-CDN serving ("raw-file pages" hint).                                                                                                     | Human             | S17           | open    |
-| OQ-07 | Clean 404 for assets: CDN host has no Worker; R2 returns its own 404.                                                         | §11      | Accept R2's default 404 in v1; clean page covers Worker-host misses only.                                                                                              | Human             | —             | open    |
-| OQ-08 | `HOME_MODE=page`: serve at `/` or redirect?                                                                                   | §11      | Serve directly (spec-literal); `/{slug}/` stays canonical.                                                                                                             | Human             | S09           | open    |
-| OQ-09 | `PUBLIC_LISTING` var (§12) vs deferred listing (§16).                                                                         | §12, §16 | Keep placeholder var, no v1 behavior; documented deferred.                                                                                                             | Human             | —             | open    |
-| OQ-10 | Rev GC "after a grace period" — no mechanism specified.                                                                       | §8       | No GC in v1; ops note + manual cleanup; future automation.                                                                                                             | Human             | —             | open    |
-| OQ-11 | Entry detection when manifest absent/ambiguous.                                                                               | §10      | Server 400 with clear message; UI forces entry picker when ambiguous.                                                                                                  | Architect         | S17           | open    |
-| OQ-12 | `ACCESS_TEAM_DOMAIN` bare domain vs URL.                                                                                      | §9, §12  | Store bare; code prepends `https://`; strip scheme defensively.                                                                                                        | Architect         | S16           | open    |
-| OQ-13 | "Re-render all Markdown" (§7) vs deferred (§17).                                                                              | §7, §17  | Defer per §17; roadmap records it.                                                                                                                                     | Human             | —             | open    |
-| OQ-14 | Base tag: bake into markdown template (§7) vs serve-time injection (§6).                                                      | §6, §7   | Uniform serve-time injection; template links stay relative; no stale-rev risk; no rev bump on show_source toggle.                                                      | Architect + human | S04, S05, S12 | decided |
+**Resolved 2026-07-31 (Phase-2 architect, ADRs 0002–0009 / architecture docs):** OQ-03
+(ADR 0007 — slugify + `-2` suffix), OQ-05 (one Markdown code path; kind stays `bundle`),
+OQ-11 (server 400 + UI entry picker), OQ-12 (bare domain stored; `https://` prepended).
+
+**Resolved 2026-07-31 (human-approved, Phase 2 review):** OQ-06 (PDF allowed as `bundle`
+
+- 301-to-CDN serving), OQ-07 (accept R2's own 404 in v1), OQ-08 (home `page` mode serves
+  directly at `/`), OQ-09 (no v1 `PUBLIC_LISTING` behavior), OQ-10 (no rev GC in v1), OQ-13
+  (defer re-render-all per §17). All 14 open questions are now closed; the roadmap is final
+  until implementation reveals new findings.
+
+| ID    | Question                                                                                                                      | Spec     | Recommendation                                                                                                                                                         | Decider           | Blocks        | Status             |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ------------- | ------------------ |
+| OQ-01 | Entry-cache design: §11's "Cache API + s-maxage + SWR" contradicts current docs (s-maxage disables SWR; no SWR in Cache API). | §11      | Workers Caching (`cache.enabled`) + `public, max-age=300, stale-while-revalidate=3600` + `Cache-Tag: page-{id}` + `ctx.cache.purge({tags})` on publish (verified API). | Human + architect | S07, S13      | decided            |
+| OQ-02 | Reserved-word semantics: which §5 entries are exact-match vs prefix?                                                          | §5       | Exact-match for all names; `_` is the only prefix rule; slugs lowercase-only.                                                                                          | Human             | S02           | decided            |
+| OQ-03 | Slug auto-generation algorithm + collision handling.                                                                          | §4       | slugify (lowercase, `-` for non-alnum); collisions get deterministic `-2`/`-3`; fallback to id-prefix.                                                                 | Architect         | —             | decided (ADR 0007) |
+| OQ-04 | Which admin actions bump `rev`.                                                                                               | §8, §11  | Content-affecting only (file/entry changes, re-render); metadata edits don't bump — cache purge covers them.                                                           | Architect + human | S03, S17, S18 | decided            |
+| OQ-05 | Bundle with `.md` entry: render through §7 pipeline?                                                                          | §4, §7   | Yes — one Markdown code path; kind stays `bundle`.                                                                                                                     | Architect         | S05, S17      | decided            |
+| OQ-06 | Non-image single raw file (PDF): new kind or reject?                                                                          | §4, §6   | Allow as `bundle` with 301-to-CDN serving ("raw-file pages" hint).                                                                                                     | Human             | S17           | decided            |
+| OQ-07 | Clean 404 for assets: CDN host has no Worker; R2 returns its own 404.                                                         | §11      | Accept R2's default 404 in v1; clean page covers Worker-host misses only.                                                                                              | Human             | —             | decided            |
+| OQ-08 | `HOME_MODE=page`: serve at `/` or redirect?                                                                                   | §11      | Serve directly (spec-literal); `/{slug}/` stays canonical.                                                                                                             | Human             | S09           | decided            |
+| OQ-09 | `PUBLIC_LISTING` var (§12) vs deferred listing (§16).                                                                         | §12, §16 | Keep placeholder var, no v1 behavior; documented deferred.                                                                                                             | Human             | —             | decided            |
+| OQ-10 | Rev GC "after a grace period" — no mechanism specified.                                                                       | §8       | No GC in v1; ops note + manual cleanup; future automation.                                                                                                             | Human             | —             | decided            |
+| OQ-11 | Entry detection when manifest absent/ambiguous.                                                                               | §10      | Server 400 with clear message; UI forces entry picker when ambiguous.                                                                                                  | Architect         | S17           | decided            |
+| OQ-12 | `ACCESS_TEAM_DOMAIN` bare domain vs URL.                                                                                      | §9, §12  | Store bare; code prepends `https://`; strip scheme defensively.                                                                                                        | Architect         | S16           | decided            |
+| OQ-13 | "Re-render all Markdown" (§7) vs deferred (§17).                                                                              | §7, §17  | Defer per §17; roadmap records it.                                                                                                                                     | Human             | —             | decided            |
+| OQ-14 | Base tag: bake into markdown template (§7) vs serve-time injection (§6).                                                      | §6, §7   | Uniform serve-time injection; template links stay relative; no stale-rev risk; no rev bump on show_source toggle.                                                      | Architect + human | S04, S05, S12 | decided            |
 
 ---
 
@@ -368,6 +379,17 @@ boundaries).
 ---
 
 ## 8. Phase-2 handoff notes (for @architect)
+
+> **Phase-2 status (2026-07-31): complete.** All handoff items are resolved:
+> cache model + TTLs (ADR 0006), rev policy (ADR 0006), base injection placement (ADR 0008),
+> slug rules (ADR 0007), coverage threshold (ADR 0003 + `docs/architecture/08` — 85/85/85/80),
+> module boundaries (`docs/architecture/02`), `marked` pin + Workers compatibility
+> (ADR 0002 + `docs/architecture/07`), JWKS verification module shape
+> (`docs/architecture/02`, S14/S16), Miniflare/Workers-Caching emulation (spike +
+> ADR 0009 — not emulated; contract seam + operator checklist), and **the single-entrypoint
+> rule is kept as a hard constraint** (`ctx.cache.purge` is entrypoint-scoped; documented in
+> architecture 01/04). Platform facts re-verified against current docs before the ADRs were
+> locked — no corrections to §6 were needed.
 
 Decide via ADR before the blocking slices start: OQ-01 (cache model + TTLs), OQ-04 (rev
 policy), OQ-14 (base injection placement), OQ-02/03 (slug rules). Also: final coverage

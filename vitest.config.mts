@@ -34,9 +34,11 @@ export default defineConfig({
       provider: "istanbul",
       reporter: ["text", "json-summary", "html"],
       include: ["src/**"],
-      // Placeholder threshold — the architecture phase (Phase 2) sets the agreed
-      // project-wide threshold and records it as an ADR.
-      thresholds: { lines: 80, functions: 80, branches: 80, statements: 80 },
+      // Agreed project-wide threshold — set by the Phase 2 architecture phase
+      // (ADR 0003, docs/architecture/08-coverage-threshold.md). setup.mjs is
+      // excluded from coverage (include: ["src/**"]); it is covered by
+      // mock-based tests by necessity (S20).
+      thresholds: { lines: 85, functions: 85, branches: 80, statements: 85 },
     },
   },
 });
