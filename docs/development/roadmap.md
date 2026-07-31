@@ -43,7 +43,7 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 | S04 | `<base>`-tag injection                  | S    | done    | S01, OQ-14             |
 | S05 | Markdown rendering pipeline             | M    | done    | S01, S04, OQ-05, OQ-14 |
 | S06 | Content-type mapping                    | S    | done    | —                      |
-| S07 | Cache-header construction               | S    | planned | S01, OQ-01             |
+| S07 | Cache-header construction               | S    | done    | S01, OQ-01             |
 | S08 | Trailing-slash redirects & clean 404    | S    | planned | S01                    |
 | S09 | Home-mode behavior                      | S    | planned | S01, S08, OQ-08        |
 
@@ -172,6 +172,8 @@ helper for S12 image-page 301; exports `CHARSET_HTML`. **Done 2026-07-31** (60 t
 **S07 — Cache-header construction** — assets: `public, max-age=31536000, immutable`;
 entry: `public, max-age=…, stale-while-revalidate=…` + `Cache-Tag: page-{id}` (values per
 OQ-01); admin/API: `no-store`; never emits `s-maxage` with SWR (§11; verified semantics).
+Implemented in `src/cache-headers.ts` as a pure `Headers` factory; consumed by S12/S13/S15
+through the `CacheService` seam (architecture 02). **Done 2026-07-31** (32 tests; ADR 0016).
 
 **S08 — Trailing-slash redirects & clean 404** — `/{slug}` → 301 `/{slug}/`, `/p/{id}` →
 301 `/p/{id}/` (§5); root and `/health` never redirected; 404 clean HTML page for unknown

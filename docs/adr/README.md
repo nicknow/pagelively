@@ -24,6 +24,7 @@ memory.
 | 0013 | [S04 implementation details — the `<base>`-injector contract](0013-s04-base-injector.md)                         | Accepted                         |
 | 0014 | [S05 implementation details — the markdown rendering pipeline](0014-s05-markdown-rendering.md)                   | Accepted                         |
 | 0015 | [S06 implementation details — content-type mapping](0015-s06-content-type-mapping.md)                            | Accepted (amended by validation) |
+| 0016 | [S07 cache-header construction](0016-s07-cache-headers.md)                                                       | Accepted                         |
 
 ## How to write an ADR
 

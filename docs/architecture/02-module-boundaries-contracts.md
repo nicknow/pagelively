@@ -17,7 +17,7 @@ src/
   slug.ts             slugify(), validateSlug() — reserved-word check (S02, ADR 0011), collision suffixes (ADR 0007)
   rev.ts              nextRev(), shouldBumpRev(), buildR2Key() (ADR 0006, 0012)
   content-type.ts     MIME table (§6 whitelist + .md/.html; extensible data)
-  cache-headers.ts    headersFor(routeClass) (ADR 0006)
+  cache-headers.ts    headersFor(routeClass, pageId?) — pure cache policy (ADR 0006, 0016)
   markdown.ts         renderMarkdown(md, opts) via marked + custom html renderer (§7);
                       minimal responsive HTML template is inline (no separate template.ts)
   base-inject.ts      injectBase(html, baseHref) — serve-time, first element of first real
@@ -86,7 +86,13 @@ scheme/trailing slash defensively and prepends `https://`.
 ```ts
 type PageKind = "image" | "html" | "markdown" | "bundle"; // §4
 type Visibility = "public" | "unlisted"; // §8 (forward-looking)
-type RouteClass = "entry" | "asset" | "admin" | "public"; // cache-header classes (04)
+type CacheRouteClass =
+  | "entry" // /{slug}/, /p/{id}/, home page
+  | "redirect" // 301 image/raw → CDN object
+  | "asset" // R2 CDN-served object
+  | "admin" // admin UI + API
+  | "notFound" // clean 404
+  | "error"; // generic 500
 
 interface PageRecord {
   id: string; // nanoid-style, 8–10 URL-safe chars (ids.ts)
@@ -214,7 +220,9 @@ Handlers therefore depend on this interface, never on `ctx.cache` directly:
 
 ```ts
 interface CacheService {
-  headersFor(routeClass: "entry" | "redirect" | "admin"): Headers; // includes Cache-Tag
+  // The pure function accepts all CacheRouteClass values; the seam may be
+  // narrower in practice, but it delegates to the same `headersFor` impl.
+  headersFor(routeClass: CacheRouteClass, pageId?: string): Headers;
   purgePage(ctx: ExecutionContext, pageId: string): Promise<void>; // { tags: [`page-${id}`] }
   purgePages(ctx: ExecutionContext, ids: string[]): Promise<void>; // batched
 }
@@ -224,7 +232,11 @@ interface CacheService {
   documented purge-after-write pattern; purge failures are logged and **non-fatal** (mutation
   already committed; S13 AC).
 - Test impl: a recording fake asserted for call shape (tags, timing, absence on read-only ops).
-- `headersFor` is pure (cache-headers.ts) and fully unit-tested (S07 AC).
+- `headersFor` is pure (`src/cache-headers.ts`) and fully unit-tested (S07 AC). It returns a
+  fresh `Headers` object: entry/redirect get `Cache-Control: public, max-age=300,
+stale-while-revalidate=3600` + `Cache-Tag: page-{id}`; asset gets `public, max-age=31536000,
+immutable`; admin, notFound, and error get `no-store`. The function never emits
+  `s-maxage`, `must-revalidate`, `proxy-revalidate`, or `private`.
 - Live purge/HIT verification → operator smoke-test checklist (06, S22).
 
 ## JWT verification seam (ADR 0005, OQ-12)
