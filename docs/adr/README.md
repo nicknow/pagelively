@@ -26,6 +26,7 @@ memory.
 | 0015 | [S06 implementation details — content-type mapping](0015-s06-content-type-mapping.md)                            | Accepted (amended by validation) |
 | 0016 | [S07 cache-header construction](0016-s07-cache-headers.md)                                                       | Accepted                         |
 | 0017 | [S08 trailing-slash redirects & clean 404](0017-s08-trailing-slash-redirects.md)                                 | Accepted                         |
+| 0018 | [S09 home-mode behavior](0018-s09-home-mode.md)                                                                  | Accepted                         |
 
 ## How to write an ADR
 

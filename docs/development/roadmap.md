@@ -35,17 +35,17 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 
 ### M1 — Pure logic, infra-light (unit-testable, no bindings)
 
-| ID  | Slice                                   | Size | Status  | Depends on             |
-| --- | --------------------------------------- | ---- | ------- | ---------------------- |
-| S01 | Slug & id resolution primitives         | L    | done    | —                      |
-| S02 | Reserved-word validation                | S    | done    | S01                    |
-| S03 | Rev handling (bump policy + key layout) | S    | done    | S01, OQ-04             |
-| S04 | `<base>`-tag injection                  | S    | done    | S01, OQ-14             |
-| S05 | Markdown rendering pipeline             | M    | done    | S01, S04, OQ-05, OQ-14 |
-| S06 | Content-type mapping                    | S    | done    | —                      |
-| S07 | Cache-header construction               | S    | done    | S01, OQ-01             |
-| S08 | Trailing-slash redirects & clean 404    | S    | done    | S01                    |
-| S09 | Home-mode behavior                      | S    | planned | S01, S08, OQ-08        |
+| ID  | Slice                                   | Size | Status      | Depends on             |
+| --- | --------------------------------------- | ---- | ----------- | ---------------------- |
+| S01 | Slug & id resolution primitives         | L    | done        | —                      |
+| S02 | Reserved-word validation                | S    | done        | S01                    |
+| S03 | Rev handling (bump policy + key layout) | S    | done        | S01, OQ-04             |
+| S04 | `<base>`-tag injection                  | S    | done        | S01, OQ-14             |
+| S05 | Markdown rendering pipeline             | M    | done        | S01, S04, OQ-05, OQ-14 |
+| S06 | Content-type mapping                    | S    | done        | —                      |
+| S07 | Cache-header construction               | S    | done        | S01, OQ-01             |
+| S08 | Trailing-slash redirects & clean 404    | S    | done        | S01                    |
+| S09 | Home-mode behavior                      | S    | done        | S01, S08, OQ-08        |
 
 ### M2 — Binding integration (D1/R2/KV via local emulation)
 
@@ -179,8 +179,13 @@ through the `CacheService` seam (architecture 02). **Done 2026-07-31** (32 tests
 301 `/p/{id}/` (§5); root and `/health` never redirected; 404 clean HTML page for unknown
 paths (§11); no redirect loops on encoded slashes.
 
-**S09 — Home-mode behavior** — `HOME_MODE=page` + valid `HOME_PAGE_SLUG` → `/` serves that
-page's entry (§11); `HOME_MODE=404` / unset / bad slug → 404; unknown mode value → 404.
+**S09 — Home-mode behavior** — `resolveHome(homeMode, homePageSlug)` in `src/home.ts` is
+pure and total (§11, OQ-08, ADR 0018). `HOME_MODE=page` + non-empty `HOME_PAGE_SLUG` that
+passes `validateSlug` (S02) → `{ type: "page", slug }`; every other mode/slug combination
+(including empty, null, whitespace-only, `"404"`, garbage, reserved/invalid slugs) →
+`{ type: "404" }`. Direct serve at `/` (not a 301 redirect). Invalid slug errors are not
+surfaced to the user. S12 handles missing-page 404s with `clean404Response` (S08).
+**Done 2026-07-31** (46 unit tests + 3 validator regression tests; `src/home.ts` 100% coverage).
 
 **S10 — D1 pages repository (reads)** — `getById`/`getBySlug`/`listPages` (created_at DESC)
 against the real migrated schema (§8); null on miss; visibility filtering helper; slug

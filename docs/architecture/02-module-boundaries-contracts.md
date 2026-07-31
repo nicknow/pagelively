@@ -173,9 +173,33 @@ function clean404Response(url: URL): Response;
   it returns `null` so the caller can handle the route directly (S08). The body is empty;
   no `Cache-Control` is attached here (S08 ADR 0017).
 - `clean404Response` returns a 404 HTML `Response` with `Content-Type: text/html;
-charset=utf-8` and `Cache-Control: no-store` (via `headersFor("notFound")`, S07). The body
+ charset=utf-8` and `Cache-Control: no-store` (via `headersFor("notFound")`, S07). The body
   is a minimal HTML document with `<title>Not Found</title>` and the _decoded_ request
   pathname, HTML-escaped. It never leaks stack traces or internal details.
+
+## Home resolution contract (pure)
+
+```ts
+type HomeResolution = { type: "page"; slug: string } | { type: "404" };
+
+function resolveHome(
+  homeMode: string | null | undefined,
+  homePageSlug: string | null | undefined,
+): HomeResolution;
+```
+
+- `resolveHome` is total and fail-safe: every input maps to the closed union above.
+- `homeMode` is normalized by trimming whitespace and lowercasing. Only the value `"page"`
+  produces a page decision; all other values (including `"404"`, empty, null, undefined,
+  whitespace-only, or garbage) produce `{ type: "404" }` (S09, ADR 0018).
+- When `homeMode` resolves to `"page"`, `homePageSlug` is validated by `validateSlug` from
+  S02. A missing, empty, or invalid slug (reserved word, wrong charset, too long, etc.)
+  produces `{ type: "404" }`. The specific `AppError` from `validateSlug` is not exposed.
+- On success, the function returns the slug as provided. S12 treats this as a synthetic slug
+  route and serves the same entry HTML at `/` that it would serve at `/{slug}/` (direct
+  serve, no redirect — OQ-08, ADR 0018).
+- The function does not query D1, build a `Response`, or emit cache headers. If the
+  resolved slug does not exist at serve time, S12 produces a `clean404Response` (S08).
 
 ## Repository contracts (D1)
 

@@ -27,6 +27,23 @@ correct `Content-Type` header:
 - [ ] Case-insensitive: `.PNG`, `.HTML`, `.Md` all resolve to the same MIME type as lowercase.
 - [ ] Query string / fragment on asset URL (e.g. `file.png?cache=1#x`) still maps to the correct MIME type.
 
+## S09 — Home-mode behavior (added during validation)
+
+`resolveHome` is fully unit-tested, but the operator must confirm the deployed Worker wires the
+home configuration into the entry-serve pipeline (S12) without a redirect loop and with the
+correct 404 fallback:
+
+- [ ] With `HOME_MODE=page` and `HOME_PAGE_SLUG=hello` published, `GET /` returns the same entry
+      HTML as `GET /hello/` (same body, `text/html; charset=utf-8`, no `Location` header, status 200).
+- [ ] With `HOME_MODE=404` (or unset), `GET /` returns the clean 404 page (status 404,
+      `Cache-Control: no-store`).
+- [ ] With `HOME_MODE=page` and an invalid `HOME_PAGE_SLUG` (e.g., reserved word, uppercase, or
+      empty), `GET /` returns the clean 404 page and does **not** leak a validation error message.
+- [ ] With `HOME_MODE=page` and a valid slug that does not exist in D1, `GET /` returns the clean
+      404 page (S12 handles missing pages, not S09).
+- [ ] `GET /` with a trailing slash (`GET /` only, root has no slash variant) is handled correctly
+      — there is no 301 redirect for the root path.
+
 ## Pending sections (to be filled by S20/S22)
 
 - Cloudflare Access login/logout flow
