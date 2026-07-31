@@ -36,3 +36,12 @@ decisions and their rationale are the ADRs in `docs/adr/`.
 - Never call the live Cloudflare API or deploy from build code; tests and dev run against local
   emulation only.
 - New capability ideas go to the open-questions log / roadmap, not silently into code.
+
+## String substitution
+
+- **Never pass user-derived strings as the replacement value to `String.replace` / `String.replaceAll`.**
+  The replacement string is processed as a `$`-pattern template (`$$` → `$`, `$&` → the matched
+  substring, `$'` → the trailing portion, `$`` → the leading portion, `$n` → captures). Treat any
+  replacement value as a literal by passing a function replacement: `str.replace(needle, () => value)`.
+  This is a correctness rule, not just style — `$$` and `$&` in user content silently corrupt
+  output (see S05 validator finding).

@@ -18,8 +18,8 @@ src/
   rev.ts              nextRev(), shouldBumpRev(), buildR2Key() (ADR 0006, 0012)
   content-type.ts     MIME table (§6 whitelist + .md/.html; extensible data)
   cache-headers.ts    headersFor(routeClass) (ADR 0006)
-  markdown.ts         renderMarkdown(md, opts) via marked + custom html renderer (§7)
-  template.ts         minimal responsive HTML template for markdown pages (§7)
+  markdown.ts         renderMarkdown(md, opts) via marked + custom html renderer (§7);
+                      minimal responsive HTML template is inline (no separate template.ts)
   base-inject.ts      injectBase(html, baseHref) — serve-time, first element of first real
                       <head>; <head> created if absent; existing <base> removed; never
                       throws; href escaped + trailing-slash normalized (ADR 0008, 0013)
@@ -42,7 +42,7 @@ test/                 slice tests (see 06)
 ```
 
 Modules are grouped by **dependency direction**: `router/config/errors/ids/slug/rev/
-content-type/cache-headers/markdown/template/base-inject/redirects/home/utils` are pure (no
+content-type/cache-headers/markdown/base-inject/redirects/home/utils` are pure (no
 bindings, fully unit-tested); `*-repository/object-store` are binding adapters (D1/R2);
 `entry-serve/admin-api/admin-ui/health` are handlers; `cache-service/access-verify/
 jwks-provider` are seams with injectable dependencies.

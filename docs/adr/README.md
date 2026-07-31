@@ -22,6 +22,7 @@ memory.
 | 0011 | [S02 implementation details — `validateSlug` reserved-word validation](0011-s02-validate-slug-reserved-words.md) | Accepted |
 | 0012 | [S03 implementation details — rev bump policy and the R2 key builder](0012-s03-rev-bump-policy-key-builder.md)   | Accepted |
 | 0013 | [S04 implementation details — the `<base>`-injector contract](0013-s04-base-injector.md)                         | Accepted |
+| 0014 | [S05 implementation details — the markdown rendering pipeline](0014-s05-markdown-rendering.md)                   | Accepted |
 
 ## How to write an ADR
 

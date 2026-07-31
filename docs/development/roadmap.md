@@ -40,8 +40,8 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 | S01 | Slug & id resolution primitives         | L    | done        | —                      |
 | S02 | Reserved-word validation                | S    | done        | S01                    |
 | S03 | Rev handling (bump policy + key layout) | S    | done        | S01, OQ-04             |
-| S04 | `<base>`-tag injection                  | S    | in-progress | S01, OQ-14             |
-| S05 | Markdown rendering pipeline             | M    | planned     | S01, S04, OQ-05, OQ-14 |
+| S04 | `<base>`-tag injection                  | S    | done        | S01, OQ-14             |
+| S05 | Markdown rendering pipeline             | M    | in-progress | S01, S04, OQ-05, OQ-14 |
 | S06 | Content-type mapping                    | S    | planned     | —                      |
 | S07 | Cache-header construction               | S    | planned     | S01, OQ-01             |
 | S08 | Trailing-slash redirects & clean 404    | S    | planned     | S01                    |
@@ -149,11 +149,18 @@ normalized to end with `/`; href `{ASSET_BASE_URL}/pages/{id}/{rev}/` (§6). Ser
 injection for all kinds (OQ-14 default). ADR 0008 decision 4 amended (missing `<head>`:
 create, not 500).
 
-**S05 — Markdown rendering pipeline** — `# Hi` → `<h1>Hi</h1>` via `marked` (§7, §14);
-output wrapped in minimal responsive template with base slot; `show_source` adds a link to
-`source.md` (§7); raw HTML rendered iff `ALLOW_RAW_HTML_IN_MD` true, escaped otherwise;
-bundle entries that are `.md` go through the same pipeline (OQ-05). Bundle-size gate
-(`npm run build`) stays green (3 MB compressed free limit, §15).
+**S05 — Markdown rendering pipeline** — `renderMarkdown(md, {allowRawHtml, showSource})`
+(src/markdown.ts, ADR 0014): `# Hi` → `<h1>Hi</h1>` via `marked@^18` (sync; two isolated
+`new Marked()` instances — default and escaping-`html`/`tag`-renderer — because per-call
+partial `renderer` options are unsupported in v18); output wrapped in a minimal responsive
+template (`<head>` base slot + charset + viewport, `main.markdown-body`, no base — OQ-14);
+`showSource` appends a relative `source.md` link; raw HTML rendered iff
+`ALLOW_RAW_HTML_IN_MD` true, otherwise every raw-HTML token escaped to inert text via
+`escapeHtml` (ADR 0002 d4; no sanitizer — single-operator trust, R12); renderer failure →
+`AppError("markdown_render_failed", 500)` (S17 surfaces as failed publish); bundle entries
+that are `.md` go through the same pipeline (OQ-05). Bundle-size gate (`npm run build`)
+stays green (3 MB compressed free limit, §15) — 0.70 KiB with the Phase-0 stub entry;
+marked's real weight (≈13 KB gzip) lands with S17.
 
 **S06 — Content-type mapping** — §6 whitelist (png/jpg/jpeg/gif/webp/svg/avif, css, js,
 fonts) + `.md` → `text/markdown` + `.html` → `text/html; charset=utf-8`; unknown →
@@ -234,6 +241,9 @@ NOTES (S03 validation, ADR 0012): reject `%` in multipart filenames (literal-`%`
 are unservable); enforce the R2 key length limit (1,024 bytes; error 10020
 `InvalidObjectName`); write-side `../` rejection is the enforcement front line for the
 key builder's relaxed `..`-collapse normalization.
+NOTE (S05 validation): strip a leading UTF-8 BOM (`\uFEFF`) from uploaded `.md` source
+before passing it to `renderMarkdown`; marked treats the BOM as literal text, so `# Hi`
+renders as `<p>` instead of `<h1>`.
 
 **S18 — Edit & delete API** — slug/title/visibility/show_source PATCH with uniqueness +
 reserved checks; file add/replace/delete with rev bump per OQ-04 (fresh folder, `files`
@@ -272,6 +282,9 @@ quota verification). NOTE (S03 validation, ADR 0012): add an operator check that
 traversal-ish CDN requests (`/pages/{id}/{rev}/../…`, `/%2e%2e/…`) return the bucket 404
 rather than resolving to a sibling key, and that literal-`%` keys are unservable. All OQs
 closed or explicitly deferred.
+NOTE (S05 validation): if the Playwright MCP browser check for S12/S22 fails to launch
+with a missing Chrome channel, set `PLAYWRIGHT_MCP_BROWSER=chromium` in the devcontainer
+environment or install the matching browser; the app code does not depend on the channel.
 
 ---
 
