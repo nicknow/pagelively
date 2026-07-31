@@ -35,17 +35,17 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 
 ### M1 — Pure logic, infra-light (unit-testable, no bindings)
 
-| ID  | Slice                                   | Size | Status      | Depends on             |
-| --- | --------------------------------------- | ---- | ----------- | ---------------------- |
-| S01 | Slug & id resolution primitives         | L    | done        | —                      |
-| S02 | Reserved-word validation                | S    | done        | S01                    |
-| S03 | Rev handling (bump policy + key layout) | S    | done        | S01, OQ-04             |
-| S04 | `<base>`-tag injection                  | S    | done        | S01, OQ-14             |
-| S05 | Markdown rendering pipeline             | M    | in-progress | S01, S04, OQ-05, OQ-14 |
-| S06 | Content-type mapping                    | S    | planned     | —                      |
-| S07 | Cache-header construction               | S    | planned     | S01, OQ-01             |
-| S08 | Trailing-slash redirects & clean 404    | S    | planned     | S01                    |
-| S09 | Home-mode behavior                      | S    | planned     | S01, S08, OQ-08        |
+| ID  | Slice                                   | Size | Status  | Depends on             |
+| --- | --------------------------------------- | ---- | ------- | ---------------------- |
+| S01 | Slug & id resolution primitives         | L    | done    | —                      |
+| S02 | Reserved-word validation                | S    | done    | S01                    |
+| S03 | Rev handling (bump policy + key layout) | S    | done    | S01, OQ-04             |
+| S04 | `<base>`-tag injection                  | S    | done    | S01, OQ-14             |
+| S05 | Markdown rendering pipeline             | M    | done    | S01, S04, OQ-05, OQ-14 |
+| S06 | Content-type mapping                    | S    | done    | —                      |
+| S07 | Cache-header construction               | S    | planned | S01, OQ-01             |
+| S08 | Trailing-slash redirects & clean 404    | S    | planned | S01                    |
+| S09 | Home-mode behavior                      | S    | planned | S01, S08, OQ-08        |
 
 ### M2 — Binding integration (D1/R2/KV via local emulation)
 
@@ -162,9 +162,12 @@ that are `.md` go through the same pipeline (OQ-05). Bundle-size gate (`npm run 
 stays green (3 MB compressed free limit, §15) — 0.70 KiB with the Phase-0 stub entry;
 marked's real weight (≈13 KB gzip) lands with S17.
 
-**S06 — Content-type mapping** — §6 whitelist (png/jpg/jpeg/gif/webp/svg/avif, css, js,
-fonts) + `.md` → `text/markdown` + `.html` → `text/html; charset=utf-8`; unknown →
-`application/octet-stream`; table is data, extensible (§6).
+**S06 — Content-type mapping** — `src/content-type.ts`: `mimeTypeFor(path)` maps §6
+whitelist (png/jpg/jpeg/gif/webp/svg/avif, css, js, fonts) + `.md`/`.markdown` →
+`text/markdown` + `.html`/`.htm` → `text/html; charset=utf-8`; case-insensitive;
+unknown/dotless → `application/octet-stream` (never throws; runtime guard for non-string
+inputs added in validation); extensible `EXTENSION_TO_MIME` table; `isImageContentType`
+helper for S12 image-page 301; exports `CHARSET_HTML`. **Done 2026-07-31** (60 tests; ADR 0015).
 
 **S07 — Cache-header construction** — assets: `public, max-age=31536000, immutable`;
 entry: `public, max-age=…, stale-while-revalidate=…` + `Cache-Tag: page-{id}` (values per
