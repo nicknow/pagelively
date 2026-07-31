@@ -44,7 +44,7 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 | S05 | Markdown rendering pipeline             | M    | done    | S01, S04, OQ-05, OQ-14 |
 | S06 | Content-type mapping                    | S    | done    | —                      |
 | S07 | Cache-header construction               | S    | done    | S01, OQ-01             |
-| S08 | Trailing-slash redirects & clean 404    | S    | planned | S01                    |
+| S08 | Trailing-slash redirects & clean 404    | S    | done    | S01                    |
 | S09 | Home-mode behavior                      | S    | planned | S01, S08, OQ-08        |
 
 ### M2 — Binding integration (D1/R2/KV via local emulation)

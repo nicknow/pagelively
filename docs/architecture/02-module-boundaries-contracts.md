@@ -159,6 +159,24 @@ Rules (spec §5): root → `home`; `/health` → `health` (never redirected); `/
 301 `/{slug}/`, `/p/{id}` → 301 `/p/{id}/`, never on root/health, no loops on encoded
 slashes (S08 AC). Malformed paths never throw.
 
+## Redirects contract (pure)
+
+```ts
+function trailingSlashRedirect(route: Route, url: URL, method?: string): Response | null;
+function clean404Response(url: URL): Response;
+```
+
+- `trailingSlashRedirect` returns a 301 `Response` only when `route.type` is `"slug"` or
+  `"id"` **and** `url.pathname` does not end with `/`. The `Location` header is the full
+  absolute URL with a trailing slash appended to the pathname, preserving scheme, host,
+  port, query string, and hash. For all other routes and already-slash-terminated paths,
+  it returns `null` so the caller can handle the route directly (S08). The body is empty;
+  no `Cache-Control` is attached here (S08 ADR 0017).
+- `clean404Response` returns a 404 HTML `Response` with `Content-Type: text/html;
+charset=utf-8` and `Cache-Control: no-store` (via `headersFor("notFound")`, S07). The body
+  is a minimal HTML document with `<title>Not Found</title>` and the _decoded_ request
+  pathname, HTML-escaped. It never leaks stack traces or internal details.
+
 ## Repository contracts (D1)
 
 ```ts
