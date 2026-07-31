@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { clean404Response, trailingSlashRedirect } from "../src/redirects";
+import { classifyPath } from "../src/router";
 import type { Route } from "../src/router";
 
 // S08 — Trailing-slash redirects & clean 404 (spec §5, §11; architecture 02
@@ -257,5 +258,99 @@ describe("clean404Response — failure modes / safety", () => {
     expect(lower).not.toContain("internal");
     expect(lower).not.toContain("error:");
     expect(lower).not.toContain("exception");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Validator edge / regression suite — S08 loop safety with real router
+// ---------------------------------------------------------------------------
+
+describe("trailingSlashRedirect + classifyPath — no redirect loops", () => {
+  it("does not redirect encoded slash paths (%2F and %2f) classified as unknown", () => {
+    for (const path of ["/hello%2F", "/hello%2f", "/p%2Fabc", "/p/%2Fabc"]) {
+      const url = makeUrl(`https://pages.example.com${path}`);
+      const route = classifyPath(path);
+      expect(route.type).toBe("unknown");
+      expect(trailingSlashRedirect(route, url)).toBeNull();
+    }
+  });
+
+  it("redirects a slug once, then stops after the trailing slash is added", () => {
+    const path = "/hello";
+    const url = makeUrl(`https://pages.example.com${path}`);
+    const route = classifyPath(path);
+    expect(route.type).toBe("slug");
+
+    const response = trailingSlashRedirect(route, url);
+    expect(response).not.toBeNull();
+    expect(response!.headers.get("Location")).toBe("https://pages.example.com/hello/");
+
+    const slashUrl = makeUrl(response!.headers.get("Location")!);
+    const slashRoute = classifyPath(slashUrl.pathname);
+    expect(slashRoute.type).toBe("slug");
+    expect(trailingSlashRedirect(slashRoute, slashUrl)).toBeNull();
+  });
+
+  it("redirects an id once, then stops after the trailing slash is added", () => {
+    const path = "/p/abc_123";
+    const url = makeUrl(`https://pages.example.com${path}`);
+    const route = classifyPath(path);
+    expect(route.type).toBe("id");
+
+    const response = trailingSlashRedirect(route, url);
+    expect(response).not.toBeNull();
+    expect(response!.headers.get("Location")).toBe("https://pages.example.com/p/abc_123/");
+
+    const slashUrl = makeUrl(response!.headers.get("Location")!);
+    const slashRoute = classifyPath(slashUrl.pathname);
+    expect(slashRoute.type).toBe("id");
+    expect(trailingSlashRedirect(slashRoute, slashUrl)).toBeNull();
+  });
+
+  it("does not redirect non-redirectable paths that happen to lack a trailing slash", () => {
+    const paths = ["/health", "/admin", "/api/pages", "/p", "/p/", "/robots.txt", "/favicon.ico"];
+    for (const path of paths) {
+      const url = makeUrl(`https://pages.example.com${path}`);
+      const route = classifyPath(path);
+      expect(trailingSlashRedirect(route, url)).toBeNull();
+    }
+  });
+
+  it("does not redirect deeper id paths that are classified as unknown", () => {
+    const path = "/p/abc/def";
+    const url = makeUrl(`https://pages.example.com${path}`);
+    const route = classifyPath(path);
+    expect(route.type).toBe("unknown");
+    expect(trailingSlashRedirect(route, url)).toBeNull();
+  });
+});
+
+describe("clean404Response — validator edge cases", () => {
+  it("escapes a single quote in the decoded path", async () => {
+    const url = makeUrl("https://pages.example.com/it'live");
+    const body = await clean404Response(url).text();
+    expect(body).toContain("<code>/it&#39;live</code>");
+    expect(body).not.toContain("<code>/it'live</code>");
+  });
+
+  it("decodes a path that contains an encoded slash", async () => {
+    const url = makeUrl("https://pages.example.com/foo%2Fbar");
+    const body = await clean404Response(url).text();
+    expect(body).toContain("<code>/foo/bar</code>");
+  });
+
+  it("produces a minimal but valid HTML document", async () => {
+    const url = makeUrl("https://pages.example.com/missing");
+    const body = await clean404Response(url).text();
+    expect(body).toContain("<!doctype html>");
+    expect(body).toContain('<html lang="en">');
+    expect(body).toContain("</html>");
+    expect(body).toContain("<head>");
+    expect(body).toContain("</head>");
+    expect(body).toContain("<body>");
+    expect(body).toContain("</body>");
+    expect(body).toContain("<title>Not Found</title>");
+    expect(body).toContain("<h1>Not Found</h1>");
+    expect(body).toContain("<code>/missing</code>");
   });
 });
