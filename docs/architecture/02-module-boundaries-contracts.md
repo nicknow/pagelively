@@ -20,7 +20,9 @@ src/
   cache-headers.ts    headersFor(routeClass) (ADR 0006)
   markdown.ts         renderMarkdown(md, opts) via marked + custom html renderer (§7)
   template.ts         minimal responsive HTML template for markdown pages (§7)
-  base-inject.ts      injectBase(html, baseHref) — serve-time, first <head> element (ADR 0008)
+  base-inject.ts      injectBase(html, baseHref) — serve-time, first element of first real
+                      <head>; <head> created if absent; existing <base> removed; never
+                      throws; href escaped + trailing-slash normalized (ADR 0008, 0013)
   redirects.ts        trailing-slash + image/raw 301 helpers (pure)
   home.ts             home-mode resolution (pure)
   entry-serve.ts      entry pipeline: resolve → read → inject base → respond
@@ -34,7 +36,7 @@ src/
   admin-api.ts        /api/* handlers (list, create, patch, delete, files)
   admin-ui.ts         /admin dashboard HTML (buildless, §10)
   health.ts           /health
-  utils.ts            escapeHtml, isoDate, etc.
+  utils.ts            escapeHtml(value) — & < > " ' → entities (first consumer: base-inject.ts, S04); isoDate, etc.
 
 test/                 slice tests (see 06)
 ```

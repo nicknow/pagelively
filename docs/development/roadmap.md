@@ -35,17 +35,17 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 
 ### M1 — Pure logic, infra-light (unit-testable, no bindings)
 
-| ID  | Slice                                   | Size | Status  | Depends on             |
-| --- | --------------------------------------- | ---- | ------- | ---------------------- |
-| S01 | Slug & id resolution primitives         | L    | done    | —                      |
-| S02 | Reserved-word validation                | S    | done    | S01                    |
-| S03 | Rev handling (bump policy + key layout) | S    | done    | S01, OQ-04             |
-| S04 | `<base>`-tag injection                  | S    | planned | S01, OQ-14             |
-| S05 | Markdown rendering pipeline             | M    | planned | S01, S04, OQ-05, OQ-14 |
-| S06 | Content-type mapping                    | S    | planned | —                      |
-| S07 | Cache-header construction               | S    | planned | S01, OQ-01             |
-| S08 | Trailing-slash redirects & clean 404    | S    | planned | S01                    |
-| S09 | Home-mode behavior                      | S    | planned | S01, S08, OQ-08        |
+| ID  | Slice                                   | Size | Status      | Depends on             |
+| --- | --------------------------------------- | ---- | ----------- | ---------------------- |
+| S01 | Slug & id resolution primitives         | L    | done        | —                      |
+| S02 | Reserved-word validation                | S    | done        | S01                    |
+| S03 | Rev handling (bump policy + key layout) | S    | done        | S01, OQ-04             |
+| S04 | `<base>`-tag injection                  | S    | in-progress | S01, OQ-14             |
+| S05 | Markdown rendering pipeline             | M    | planned     | S01, S04, OQ-05, OQ-14 |
+| S06 | Content-type mapping                    | S    | planned     | —                      |
+| S07 | Cache-header construction               | S    | planned     | S01, OQ-01             |
+| S08 | Trailing-slash redirects & clean 404    | S    | planned     | S01                    |
+| S09 | Home-mode behavior                      | S    | planned     | S01, S08, OQ-08        |
 
 ### M2 — Binding integration (D1/R2/KV via local emulation)
 
@@ -140,9 +140,14 @@ yield identical entry HTML). NOTE (implemented surface, ADR 0012): `RevAction` i
 normalizes `//`, `./`, trailing slashes, and non-escaping `..`; paths are already-decoded
 strings (`%2e%2e`/`\` are literal — S17's write-side `../` rejection is the front line).
 
-**S04 — `<base>`-tag injection** — base injected as first `<head>` element, href
-`{ASSET_BASE_URL}/pages/{id}/{rev}/` (§6); `<head>` created if absent; existing `<base>`
-replaced; malformed HTML never throws. Serve-time injection for all kinds (OQ-14 default).
+**S04 — `<base>`-tag injection** — `injectBase(html, baseHref)` (src/base-inject.ts, ADR
+0013): base injected as first element inside the first real `<head>` (case/attribute
+variants; tags in comments/attribute values/raw-text/template contents ignored); `<head>`
+created if absent (never throws on any input — malformed/empty HTML still yields a document
+containing the base); existing `<base>` removed so exactly one remains; href escaped and
+normalized to end with `/`; href `{ASSET_BASE_URL}/pages/{id}/{rev}/` (§6). Serve-time
+injection for all kinds (OQ-14 default). ADR 0008 decision 4 amended (missing `<head>`:
+create, not 500).
 
 **S05 — Markdown rendering pipeline** — `# Hi` → `<h1>Hi</h1>` via `marked` (§7, §14);
 output wrapped in minimal responsive template with base slot; `show_source` adds a link to
@@ -180,6 +185,14 @@ injected base, `text/html; charset=utf-8`, per-route Cache-Control (§5, §6, §
 serves rendered HTML; image page → 301 to `{ASSET_BASE_URL}/pages/{id}/{rev}/{entry}`;
 `/health` stays public 200 (Phase 0 contract kept); unknown → 404; errors → generic 500
 with `no-store`, no stack leakage. Rewires `src/index.ts` away from the Phase 0 stub.
+
+NOTE (S04 review, 2026-07-31): the E2E browser check for this slice must assert more than the
+`<base>` tag's presence — it must verify that a served entry page's RELATIVE asset references
+actually resolve through the injected base (e.g. a `style.css` link or `<img src="…">` loads
+from `{ASSET_BASE_URL}/pages/{id}/{rev}/…` in a real browser context). The serve-time path
+(entry-serve.ts → injectBase) is what makes slug paths and id paths render identically; only
+a browser-level check proves it end to end. (Currently only recorded in `.work/` scratch —
+folded in here per review.)
 
 **S13 — Entry-HTML edge cache integration** — `[cache] enabled = true` in wrangler.toml
 (types regenerated); entry responses carry `Cache-Tag: page-{id}`; publish/edit purges

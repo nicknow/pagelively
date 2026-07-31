@@ -27,13 +27,19 @@ at **serve time** (injected per request).
    form used in `docs/architecture/02`'s `AppConfig`); no path prefixes, no query strings
    allowed (config validation at boot, fail-fast per ADR 0001).
 4. **Injection safety**: pure function over `(html, baseUrl)` — string-level insertion into
-   `<head>` only (the template always has `<head>`); `html` with no `<head>` → error 500 at
+   `<head>` only (the template always has `<head>`); ~~`html` with no `<head>` → error 500 at
    render time (rendered pages always come from the bundled template; §7), never silent
-   output. Escaping: base value is config-controlled (operator-owned), but the injected
-   attribute is HTML-escaped anyway (defense in depth; risk R12).
+   output~~. **Amended by ADR 0013:** `html` with no `<head>` gets one **created** containing
+   the base — the function never throws on any input (roadmap S04 AC: "unparseable/empty
+   HTML: still returns a document containing the base"; `html`-kind pages are user-uploaded
+   arbitrary fragments, §4, and a 500 there would make valid pages unservable). Escaping: base
+   value is config-controlled (operator-owned), but the injected attribute is HTML-escaped
+   anyway (defense in depth; risk R12).
 5. **Markdown-sourced pages (§7) get the same base** — the markdown pipeline runs before
    injection, so raw-HTML content (when allowed) cannot smuggle a `<base>`: injection replaces
-   any existing `<base>` inside the head (tested, S04 AC).
+   any existing `<base>` **anywhere in the document** (ADR 0013 decision 4 — every well-formed
+   `<base>` opening tag in scanned markup is removed, case-insensitively, so exactly one active
+   base remains; tested, S04 AC).
 
 ## Consequences
 
