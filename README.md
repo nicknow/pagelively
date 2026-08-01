@@ -15,8 +15,8 @@ for the entry document; admin access is protected by Cloudflare Access.
 
 ## Status
 
-**Phase 0 — repository, knowledge scaffolding, and devcontainer — under review.**
-Feature work begins only after the planning and architecture phases are approved.
+**Phase 1 — S01–S19 feature work complete; S20 setup script implemented.**
+Remaining: S21 GitHub Actions workflow and S22 end-to-end smoke test closeout.
 
 ## Quickstart (devcontainer)
 
@@ -29,6 +29,21 @@ Feature work begins only after the planning and architecture phases are approved
    liveness check).
 
 All gates: `npm run typecheck && npm run lint && npm run format:check && npm test`.
+
+## Quickstart (provision and deploy)
+
+1. **Prerequisites**: Cloudflare account, target domain added as a zone, Zero Trust initialized.
+2. Create a Cloudflare API token with the scopes listed in
+   [`docs/operations/README.md`](docs/operations/README.md).
+3. `npm install`
+4. `export CLOUDFLARE_API_TOKEN="your-token"` (or skip this and use `wrangler login` at the
+   prompt).
+5. `npm run setup` — idempotently provisions resources, writes `wrangler.toml`, applies D1
+   migrations, and deploys.
+6. Visit the live URL, admin URL, and CDN URL printed by the script.
+
+Re-running `npm run setup` is safe. See the operator checklist at
+[`docs/operations/smoke-test-checklist.md`](docs/operations/smoke-test-checklist.md).
 
 ## Provisioning & deploy (human-run, not part of the build)
 

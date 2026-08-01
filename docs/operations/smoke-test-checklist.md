@@ -191,11 +191,28 @@ live behavior behind Cloudflare Access:
 - [ ] `GET /admin` with a valid token returns the dashboard HTML; `GET /admin/dashboard` returns a
       clean `404` HTML page because it is not a known admin route.
 
-## Pending sections (to be filled by S20/S22)
+## S20 — Setup and provisioning
 
-- Worker custom domain DNS resolution
-- Free-tier quota verification
-- Reserved-name / traversal CDN 404 behavior (partially covered above; verify live CDN)
+The setup script is unit-tested with mocks, but these human-run checks verify the real provisioned state:
+
+- [ ] `npm install` completes with no errors.
+- [ ] `CLOUDFLARE_API_TOKEN` is exported (or `wrangler login` has been run) and has the scopes listed in `docs/operations/README.md`.
+- [ ] Cloudflare Zero Trust is initialized for the account (`https://one.dash.cloudflare.com/` shows a team name).
+- [ ] `npm run setup` completes and prints the Worker URL, admin URL, and CDN URL.
+- [ ] `wrangler.toml` contains the real `database_id`, `bucket_name`, `ASSET_BASE_URL`, `ACCESS_AUD`, `ACCESS_TEAM_DOMAIN`, and an uncommented `[[kv_namespaces]]` block if KV was created.
+- [ ] `wrangler.toml` contains a `[[routes]]` block with `pattern = "pages.example.com"` and `custom_domain = true`.
+- [ ] The R2 bucket, D1 database, and (optional) KV namespace exist in the Cloudflare dashboard.
+- [ ] A Cloudflare Access application named `{project} admin` exists and protects `pages.example.com/admin*` and `pages.example.com/api/*`.
+- [ ] The Access policy allows the admin email(s) provided during setup.
+- [ ] The R2 bucket is connected to the CDN domain (`cdn.pages.example.com`) under the bucket's Custom Domains settings.
+- [ ] Re-running `npm run setup` is idempotent: no new resources are created, no errors, and it still deploys.
+- [ ] If the target zone is removed, re-running `npm run setup` logs a clear "zone not found" error and exits before deploying.
+
+## S22 — End-to-end / DoD closeout (pending)
+
+- [ ] Worker custom domain DNS resolution
+- [ ] Free-tier quota verification
+- [ ] Reserved-name / traversal CDN 404 behavior (verify live CDN)
 
 ## S17 — Upload & publish API
 

@@ -19,7 +19,8 @@
     "test:coverage": "vitest run --coverage",
     "db:local:migrate": "wrangler d1 migrations apply pagelively-db --local",
     "db:migrate": "wrangler d1 migrations apply pagelively-db",
-    "types": "wrangler types"
+    "types": "wrangler types",
+    "setup": "node setup.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.19.1",

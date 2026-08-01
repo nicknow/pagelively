@@ -69,10 +69,10 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 
 ### M4 — Setup & deploy (human-run; unit-tested with mocks)
 
-| ID  | Slice                                             | Size | Status  | Depends on                |
-| --- | ------------------------------------------------- | ---- | ------- | ------------------------- |
-| S20 | setup.mjs provisioning (idempotent, mocked tests) | L    | planned | S15–S18 surface, OQ-09/10 |
-| S21 | GitHub Actions deploy workflow + quickstart docs  | S    | planned | S20                       |
+| ID  | Slice                                             | Size | Status      | Depends on                |
+| --- | ------------------------------------------------- | ---- | ----------- | ------------------------- |
+| S20 | setup.mjs provisioning (idempotent, mocked tests) | L    | done        | S15–S18 surface, OQ-09/10 |
+| S21 | GitHub Actions deploy workflow + quickstart docs  | S    | planned     | S20                       |
 
 ### M5 — End-to-end
 
@@ -289,6 +289,9 @@ domain, R2 bucket → CDN domain via API + `ASSET_BASE_URL` written, wrangler.to
 updated with real IDs, `wrangler d1 migrations apply`, Zero Trust not initialized → print
 steps and pause; token and interactive auth; partial-failure resume; missing zone → clear
 pre-deploy error; `setup.sh`/`setup.ps1` wrappers exist (§13).
+**Done 2026-08-01** (setup.mjs tests + validator findings on the Access-not-initialized
+double-response-body bug and the `String.replace` `$`-pattern corruption fix; regression
+tests; 939 tests / 31 files; coverage 99.69/97.26/97.83/99.91; bundle unchanged).
 
 **S21 — GitHub Actions + quickstart** — manual-dispatch `deploy.yml` using repo secrets
 (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `ADMIN_EMAILS`) running `npm ci` +

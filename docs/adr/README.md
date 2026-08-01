@@ -37,6 +37,7 @@ memory.
 | 0026 | [S17 upload & publish API — multipart path convention and page kind detection](0026-s17-upload-publish-api.md)   | Accepted                         |
 | 0027 | [S18 edit & delete API — file-delete rev bump + entry-file protection](0027-s18-edit-delete-api.md)              | Accepted                         |
 | 0028 | [S19 admin UI — buildless HTML dashboard wired behind the Access JWT gate](0028-s19-admin-ui.md)                 | Accepted                         |
+| 0029 | [S20 — setup.mjs provisioning script](0029-s20-setup-script.md)                                                  | Accepted                         |
 
 ## How to write an ADR
 
