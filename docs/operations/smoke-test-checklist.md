@@ -59,13 +59,32 @@ production D1 behavior for index coverage and the agreed error surface:
 - [ ] Internal D1 failures (e.g., unavailable DB) return 500 with code `db_read_failed` and a
       generic public message; logs contain the original detail but the client does not.
 
+## S11 — R2 object store (key layout + metadata) (added during implementation)
+
+The local Vitest Workers-pool emulation verifies put/get/delete, key layout, metadata
+round-trip, and pagination. The operator checks the real R2 CDN-host path and the immutable
+header contract:
+
+- [ ] After publishing a page, objects are stored under `pages/{id}/{rev}/…` (visible in R2 or
+      via the dashboard) and the layout matches the spec §8 schema exactly.
+- [ ] `GET cdn.pages.acme.com/pages/{id}/{rev}/{path}` returns the correct bytes for assets
+      (images, CSS, JS, fonts, raw `.md`) and the CDN host serves them without a Worker
+      invocation.
+- [ ] Assets served from the CDN host carry `Cache-Control: public, max-age=31536000, immutable`
+      because the object `httpMetadata` was set at upload.
+- [ ] Folder paths are preserved: `pages/{id}/{rev}/images/pic.png` is the key, and the relative
+      reference `images/pic.png` resolves through the injected `<base>` tag.
+- [ ] A page with multiple revisions (e.g. after a file edit) has objects under each `{rev}`
+      folder; `deletePageObjects` removes the whole `pages/{id}/` namespace.
+- [ ] R2 CDN traversal-ish requests (`/pages/{id}/{rev}/../…`, `/%2e%2e/…`) return the bucket's
+      own 404 rather than resolving to a sibling key (ADR 0012, S03).
+
 ## Pending sections (to be filled by S20/S22)
 
 - Cloudflare Access login/logout flow
 - Worker custom domain DNS resolution
-- R2 CDN serving and bandwidth egress
 - Edge-cache HIT / purge-on-publish freshness
 - Free-tier quota verification
-- Reserved-name / traversal CDN 404 behavior
+- Reserved-name / traversal CDN 404 behavior (partially covered above; verify live CDN)
 
 See `docs/operations/README.md` for the full provisioning and deploy guide.

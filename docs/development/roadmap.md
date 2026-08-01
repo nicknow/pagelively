@@ -52,7 +52,7 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 | ID  | Slice                                                        | Size | Status  | Depends on |
 | --- | ------------------------------------------------------------ | ---- | ------- | ---------- |
 | S10 | D1 pages repository (reads)                                  | M    | done    | S01        |
-| S11 | R2 object store (key layout + metadata)                      | M    | planned | S03, S06   |
+| S11 | R2 object store (key layout + metadata)                      | M    | done    | S03, S06   |
 | S12 | Entry request pipeline (router + serve + 301 + 404 + health) | L    | planned | S01–S11    |
 | S13 | Entry-HTML edge cache integration                            | M    | planned | S12, OQ-01 |
 | S14 | KV-backed JWKS cache (optional, degrades gracefully)         | S    | planned | —          |
@@ -193,10 +193,11 @@ uniqueness check with optional `exceptId`; queries stay index-covered (D1 free t
 read/day). `PageRecord` uses the architecture 02 / SQL-mapped snake_case fields.
 **Done 2026-07-31** (28 unit tests + 4 validator regression tests; `src/pages-repository.ts` 100% coverage).
 
-**S11 — R2 object store** — put/get/delete/list under `pages/{id}/{rev}/…` (§8); bytes
-round-trip; httpMetadata carries content type + immutable Cache-Control (verified: R2
-stores and echoes it); folder paths preserved (§6); `deletePageObjects(id)` paginates;
-missing object → null.
+**S11 — R2 object store** — `put`/`get`/`deletePageObjects` under `pages/{id}/{rev}/…` (§8);
+bytes round-trip; `httpMetadata` carries content type + immutable Cache-Control (verified:
+R2 stores and echoes it); folder paths preserved (§6); `deletePageObjects(id)` paginates;
+missing object → `null`. No `Env` access; factory over injected `R2Bucket`.
+**Done 2026-07-31** (29 unit tests + 7 validator regression tests; `src/object-store.ts` 100% coverage).
 
 **S12 — Entry request pipeline** — `GET /{slug}/` and `GET /p/{id}/` serve the entry with
 injected base, `text/html; charset=utf-8`, per-route Cache-Control (§5, §6, §11); markdown

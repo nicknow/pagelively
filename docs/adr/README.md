@@ -28,6 +28,7 @@ memory.
 | 0017 | [S08 trailing-slash redirects & clean 404](0017-s08-trailing-slash-redirects.md)                                 | Accepted                         |
 | 0018 | [S09 home-mode behavior](0018-s09-home-mode.md)                                                                  | Accepted                         |
 | 0019 | [S10 D1 pages repository — read-only surface](0019-s10-pages-repository-reads.md)                                | Accepted                         |
+| 0020 | [S11 R2 object store adapter](0020-s11-r2-object-store.md)                                                       | Accepted                         |
 
 ## How to write an ADR
 
