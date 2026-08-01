@@ -18,3 +18,21 @@ declare module "*?raw" {
   const content: string;
   export default content;
 }
+
+// `import.meta.glob` — Vite-only API used by the build-size gate
+// (test/build-size.test.ts) to read dist/index.js via `?raw` and to skip
+// gracefully when `dist/` is absent. Vite's own client types are not wired
+// into the test tsconfig, so declare the minimal surface used here.
+interface ImportMeta {
+  glob<T = unknown>(
+    pattern: string,
+    options?: { query?: string; import?: string; eager?: boolean },
+  ): Record<string, T>;
+}
+
+// `node:zlib` is available inside the workerd test runtime, but `@types/node`
+// is not installed for a Workers project; declare the one function the
+// build-size gate uses (gzipSync of a string or bytes).
+declare module "node:zlib" {
+  export function gzipSync(data: string | Uint8Array): Uint8Array;
+}

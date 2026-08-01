@@ -228,11 +228,79 @@ GitHub Actions run against the operator's account:
 - [ ] The workflow is manual-dispatch only: it is not listed under push/PR-triggered checks
       (no `on.push`/`on.pull_request`), so it never runs without a human clicking Run.
 
-## S22 — End-to-end / DoD closeout (pending)
+## S22 — End-to-end / DoD closeout (completed during S22)
 
-- [ ] Worker custom domain DNS resolution
-- [ ] Free-tier quota verification
-- [ ] Reserved-name / traversal CDN 404 behavior (verify live CDN)
+The **local** half of the end-to-end journey is automated: `test/e2e.test.ts` runs the full
+loop (health → fail-closed gate → publish → home mode → trailing-slash redirect → serve with
+base tag → nested-asset bundle → admin UI → metadata edit → rev-bump file replace/delete →
+page delete → home 404) against the emulated Worker, and `test/build-size.test.ts` gates the
+bundle against the free-tier size limits. The checks below are the **live** half that local
+emulation cannot prove (test standards #5 — infra seams are never faked). Run them once
+after the first real deploy, in order. Quota numbers below are re-verified 2026-08-01
+(citations in ADR 0031 and roadmap §6); re-verify before relying on them again.
+
+### Worker custom domain DNS resolution
+
+- [ ] `wrangler.toml` has a `[[routes]]` block with `pattern = "pages.example.com"` and
+      `custom_domain = true` for the Worker domain, and the same for the CDN domain
+      (`setup.mjs` writes both). Custom Domains create the DNS record and issue the
+      certificate automatically — no manual DNS edits (verified Cloudflare behavior).
+- [ ] In the Cloudflare dashboard → DNS, a proxied record exists for each custom domain,
+      created by the domain attach (not a pre-existing CNAME — custom domains cannot be
+      attached over an existing CNAME record).
+- [ ] `dig +short pages.example.com` and `dig +short cdn.pages.example.com` resolve
+      (proxied → Cloudflare anycast addresses) once the records propagate (typically
+      seconds to a minute).
+- [ ] `curl -sI https://pages.example.com/health` returns `200` with a valid TLS
+      certificate (issuance takes a few minutes on first attach) and the
+      `{ok:true,…}` liveness JSON — the Worker is reachable on its own domain.
+- [ ] `curl -sI https://cdn.pages.example.com/` returns the **R2 bucket's** own response
+      (empty bucket → bucket 404) — proof the CDN domain is wired to the bucket, and the
+      Worker is not in the asset path.
+- [ ] The entry page loads over `https://` without mixed-content warnings: relative asset
+      references resolve through the injected `<base>` tag to the CDN host (spec §6).
+
+### Free-tier quota verification
+
+These are limits, not expected usage — the checks confirm the deployment sits far below
+them and that the dashboard surface exists to watch them.
+
+- [ ] **Workers requests — 100,000/day** (Free; Error 1027 beyond): Workers → analytics
+      after a normal traffic day shows a small fraction of the daily ceiling; entry-HTML
+      caching (S13) keeps Worker-host requests to one per entry page per cache window.
+- [ ] **Worker size — 3 MB compressed / 64 MB raw** (Free): the deploy output prints
+      `Total Upload: … KiB / gzip: … KiB`; confirm it matches the gate in
+      `test/build-size.test.ts` (currently ~146 KiB raw / ~35 KiB gzip — ADR 0031).
+- [ ] **R2 — 10 GB-month storage, 1 M Class A + 10 M Class B ops/month, egress free**:
+      dashboard → R2 → bucket usage after a normal day; asset bytes are CDN-served
+      (no egress cost) and rev-folders grow slowly for a single-user site (OQ-10: no v1 GC).
+- [ ] **D1 — 5 M rows read / 100 k rows written per day, 5 GB storage**: dashboard → D1 →
+      database → Metrics > Row Metrics after a normal day; public reads are index-covered
+      (S10) and a publish writes a handful of rows — expect counts in the low hundreds at
+      most for a personal site.
+- [ ] **KV (optional, JWKS cache only)** — well within the 100 k reads/day free allowance
+      (roadmap §6, verified 2026-07-30): confirm the KV namespace shows negligible usage.
+- [ ] **Workers memory (128 MB) / CPU (10 ms)** ceilings: no `exceededMemory` /
+      `exceededCpu` invocations in Workers analytics after the first day (small bundle,
+      single entry-point rendering).
+
+### Reserved-name / traversal CDN 404 behavior (live CDN)
+
+- [ ] Traversal-ish requests against the **CDN host** return the bucket's own 404 and never
+      resolve to a sibling key: `https://cdn.pages.example.com/pages/{id}/{rev}/../…` and
+      `…/%2e%2e/…` variants (ADR 0012, S03; the Worker is not in the asset path, so only the
+      bucket answers).
+- [ ] The same traversal-ish paths against the **Worker host**
+      (`https://pages.example.com/pages/{id}/{rev}/../…`, `/p/{id}/..`) return the clean
+      404 page with `Cache-Control: no-store` (router classifies them `unknown`; S08).
+- [ ] Literal-`%` filenames never reach the bucket: `POST /api/pages` with a `%` filename
+      returns `400 { error: "invalid_filename" }` (S17) and no such key exists in R2 (the
+      edge would percent-decode the path and the lookup would miss — unservable).
+- [ ] Reserved slugs are rejected end-to-end: `POST /api/pages` with slug `admin`, `api`,
+      `assets`, `health`, `p`, `robots.txt`, `sitemap.xml`, `favicon.ico`, or a
+      `_`-prefixed name returns `400 { error: "invalid_slug" }` behind Access (the local
+      journey asserts the API path; the live check confirms the same response with the real
+      token), and the upload UI surfaces the API error to the operator.
 
 ## S17 — Upload & publish API
 
@@ -314,10 +382,8 @@ end-to-end flows behind Cloudflare Access:
 - [ ] All admin UI responses carry `Cache-Control: no-store` and no admin UI path is reachable
       without a valid Access token.
 
-## Pending sections (to be filled by S20/S22)
+## Pending sections
 
-- Worker custom domain DNS resolution
-- Free-tier quota verification
-- Reserved-name / traversal CDN 404 behavior (partially covered above; verify live CDN)
+None — all sections through S22 are complete.
 
 See `docs/operations/README.md` for the full provisioning and deploy guide.

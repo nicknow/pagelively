@@ -13,7 +13,8 @@ and spec cross-references are regenerable scratch under `.work/planner/`.
 ## 0. How to read and update this document
 
 - **Slice statuses** are one of: `planned` → `in-progress` → `done` → `blocked` (note the
-  reason). The orchestrator/implementer flips them as slices close. All are `planned` today.
+  reason). The orchestrator/implementer flips them as slices close. All slices S01–S22 are
+  `done` as of 2026-08-01 (S22 = end-to-end closeout).
 - **Order matters.** Slices are numbered in build order within milestones; the critical path
   in §3 is the only hard sequence. Parallelizable slices can proceed on separate branches,
   but the per-slice loop (tests → code → gates → validate → review → commit) never overlaps
@@ -76,9 +77,9 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 
 ### M5 — End-to-end
 
-| ID  | Slice                                                | Size | Status  | Depends on |
-| --- | ---------------------------------------------------- | ---- | ------- | ---------- |
-| S22 | End-to-end smoke + operator checklist + DoD closeout | L    | planned | all above  |
+| ID  | Slice                                                | Size | Status | Depends on |
+| --- | ---------------------------------------------------- | ---- | ------ | ---------- |
+| S22 | End-to-end smoke + operator checklist + DoD closeout | L    | done   | all above  |
 
 **Why this order:** the brief's guidance, applied — infra-light pure logic first (S01–S09
 front-load maximum automated coverage with zero binding surface), then binding integration
@@ -291,7 +292,8 @@ steps and pause; token and interactive auth; partial-failure resume; missing zon
 pre-deploy error; `setup.sh`/`setup.ps1` wrappers exist (§13).
 **Done 2026-08-01** (setup.mjs tests + validator findings on the Access-not-initialized
 double-response-body bug and the `String.replace` `$`-pattern corruption fix; regression
-tests; 939 tests / 31 files; coverage 99.69/97.26/97.83/99.91; bundle unchanged).
+tests; suite at S22 close: 976 tests / 35 files; coverage 99.69/97.26/97.83/99.91; bundle
+unchanged).
 
 **S21 — GitHub Actions + quickstart** — manual-dispatch `deploy.yml` using repo secrets
 (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `ADMIN_EMAILS`) running `npm ci` +
@@ -318,6 +320,27 @@ closed or explicitly deferred.
 NOTE (S05 validation): if the Playwright MCP browser check for S12/S22 fails to launch
 with a missing Chrome channel, set `PLAYWRIGHT_MCP_BROWSER=chromium` in the devcontainer
 environment or install the matching browser; the app code does not depend on the channel.
+**Done 2026-08-01** (`test/e2e.test.ts` — one sequential 16-step local journey: health →
+fail-closed 403 → publish (kind `html`) → home modes → trailing-slash 301 → slug + id
+serve with `<base>` + R2 `httpMetadata` → nested-asset bundle (kind `bundle`) → markdown
+with show-source (rendered entry serves, raw `source.md` on the CDN path, Worker 404s the
+raw path) → admin UI → metadata PATCH (no rev bump) → file replace (rev bump, immutability)
+→ file delete → edit slug (new slug serves, old 404s clean, id serves, no rev bump) →
+page delete (rows + objects gone) → reserved slug through UI → API → 4xx (upload page
+carries the S19 `#upload-error` surface; `400 invalid_slug`; zero orphan rows/objects) →
+home-404 mode; journey extended to the AC's full leg list 2026-08-01 (ADR 0032 — validator
+gap); `test/build-size.test.ts` gate — `import.meta.glob` + `?raw` + `node:zlib.gzipSync`,
+asserts < 3 MB gzip / < 64 MB raw, skips cleanly when `dist/` absent, currently
+146.22 KiB / 34.74 KiB; fresh-clone quickstart re-verified (`npm ci` →
+`db:local:migrate` → 959 tests at S21 state → gates → build);
+`docs/operations/smoke-test-checklist.md` S22 section finalized with live checks
+(custom-domain DNS, free-tier quotas re-verified 2026-08-01, traversal/`%`-key 404s) and
+the pending-section markers removed; ADR 0031 records the gate design, the pool-runtime
+findings (`node:fs` virtual-only — hence glob-`?raw`), and the acceptance-criteria
+resolutions (no `/api/assets` route — spec §6 CDN bypass; create returns 201 + JSON, no
+`Location`; single-doc upload → kind `html` not `bundle`); ADR 0032 records the journey
+extension decisions; no production code changed; suite at close: 976 tests / 35 files;
+coverage 99.69/97.26/97.83/99.91; bundle 146.22 KiB raw / 34.74 KiB gzip).
 
 ---
 
@@ -394,6 +417,14 @@ OQ-11 (server 400 + UI entry picker), OQ-12 (bare domain stored; `https://` prep
   directly at `/`), OQ-09 (no v1 `PUBLIC_LISTING` behavior), OQ-10 (no rev GC in v1), OQ-13
   (defer re-render-all per §17). All 14 open questions are now closed; the roadmap is final
   until implementation reveals new findings.
+
+**Closed at S22 closeout (2026-08-01):** S22 validation (ADR 0031) surfaced three
+acceptance-criteria wording gaps — no `/api/assets` route (spec §6 CDN bypass; reserved-slug
+rejection lives in the admin API + UI surfacing), create returns 201 + JSON with no
+`Location` (spec §5), single-document uploads are kind `html` not `bundle` (ADR 0026) — none
+of which requires a new open question or a spec change. The operator checklist
+(`docs/operations/smoke-test-checklist.md`) is the S22 deliverable; free-tier quotas in §6
+re-verified 2026-08-01.
 
 | ID    | Question                                                                                                                      | Spec     | Recommendation                                                                                                                                                         | Decider           | Blocks        | Status             |
 | ----- | ----------------------------------------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ------------- | ------------------ |

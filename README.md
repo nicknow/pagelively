@@ -15,8 +15,12 @@ for the entry document; admin access is protected by Cloudflare Access.
 
 ## Status
 
-**Phase 1 — S01–S21 complete: feature work, setup script, and the GitHub Actions deploy
-workflow are done.** Remaining: S22 end-to-end smoke test closeout.
+**Phase 1 — S01–S22 complete.** All feature work, the setup script, the GitHub Actions
+deploy workflow, and the end-to-end smoke closeout are done: the full local journey is
+automated (`test/e2e.test.ts`), the bundle is gated against the free-tier size limit
+(`test/build-size.test.ts`, currently ~146 KiB / ~35 KiB gzip), and the operator
+smoke-test checklist (`docs/operations/smoke-test-checklist.md`) covers the live-only
+checks for the first real deploy. Suite: 976 tests / 35 files.
 
 ## Quickstart (devcontainer)
 
