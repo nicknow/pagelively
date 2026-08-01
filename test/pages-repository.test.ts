@@ -446,13 +446,117 @@ describe("createPagesRepository", () => {
     });
   });
 
-  // --- updateMeta (stub) ---
+  // --- updateMeta ---
 
   describe("updateMeta", () => {
-    it("throws 'not implemented' (it is a stub for S18)", async () => {
-      await expect(repo.updateMeta("page000001", { title: "New" })).rejects.toThrow(
-        "not implemented",
-      );
+    it("updates title and updated_at", async () => {
+      const pageId = "updatemeta01";
+      const created = "2026-01-01T00:00:00.000Z";
+      await insertPage(db, {
+        id: pageId,
+        slug: "x",
+        title: "Old",
+        created_at: created,
+        updated_at: created,
+      });
+      const updated = await repo.updateMeta(pageId, { title: "New" });
+      expect(updated).not.toBeNull();
+      expect(updated!.title).toBe("New");
+      expect(updated!.updated_at).not.toBe(updated!.created_at);
+
+      const row = await db.prepare("SELECT * FROM pages WHERE id = ?").bind(pageId).first();
+      expect(row).toMatchObject({ title: "New" });
+    });
+
+    it("updates slug and validates uniqueness is not checked", async () => {
+      const pageId = "updatemeta02";
+      await insertPage(db, { id: pageId, slug: "x" });
+      const updated = await repo.updateMeta(pageId, { slug: "renamed" });
+      expect(updated!.slug).toBe("renamed");
+    });
+
+    it("stores an empty string when title is set to null", async () => {
+      const pageId = "updatemeta-null-title";
+      await insertPage(db, { id: pageId, slug: "x", title: "Old" });
+      const updated = await repo.updateMeta(pageId, { title: null as unknown as string });
+      expect(updated!.title).toBe("");
+      const row = await db.prepare("SELECT title FROM pages WHERE id = ?").bind(pageId).first();
+      expect(row).toMatchObject({ title: "" });
+    });
+
+    it("removes the slug when set to null", async () => {
+      const pageId = "updatemeta03";
+      await insertPage(db, { id: pageId, slug: "x" });
+      const updated = await repo.updateMeta(pageId, { slug: null });
+      expect(updated!.slug).toBeNull();
+    });
+
+    it("updates visibility and show_source", async () => {
+      const pageId = "updatemeta04";
+      await insertPage(db, { id: pageId, slug: "x" });
+      const updated = await repo.updateMeta(pageId, { visibility: "unlisted", show_source: 1 });
+      expect(updated!.visibility).toBe("unlisted");
+      expect(updated!.show_source).toBe(1);
+    });
+
+    it("returns null for an unknown id", async () => {
+      const updated = await repo.updateMeta("Unknown000", { title: "New" });
+      expect(updated).toBeNull();
+    });
+
+    it("throws invalid_id for an invalid id", async () => {
+      await expect(repo.updateMeta("bad/id", { title: "New" })).rejects.toMatchObject({
+        code: "invalid_id",
+        status: 400,
+      });
+    });
+
+    it("throws invalid_slug for an invalid slug", async () => {
+      const pageId = "updatemeta05";
+      await insertPage(db, { id: pageId, slug: "x" });
+      await expect(repo.updateMeta(pageId, { slug: "ADMIN" })).rejects.toMatchObject({
+        code: "invalid_slug",
+        status: 400,
+      });
+    });
+
+    it("throws invalid_visibility for an invalid visibility", async () => {
+      const pageId = "updatemeta06";
+      await insertPage(db, { id: pageId, slug: "x" });
+      await expect(
+        repo.updateMeta(pageId, { visibility: "secret" as "public" | "unlisted" }),
+      ).rejects.toMatchObject({
+        code: "invalid_visibility",
+        status: 400,
+      });
+    });
+
+    it("throws invalid_show_source for an invalid show_source", async () => {
+      const pageId = "updatemeta07";
+      await insertPage(db, { id: pageId, slug: "x" });
+      await expect(repo.updateMeta(pageId, { show_source: 2 as 0 | 1 })).rejects.toMatchObject({
+        code: "invalid_show_source",
+        status: 400,
+      });
+    });
+
+    it("returns the current page when the patch is empty", async () => {
+      const pageId = "updatemeta08";
+      await insertPage(db, { id: pageId, slug: "x" });
+      const updated = await repo.updateMeta(pageId, {});
+      expect(updated!.slug).toBe("x");
+    });
+
+    it("throws db_write_failed when the update fails", async () => {
+      const badRepo = createPagesRepository({
+        prepare: () => {
+          throw new Error("simulated write failure");
+        },
+      } as unknown as D1Database);
+      await expect(badRepo.updateMeta("validId000", { title: "New" })).rejects.toMatchObject({
+        code: "db_write_failed",
+        status: 500,
+      });
     });
   });
 

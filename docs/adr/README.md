@@ -35,6 +35,7 @@ memory.
 | 0024 | [S16 Access JWT verification](0024-s16-access-jwt-verification.md)                                               | Accepted                         |
 | 0025 | [S15 admin API — list & detail](0025-s15-admin-api-list-detail.md)                                               | Accepted                         |
 | 0026 | [S17 upload & publish API — multipart path convention and page kind detection](0026-s17-upload-publish-api.md)   | Accepted                         |
+| 0027 | [S18 edit & delete API — file-delete rev bump + entry-file protection](0027-s18-edit-delete-api.md)              | Accepted                         |
 
 ## How to write an ADR
 

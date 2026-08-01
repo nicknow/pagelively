@@ -25,7 +25,15 @@ import { createObjectStore } from "./object-store";
 import { serveEntry } from "./entry-serve";
 import { createAccessVerifier } from "./access-verify";
 import { createJwksProvider } from "./jwks-provider";
-import { handleListPages, handleGetPage, handleCreatePage } from "./admin-api";
+import {
+  handleListPages,
+  handleGetPage,
+  handleCreatePage,
+  handlePatchPage,
+  handleAddFiles,
+  handleDeleteFile,
+  handleDeletePage,
+} from "./admin-api";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -119,6 +127,20 @@ export default {
         const detailMatch = pathname.match(/^\/api\/pages\/([^/]+)\/?$/);
         if (detailMatch && method === "GET") {
           return await handleGetPage(request, ctx, adminDeps);
+        }
+        if (detailMatch && method === "PATCH") {
+          return await handlePatchPage(request, ctx, adminDeps);
+        }
+        if (detailMatch && method === "DELETE") {
+          return await handleDeletePage(request, ctx, adminDeps);
+        }
+        const filesMatch = pathname.match(/^\/api\/pages\/([^/]+)\/files\/?$/);
+        if (filesMatch && method === "POST") {
+          return await handleAddFiles(request, ctx, adminDeps);
+        }
+        const fileDeleteMatch = pathname.match(/^\/api\/pages\/([^/]+)\/files\/(.+)$/);
+        if (fileDeleteMatch && method === "DELETE") {
+          return await handleDeleteFile(request, ctx, adminDeps);
         }
         if (pathname === "/api/pages") {
           return toErrorResponse(

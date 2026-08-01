@@ -233,9 +233,63 @@ export function createPagesRepository(db: D1Database): PagesRepository {
     },
 
     async updateMeta(id: string, patch: MetaPatch): Promise<PageRecord | null> {
-      void id;
-      void patch;
-      throw new Error("not implemented");
+      assertValidId(id);
+      const setClauses: string[] = [];
+      const values: (string | number | null)[] = [];
+
+      if ("slug" in patch) {
+        if (typeof patch.slug === "string") {
+          assertValidSlug(patch.slug);
+        }
+        setClauses.push("slug = ?");
+        values.push(patch.slug === undefined || patch.slug === null ? null : patch.slug);
+      }
+      if ("title" in patch) {
+        setClauses.push("title = ?");
+        values.push(patch.title ?? "");
+      }
+      if ("visibility" in patch) {
+        if (patch.visibility !== "public" && patch.visibility !== "unlisted") {
+          throw new AppError(
+            "invalid_visibility",
+            400,
+            "Visibility must be 'public' or 'unlisted'.",
+          );
+        }
+        setClauses.push("visibility = ?");
+        values.push(patch.visibility);
+      }
+      if ("show_source" in patch) {
+        if (patch.show_source !== 0 && patch.show_source !== 1) {
+          throw new AppError("invalid_show_source", 400, "show_source must be 0 or 1.");
+        }
+        setClauses.push("show_source = ?");
+        values.push(patch.show_source);
+      }
+
+      if (setClauses.length === 0) {
+        // Nothing to change; return current row if it exists.
+        return this.getById(id);
+      }
+
+      setClauses.push("updated_at = ?");
+      values.push(new Date().toISOString());
+      values.push(id);
+
+      try {
+        const result = await db
+          .prepare(
+            `UPDATE pages
+             SET ${setClauses.join(", ")}
+             WHERE id = ?
+             RETURNING id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, created_at, updated_at`,
+          )
+          .bind(...values)
+          .first<Record<string, unknown>>();
+        return result ? toPageRecord(result) : null;
+      } catch (error) {
+        throw wrapDbWriteError(error);
+      }
     },
 
     async applyRevBump(

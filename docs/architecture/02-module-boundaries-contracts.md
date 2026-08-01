@@ -240,7 +240,7 @@ interface ObjectStore {
     pageId: string,
     rev: number,
     path: string,
-    body: ArrayBuffer | ReadableStream,
+    body: ArrayBuffer | ReadableStream | Blob | string | null,
     contentType: string,
   ): Promise<void>; // httpMetadata: content_type + immutable Cache-Control
   get(
@@ -249,11 +249,14 @@ interface ObjectStore {
     path: string,
   ): Promise<{ body: ReadableStream; contentType: string; size: number } | null>;
   deletePageObjects(pageId: string): Promise<void>; // all revs, paginated list+delete
+  deletePageRevObjects(pageId: string, rev: number): Promise<void>; // single rev, paginated
 }
 ```
 
 Key layout is a hard contract (spec §8, coding standards): `pages/{id}/{rev}/{path}` — never
 invent a parallel layout. Folder uploads preserve relative paths (§6). Missing object → `null`.
+`deletePageRevObjects` is used for best-effort rollback of a partially-written new rev when a D1
+write fails after R2 writes (S18).
 
 ## Cache seam (the testable contract — ADR 0009)
 

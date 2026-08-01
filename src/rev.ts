@@ -46,7 +46,7 @@ export type RevAction =
   | { type: "create" }; // new page — rev starts at 1 (§8 DEFAULT 1)
 
 /** Guards the rev invariant shared by nextRev and buildR2Key. */
-function requireValidRev(rev: number): void {
+export function requireValidRev(rev: number): void {
   // Number.isInteger rejects floats, NaN, ±Infinity AND non-numbers (JS
   // interop); `rev < 1` rejects 0 and negatives (spec §8: starts at 1).
   if (!Number.isInteger(rev) || rev < 1) {

@@ -366,6 +366,69 @@ describe("createObjectStore", () => {
     });
   });
 
+  describe("deletePageRevObjects", () => {
+    it("removes all objects for a single rev", async () => {
+      await store.put(TEST_ID, 1, "index.html", "v1", "text/html; charset=utf-8");
+      await store.put(TEST_ID, 1, "style.css", "css", "text/css");
+      await store.put(TEST_ID, 2, "index.html", "v2", "text/html; charset=utf-8");
+
+      await store.deletePageRevObjects(TEST_ID, 1);
+
+      expect(await listAllKeys(bucket, "pages/A1b2C3d4E5/1/")).toEqual([]);
+      expect(await store.get(TEST_ID, 2, "index.html")).not.toBeNull();
+    });
+
+    it("does nothing when the rev has no objects", async () => {
+      await expect(store.deletePageRevObjects(TEST_ID, 1)).resolves.toBeUndefined();
+      expect(await listAllKeys(bucket, "pages/A1b2C3d4E5/1/")).toEqual([]);
+    });
+
+    it("paginates through large object lists", async () => {
+      // The adapter uses a page size of 100 so 101 objects force a cursor.
+      const count = 101;
+      for (let i = 0; i < count; i++) {
+        await store.put(TEST_ID, 1, `file-${i}.txt`, `body ${i}`, "text/plain");
+      }
+      await store.deletePageRevObjects(TEST_ID, 1);
+      expect(await listAllKeys(bucket, "pages/A1b2C3d4E5/1/")).toEqual([]);
+    });
+
+    it("throws object_write_failed when the R2 list fails", async () => {
+      const failingBucket = {
+        ...bucket,
+        async list() {
+          throw new Error("R2 list unavailable");
+        },
+      } as unknown as R2Bucket;
+      const failingStore = createObjectStore(failingBucket);
+      await expect(failingStore.deletePageRevObjects(TEST_ID, 1)).rejects.toMatchObject({
+        code: "object_write_failed",
+        status: 500,
+      });
+    });
+
+    it("throws object_write_failed when the R2 delete fails", async () => {
+      const failingBucket = {
+        ...bucket,
+        async list() {
+          return {
+            objects: [{ key: "pages/A1b2C3d4E5/1/file.txt" } as R2Object],
+            truncated: false,
+            cursor: undefined,
+          };
+        },
+        async delete() {
+          throw new Error("R2 delete unavailable");
+        },
+      } as unknown as R2Bucket;
+      const failingStore = createObjectStore(failingBucket);
+      await expect(failingStore.deletePageRevObjects(TEST_ID, 1)).rejects.toMatchObject({
+        code: "object_write_failed",
+        status: 500,
+      });
+    });
+  });
+
   // --- failure modes ---
 
   describe("failure modes", () => {

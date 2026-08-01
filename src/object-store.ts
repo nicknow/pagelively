@@ -10,7 +10,7 @@
 
 import { AppError } from "./errors";
 import { validateId } from "./ids";
-import { buildR2Key } from "./rev";
+import { buildR2Key, requireValidRev } from "./rev";
 
 /** An object returned by the store. */
 export interface StoredObject {
@@ -30,6 +30,7 @@ export interface ObjectStore {
   ): Promise<void>;
   get(pageId: string, rev: number, path: string): Promise<StoredObject | null>;
   deletePageObjects(pageId: string): Promise<void>;
+  deletePageRevObjects(pageId: string, rev: number): Promise<void>;
 }
 
 const IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable";
@@ -71,6 +72,25 @@ export function createObjectStore(bucket: R2Bucket): ObjectStore {
     async deletePageObjects(pageId): Promise<void> {
       assertValidPageId(pageId);
       const prefix = `pages/${pageId}/`;
+      try {
+        let cursor: string | undefined;
+        do {
+          const list = await bucket.list({ prefix, limit: LIST_PAGE_SIZE, cursor });
+          const keys = list.objects.map((object) => object.key);
+          if (keys.length > 0) {
+            await bucket.delete(keys);
+          }
+          cursor = list.truncated ? list.cursor : undefined;
+        } while (cursor);
+      } catch (error) {
+        throw wrapObjectWriteError(error);
+      }
+    },
+
+    async deletePageRevObjects(pageId, rev): Promise<void> {
+      assertValidPageId(pageId);
+      requireValidRev(rev);
+      const prefix = `pages/${pageId}/${rev}/`;
       try {
         let cursor: string | undefined;
         do {

@@ -1,18 +1,18 @@
 /**
- * S15/S17 — Admin API handlers: list, detail, and publish.
+ * S15/S17/S18 — Admin API handlers: list, detail, publish, edit, and delete.
  *
  * Exposes `handleListPages` (GET /api/pages), `handleGetPage` (GET
- * /api/pages/:id), and `handleCreatePage` (POST /api/pages). All return JSON with
+ * /api/pages/:id), `handleCreatePage` (POST /api/pages), `handlePatchPage`
+ * (PATCH /api/pages/:id), `handleAddFiles` (POST /api/pages/:id/files),
+ * `handleDeleteFile` (DELETE /api/pages/:id/files/:path), and `handleDeletePage`
+ * (DELETE /api/pages/:id). All return JSON with
  * `Content-Type: application/json; charset=utf-8` and `Cache-Control: no-store`
- * (spec §5/§11). The list response contains only page metadata; the detail and
- * create responses include the page's files.
+ * (spec §5/§11). The list response contains only page metadata; the detail,
+ * create, edit, and file responses include the page's files.
  *
  * Errors are routed through `toErrorResponse` so the JSON shape stays consistent
  * with the rest of the app (ADR 0005). Invalid ids are rejected before any D1
  * lookup; unknown ids return 404.
- *
- * The `verifiedIdentity` dependency is available to future handlers but is not
- * consumed by these read-only endpoints.
  */
 
 import { AppError } from "./errors";
@@ -20,9 +20,9 @@ import { validateId, generateId } from "./ids";
 import { slugify, validateSlug } from "./slug";
 import { renderMarkdown } from "./markdown";
 import { mimeTypeFor, isImageContentType, CHARSET_HTML } from "./content-type";
-import { buildR2Key } from "./rev";
-import { parsePublishForm, type ParsedPublishForm } from "./form-parser";
-import type { PagesRepository, NewPage } from "./pages-repository";
+import { buildR2Key, nextRev } from "./rev";
+import { parsePublishForm, parseFileUpdateForm, type ParsedPublishForm } from "./form-parser";
+import type { PagesRepository, NewPage, PageRecord } from "./pages-repository";
 import type { FilesRepository, NewFile } from "./files-repository";
 import type { CacheService } from "./cache-service";
 import type { AppConfig } from "./config";
@@ -370,4 +370,446 @@ export async function handleCreatePage(
 
   const headers = adminJsonHeaders(cacheService);
   return Response.json({ ...newPage, files: fileRecords }, { status: 201, headers });
+}
+
+function isEntryReplacement(page: PageRecord, path: string): boolean {
+  if (page.kind === "image") {
+    return path === page.entry_path;
+  }
+  if (page.kind === "markdown") {
+    return isMarkdownPath(path);
+  }
+  // html or bundle
+  return path === page.entry_path;
+}
+
+/**
+ * Returns the served entry path for the page: the stored path that the page
+ * router serves as the entry point (the image filename for image pages, the
+ * rendered `index.html` for markdown/bundle-with-md pages, or the original HTML
+ * path for html/bundle-with-html pages).
+ */
+function servedEntryPath(page: PageRecord): string {
+  if (page.kind === "image") {
+    return page.entry_path;
+  }
+  if (page.kind === "markdown" || (page.kind === "bundle" && page.raw_md_path !== null)) {
+    return "index.html";
+  }
+  return page.entry_path;
+}
+
+/**
+ * True when `path` is the served entry or the raw markdown source that renders
+ * into it. Such paths cannot be deleted without breaking the page.
+ */
+function isProtectedEntryPath(page: PageRecord, path: string): boolean {
+  if (path === servedEntryPath(page)) {
+    return true;
+  }
+  if (page.raw_md_path !== null && path === page.raw_md_path) {
+    return true;
+  }
+  return false;
+}
+
+function prepareEntryFiles(
+  page: PageRecord,
+  file: ParsedPublishForm["files"][number],
+  allowRawHtml: boolean,
+  showSource: boolean,
+): Array<{ path: string; content: ArrayBuffer; contentType: string; size: number }> {
+  if (
+    (page.kind === "markdown" || (page.kind === "bundle" && isMarkdownPath(page.entry_path))) &&
+    isMarkdownPath(file.path)
+  ) {
+    const md = textFromBuffer(file.content);
+    const html = renderMarkdown(md, { allowRawHtml, showSource });
+    const htmlBytes = bufferFromText(html);
+    return [
+      {
+        path: "source.md",
+        content: file.content,
+        contentType: mimeTypeFor("source.md"),
+        size: file.size,
+      },
+      {
+        path: "index.html",
+        content: htmlBytes,
+        contentType: CHARSET_HTML,
+        size: htmlBytes.byteLength,
+      },
+    ];
+  }
+  const storedPath = page.kind === "html" ? "index.html" : file.path;
+  return [
+    { path: storedPath, content: file.content, contentType: file.contentType, size: file.size },
+  ];
+}
+
+async function readObjectBody(body: ReadableStream): Promise<ArrayBuffer> {
+  return new Response(body).arrayBuffer();
+}
+
+function extractIdAndFilePath(pathname: string): { id: string; path: string } | undefined {
+  const match = pathname.match(/^\/api\/pages\/([^/]+)\/files\/(.+)$/);
+  if (!match) return undefined;
+  return { id: match[1], path: decodeURIComponent(match[2]) };
+}
+
+function validatePatchBody(body: Record<string, unknown>): {
+  slug?: string | null;
+  title?: string;
+  visibility?: "public" | "unlisted";
+  show_source?: 0 | 1;
+} {
+  const patch: {
+    slug?: string | null;
+    title?: string;
+    visibility?: "public" | "unlisted";
+    show_source?: 0 | 1;
+  } = {};
+
+  if ("slug" in body) {
+    if (typeof body.slug !== "string" && body.slug !== null) {
+      throw new AppError("invalid_slug", 400, "Slug must be a string or null.");
+    }
+    patch.slug = body.slug;
+  }
+  if ("title" in body) {
+    if (typeof body.title !== "string") {
+      throw new AppError("invalid_title", 400, "Title must be a string.");
+    }
+    if (body.title.length > MAX_TITLE_LENGTH) {
+      throw new AppError(
+        "title_too_long",
+        400,
+        `Title must be at most ${MAX_TITLE_LENGTH} characters.`,
+      );
+    }
+    patch.title = body.title;
+  }
+  if ("visibility" in body) {
+    if (body.visibility !== "public" && body.visibility !== "unlisted") {
+      throw new AppError("invalid_visibility", 400, "Visibility must be 'public' or 'unlisted'.");
+    }
+    patch.visibility = body.visibility as "public" | "unlisted";
+  }
+  if ("showSource" in body) {
+    if (typeof body.showSource !== "boolean") {
+      throw new AppError("invalid_show_source", 400, "showSource must be a boolean.");
+    }
+    patch.show_source = body.showSource ? 1 : 0;
+  }
+
+  return patch;
+}
+
+async function writeFilesAndUpdatePage(
+  ctx: ExecutionContext,
+  deps: AdminApiDeps,
+  page: PageRecord,
+  files: Array<{ path: string; content: ArrayBuffer; contentType: string; size: number }>,
+  newEntryPath: string,
+  newRawMdPath: string | null,
+  oldFileRecords: NewFile[] = [],
+): Promise<Response> {
+  const { pagesRepository, filesRepository, objectStore, cacheService } = deps;
+  const newRev = nextRev(page.rev);
+  const fileRecords: NewFile[] = files.map((file) => ({
+    path: file.path,
+    r2_key: buildR2Key(page.id, newRev, file.path),
+    content_type: file.contentType,
+    size: file.size,
+  }));
+
+  for (const file of files) {
+    await objectStore.put(page.id, newRev, file.path, file.content, file.contentType);
+  }
+
+  let updatedPage: PageRecord;
+  let revBumpSucceeded = false;
+  try {
+    const result = await pagesRepository.applyRevBump(page.id, newRev, newEntryPath, newRawMdPath);
+    if (!result) {
+      throw new AppError("not_found", 404, "Page not found.");
+    }
+    updatedPage = result;
+    revBumpSucceeded = true;
+    await filesRepository.replaceAll(page.id, newRev, fileRecords);
+  } catch (error) {
+    await objectStore.deletePageRevObjects(page.id, newRev).catch(() => {});
+    // If the rev bump succeeded but the file-row replacement failed, restore the
+    // previous D1 state so the page remains consistent with the old rev folder.
+    if (revBumpSucceeded) {
+      await pagesRepository
+        .applyRevBump(page.id, page.rev, page.entry_path, page.raw_md_path)
+        .catch(() => {});
+      await filesRepository.replaceAll(page.id, page.rev, oldFileRecords).catch(() => {});
+    }
+    throw error;
+  }
+
+  await cacheService.purgePage(ctx, page.id);
+  const finalFiles = await filesRepository.listForPage(page.id);
+  const headers = adminJsonHeaders(cacheService);
+  return Response.json({ ...updatedPage, files: finalFiles }, { headers });
+}
+
+export async function handlePatchPage(
+  request: Request,
+  ctx: ExecutionContext,
+  deps: AdminApiDeps,
+): Promise<Response> {
+  const { pagesRepository, filesRepository, objectStore, cacheService, config } = deps;
+
+  const url = new URL(request.url);
+  const id = extractIdFromPath(url.pathname);
+  if (!id || !validateId(id)) {
+    throw new AppError("invalid_id", 400, "Invalid page id.");
+  }
+
+  const page = await pagesRepository.getById(id);
+  if (!page) {
+    throw new AppError("not_found", 404, "Page not found.");
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    throw new AppError("invalid_json", 400, "Request body must be valid JSON.");
+  }
+  const patch = validatePatchBody(body);
+
+  if (typeof patch.slug === "string" && patch.slug !== page.slug) {
+    const validation = validateSlug(patch.slug);
+    if (!validation.ok) {
+      throw validation.error;
+    }
+    const taken = await pagesRepository.slugTaken(patch.slug, id);
+    if (taken) {
+      throw new AppError("slug_conflict", 409, `Slug "${patch.slug}" is already taken.`);
+    }
+  }
+
+  const newShowSource = patch.show_source ?? page.show_source;
+  const needsReRender =
+    patch.show_source !== undefined &&
+    patch.show_source !== page.show_source &&
+    page.raw_md_path !== null;
+  let oldEntryHtml: string | null = null;
+
+  if (needsReRender) {
+    const rawMdPath = page.raw_md_path;
+    if (rawMdPath === null) {
+      throw new AppError("entry_not_found", 404, "Source file not found.");
+    }
+    const sourceObj = await objectStore.get(page.id, page.rev, rawMdPath);
+    if (!sourceObj) {
+      throw new AppError("entry_not_found", 404, "Source file not found.");
+    }
+    const oldEntryObj = await objectStore.get(page.id, page.rev, page.entry_path);
+    if (oldEntryObj) {
+      oldEntryHtml = await new Response(oldEntryObj.body).text();
+    }
+    const md = await new Response(sourceObj.body).text();
+    const html = renderMarkdown(md, {
+      allowRawHtml: config.allowRawHtmlInMd,
+      showSource: newShowSource === 1,
+    });
+    await objectStore.put(page.id, page.rev, page.entry_path, bufferFromText(html), CHARSET_HTML);
+  }
+
+  try {
+    const updatedPage = await pagesRepository.updateMeta(id, patch);
+    if (!updatedPage) {
+      throw new AppError("not_found", 404, "Page not found.");
+    }
+    await cacheService.purgePage(ctx, id);
+    const files = await filesRepository.listForPage(id);
+    const headers = adminJsonHeaders(cacheService);
+    return Response.json({ ...updatedPage, files }, { headers });
+  } catch (error) {
+    if (needsReRender && oldEntryHtml !== null) {
+      await objectStore
+        .put(page.id, page.rev, page.entry_path, bufferFromText(oldEntryHtml), CHARSET_HTML)
+        .catch(() => {});
+    }
+    throw error;
+  }
+}
+
+export async function handleAddFiles(
+  request: Request,
+  ctx: ExecutionContext,
+  deps: AdminApiDeps,
+): Promise<Response> {
+  const { pagesRepository, filesRepository, objectStore, config } = deps;
+
+  const url = new URL(request.url);
+  const idMatch = url.pathname.match(/^\/api\/pages\/([^/]+)\/files\/?$/);
+  const id = idMatch ? idMatch[1] : undefined;
+  if (!id || !validateId(id)) {
+    throw new AppError("invalid_id", 400, "Invalid page id.");
+  }
+
+  const page = await pagesRepository.getById(id);
+  if (!page) {
+    throw new AppError("not_found", 404, "Page not found.");
+  }
+
+  const uploadedFiles = await parseFileUpdateForm(request);
+  if (uploadedFiles.length === 0) {
+    throw new AppError("no_files", 400, "No files were uploaded.");
+  }
+
+  const existingFiles = await filesRepository.listForPage(id);
+  const oldFileRecords: NewFile[] = existingFiles.map((file) => ({
+    path: file.path,
+    r2_key: file.r2_key,
+    content_type: file.content_type,
+    size: file.size,
+  }));
+  const finalFiles = new Map<string, { content: ArrayBuffer; contentType: string; size: number }>();
+  const providedPaths = new Set<string>();
+
+  for (const file of uploadedFiles) {
+    if (isEntryReplacement(page, file.path)) {
+      const entries = prepareEntryFiles(
+        page,
+        file,
+        config.allowRawHtmlInMd,
+        page.show_source === 1,
+      );
+      for (const entry of entries) {
+        finalFiles.set(entry.path, entry);
+        providedPaths.add(entry.path);
+      }
+    } else {
+      finalFiles.set(file.path, {
+        content: file.content,
+        contentType: file.contentType,
+        size: file.size,
+      });
+      providedPaths.add(file.path);
+    }
+  }
+
+  for (const fileRecord of existingFiles) {
+    if (!providedPaths.has(fileRecord.path)) {
+      const stored = await objectStore.get(page.id, page.rev, fileRecord.path);
+      if (!stored) continue;
+      const content = await readObjectBody(stored.body);
+      finalFiles.set(fileRecord.path, {
+        content,
+        contentType: fileRecord.content_type,
+        size: fileRecord.size,
+      });
+    }
+  }
+
+  const files = Array.from(finalFiles.entries()).map(([path, file]) => ({
+    path,
+    ...file,
+  }));
+
+  return await writeFilesAndUpdatePage(
+    ctx,
+    deps,
+    page,
+    files,
+    page.entry_path,
+    page.raw_md_path,
+    oldFileRecords,
+  );
+}
+
+export async function handleDeleteFile(
+  request: Request,
+  ctx: ExecutionContext,
+  deps: AdminApiDeps,
+): Promise<Response> {
+  const { pagesRepository, filesRepository, objectStore } = deps;
+
+  const url = new URL(request.url);
+  const match = extractIdAndFilePath(url.pathname);
+  if (!match || !validateId(match.id)) {
+    throw new AppError("invalid_id", 400, "Invalid page id.");
+  }
+
+  const page = await pagesRepository.getById(match.id);
+  if (!page) {
+    throw new AppError("not_found", 404, "Page not found.");
+  }
+
+  if (isProtectedEntryPath(page, match.path)) {
+    throw new AppError("entry_not_deletable", 400, "The entry file cannot be deleted.");
+  }
+
+  const existingFiles = await filesRepository.listForPage(page.id);
+  const oldFileRecords: NewFile[] = existingFiles.map((file) => ({
+    path: file.path,
+    r2_key: file.r2_key,
+    content_type: file.content_type,
+    size: file.size,
+  }));
+  const targetFile = existingFiles.find((f) => f.path === match.path);
+  if (!targetFile) {
+    throw new AppError("not_found", 404, "File not found.");
+  }
+
+  const remainingFiles: Array<{
+    path: string;
+    content: ArrayBuffer;
+    contentType: string;
+    size: number;
+  }> = [];
+  for (const fileRecord of existingFiles) {
+    if (fileRecord.path === match.path) continue;
+    const stored = await objectStore.get(page.id, page.rev, fileRecord.path);
+    if (!stored) continue;
+    const content = await readObjectBody(stored.body);
+    remainingFiles.push({
+      path: fileRecord.path,
+      content,
+      contentType: fileRecord.content_type,
+      size: fileRecord.size,
+    });
+  }
+
+  return await writeFilesAndUpdatePage(
+    ctx,
+    deps,
+    page,
+    remainingFiles,
+    page.entry_path,
+    page.raw_md_path,
+    oldFileRecords,
+  );
+}
+
+export async function handleDeletePage(
+  request: Request,
+  ctx: ExecutionContext,
+  deps: AdminApiDeps,
+): Promise<Response> {
+  const { pagesRepository, objectStore, cacheService } = deps;
+
+  const url = new URL(request.url);
+  const id = extractIdFromPath(url.pathname);
+  if (!id || !validateId(id)) {
+    throw new AppError("invalid_id", 400, "Invalid page id.");
+  }
+
+  const page = await pagesRepository.getById(id);
+  if (!page) {
+    throw new AppError("not_found", 404, "Page not found.");
+  }
+
+  await pagesRepository.delete(id);
+  await objectStore.deletePageObjects(id);
+  await cacheService.purgePage(ctx, id);
+
+  return new Response(null, { status: 204, headers: adminJsonHeaders(cacheService) });
 }

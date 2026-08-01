@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parsePublishForm } from "../src/form-parser";
+import { parseFileUpdateForm, parsePublishForm } from "../src/form-parser";
 
 // S17 — form-parser direct unit tests (covers uncovered branches in src/form-parser.ts).
 
@@ -214,5 +214,77 @@ describe("parsePublishForm", () => {
     const result = await parsePublishForm(makeRequest(form));
     expect(result.files).toHaveLength(1);
     expect(result.files[0].path).toBe("x.html");
+  });
+});
+
+describe("parseFileUpdateForm", () => {
+  function makeFileUpdateRequest(form: FormData): Request {
+    return new Request("https://pages.example.com/api/pages/abc123/files", {
+      method: "POST",
+      body: form,
+    });
+  }
+
+  it("parses file parts only", async () => {
+    const form = new FormData();
+    form.append("manifest", JSON.stringify({ slug: "ignored" }));
+    form.append("file:style.css", makeFile("style.css", "body{}", "text/css"));
+    const result = await parseFileUpdateForm(makeFileUpdateRequest(form));
+    expect(result).toHaveLength(1);
+    expect(result[0].path).toBe("style.css");
+  });
+
+  it("throws request_too_large when Content-Length exceeds ~95 MB", async () => {
+    const form = new FormData();
+    form.append("file:x.html", makeFile("x.html", "<h1>X</h1>"));
+    const request = new Request("https://pages.example.com/api/pages/abc123/files", {
+      method: "POST",
+      body: form,
+      headers: { "Content-Length": "99614721" },
+    });
+    await expectAppError(parseFileUpdateForm(request), "request_too_large", 413);
+  });
+
+  it("throws invalid_form_data when the body is not multipart", async () => {
+    const request = new Request("https://pages.example.com/api/pages/abc123/files", {
+      method: "POST",
+      body: "plain text",
+      headers: { "Content-Type": "text/plain" },
+    });
+    await expect(parseFileUpdateForm(request)).rejects.toMatchObject({
+      code: "invalid_form_data",
+      status: 400,
+    });
+  });
+
+  it("throws invalid_form_data when the multipart boundary is missing", async () => {
+    const request = new Request("https://pages.example.com/api/pages/abc123/files", {
+      method: "POST",
+      body: "--",
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    await expect(parseFileUpdateForm(request)).rejects.toMatchObject({
+      code: "invalid_form_data",
+      status: 400,
+    });
+  });
+
+  it("throws invalid_form_data when the multipart body is malformed", async () => {
+    const request = new Request("https://pages.example.com/api/pages/abc123/files", {
+      method: "POST",
+      body: "--boundary\ninvalid",
+      headers: { "Content-Type": "multipart/form-data; boundary=boundary" },
+    });
+    await expect(parseFileUpdateForm(request)).rejects.toMatchObject({
+      code: "invalid_form_data",
+      status: 400,
+    });
+  });
+
+  it("returns an empty array when no file parts are present", async () => {
+    const form = new FormData();
+    form.append("manifest", JSON.stringify({ slug: "ignored" }));
+    const result = await parseFileUpdateForm(makeFileUpdateRequest(form));
+    expect(result).toEqual([]);
   });
 });

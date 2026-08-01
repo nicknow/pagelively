@@ -59,13 +59,13 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 
 ### M3 — Admin, upload, auth
 
-| ID  | Slice                                                | Size | Status      | Depends on               |
-| --- | ---------------------------------------------------- | ---- | ----------- | ------------------------ |
-| S15 | Admin API: list & detail                             | M    | done        | S10, S12, S16            |
-| S16 | Access JWT verification (defense-in-depth gate)      | M    | done        | S14, OQ-12               |
-| S17 | Upload & publish API (multipart, manifest, kinds)    | L    | in-progress | S12, S16, OQ-04/05/06/11 |
-| S18 | Edit & delete API (PATCH/DELETE, file ops, rev bump) | M    | planned     | S17, OQ-04               |
-| S19 | Admin UI (buildless dashboard/upload/edit)           | L    | planned     | S17, S18                 |
+| ID  | Slice                                                | Size | Status  | Depends on               |
+| --- | ---------------------------------------------------- | ---- | ------- | ------------------------ |
+| S15 | Admin API: list & detail                             | M    | done    | S10, S12, S16            |
+| S16 | Access JWT verification (defense-in-depth gate)      | M    | done    | S14, OQ-12               |
+| S17 | Upload & publish API (multipart, manifest, kinds)    | L    | done    | S12, S16, OQ-04/05/06/11 |
+| S18 | Edit & delete API (PATCH/DELETE, file ops, rev bump) | M    | done    | S17, OQ-04               |
+| S19 | Admin UI (buildless dashboard/upload/edit)           | L    | planned | S17, S18                 |
 
 ### M4 — Setup & deploy (human-run; unit-tested with mocks)
 
@@ -266,9 +266,13 @@ renders as `<p>` instead of `<h1>`.
 **S18 — Edit & delete API** — slug/title/visibility/show_source PATCH with uniqueness +
 reserved checks; file add/replace/delete with rev bump per OQ-04 (fresh folder, `files`
 rows re-pointed, old folder left for GC per OQ-10); `DELETE /api/pages/{id}` removes rows
-(cascade) + all objects (§10); entry file not deletable; every mutation purges the page's
-cache tag (§11); 404 on missing page; 409/422 on conflicts. NOTE (S03 validation,
-ADR 0012): `validateId` before every `buildR2Key` call (see S15 NOTE).
+(cascade) + all objects (§10); entry file not deletable (served entry path protected for all
+kinds, including nested bundle HTML entries and raw markdown source); every mutation purges
+the page's cache tag (§11); 404 on missing page; 409/422 on conflicts. D1 failure on file
+edit restores the previous page row/files rows to keep the page consistent. NOTE (S03
+validation, ADR 0012): `validateId` before every `buildR2Key` call (see S15 NOTE).
+**Done 2026-08-01** (admin-api-edit tests + validator/reviewer additions; coverage above
+thresholds).
 
 **S19 — Admin UI** — `GET /admin` dashboard (title, slug, id, kind, created, view/edit/
 delete links); upload form (multi-file, `webkitdirectory`, slug, show-source, entry picker

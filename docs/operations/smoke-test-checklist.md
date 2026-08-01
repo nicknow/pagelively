@@ -220,6 +220,30 @@ live behavior behind Cloudflare Access:
 - [ ] A D1 write failure after R2 writes does not leave orphaned `pages/{id}/` objects in R2
       (best-effort rollback).
 
+## S18 — Edit & delete API
+
+- [ ] `PATCH /api/pages/{id}` with a valid token updates slug/title/visibility/show_source and
+      returns `200` with the page + files. The `rev` does not change.
+- [ ] `PATCH /api/pages/{id}` with a taken slug returns `409` `{ error: "slug_conflict" }`.
+- [ ] `PATCH /api/pages/{id}` with a reserved slug returns `400` `{ error: "invalid_slug" }`.
+- [ ] `PATCH /api/pages/{id}` toggling `showSource` on a Markdown page re-renders `index.html` at
+      the same rev (the link to `source.md` appears/disappears) and purges the cache.
+- [ ] `POST /api/pages/{id}/files` with a valid token adds a new file, bumps `rev`, and copies
+      all existing files to `pages/{id}/{newRev}/`.
+- [ ] `POST /api/pages/{id}/files` replacing a Markdown entry re-renders `index.html` +
+      `source.md` at the new rev.
+- [ ] `DELETE /api/pages/{id}/files/{path}` with a valid token removes a file, bumps `rev`, and
+      copies remaining files to the new rev.
+- [ ] `DELETE /api/pages/{id}/files/index.html` returns `400` `{ error: "entry_not_deletable" }`
+      for document pages.
+- [ ] `DELETE /api/pages/{id}/files/{image-filename}` returns `400` `{ error: "entry_not_deletable" }`
+      for image pages.
+- [ ] `DELETE /api/pages/{id}` returns `204`, removes the `pages` row and `files` rows, and
+      deletes all objects under `pages/{id}/`.
+- [ ] All S18 endpoints return `403` `{ error: "Forbidden" }` without a valid token.
+- [ ] A D1 write failure after R2 writes for file add/replace/delete removes the partial new-rev
+      folder best-effort.
+
 ## Pending sections (to be filled by S20/S22)
 
 - Worker custom domain DNS resolution

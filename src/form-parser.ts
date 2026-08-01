@@ -126,24 +126,65 @@ export async function parsePublishForm(request: Request): Promise<ParsedPublishF
     }
 
     if (name.startsWith("file:")) {
-      const path = name.slice("file:".length);
-      if (!(value instanceof File)) {
-        throw new AppError("invalid_file", 400, `File field "${name}" is not a file.`);
+      const file = await parseFilePart(name, value);
+      if (file) {
+        files.push(file);
       }
-      const filename = value.name;
-      validateFilePath(path, filename);
-
-      const bytes = new Uint8Array(await value.arrayBuffer());
-      const content = isMarkdownPath(path) ? stripLeadingBom(bytes) : bytes.buffer;
-      files.push({
-        path,
-        name: filename,
-        content,
-        size: content.byteLength,
-        contentType: mimeTypeFor(path),
-      });
     }
   }
 
   return { manifest, files };
+}
+
+/**
+ * Parse a file-only multipart form used by `POST /api/pages/:id/files`.
+ * Only `file:<path>` parts are accepted; a manifest field is ignored.
+ */
+export async function parseFileUpdateForm(request: Request): Promise<ParsedPublishForm["files"]> {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength !== null && Number(contentLength) > MAX_BODY_SIZE) {
+    throw new AppError("request_too_large", 413, "Request body exceeds the ~95 MB upload limit.");
+  }
+
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new AppError("invalid_form_data", 400, "Could not parse multipart form data.", detail);
+  }
+
+  const files: ParsedPublishForm["files"] = [];
+  for (const [name, value] of formData) {
+    if (name.startsWith("file:")) {
+      const file = await parseFilePart(name, value);
+      if (file) {
+        files.push(file);
+      }
+    }
+  }
+
+  return files;
+}
+
+async function parseFilePart(
+  name: string,
+  value: unknown,
+): Promise<ParsedPublishForm["files"][number] | null> {
+  const path = name.slice("file:".length);
+  if (!(value instanceof File)) {
+    throw new AppError("invalid_file", 400, `File field "${name}" is not a file.`);
+  }
+  const filename = value.name;
+  validateFilePath(path, filename);
+
+  const bytes = new Uint8Array(await value.arrayBuffer());
+  const content = isMarkdownPath(path) ? stripLeadingBom(bytes) : bytes.buffer;
+  return {
+    path,
+    name: filename,
+    content,
+    size: content.byteLength,
+    contentType: mimeTypeFor(path),
+  };
 }

@@ -121,12 +121,113 @@ purged on success.
   back best-effort.
 - `403` `{ error: "Forbidden" }` — missing or invalid `Cf-Access-Jwt-Assertion`.
 
-## Placeholders
+### `PATCH /api/pages/:id`
 
-Until S18 implements edit/delete endpoints:
+Edit a page's metadata: `slug`, `title`, `visibility`, or `showSource`.
 
-- `PATCH /api/pages/:id` → `405 Method Not Allowed` `{ error: "method_not_allowed" }`
-- `DELETE /api/pages/:id` → `405 Method Not Allowed` `{ error: "method_not_allowed" }`
+**Request body:** `application/json`
+
+```json
+{
+  "slug": "new-slug",
+  "title": "New Title",
+  "visibility": "unlisted",
+  "showSource": true
+}
+```
+
+All fields are optional. `slug` may be `null` to remove the slug. `title` is capped at 256
+characters (same limit as publish). Metadata edits do **not** bump `rev` (ADR 0012). For
+Markdown pages, toggling `showSource` re-renders the stored `index.html` at the current rev and
+purges the cache.
+
+**Response:** `200 OK` with the same page + `files` shape as `GET /api/pages/:id`.
+
+**Error responses:**
+
+- `400` `{ error: "invalid_id" }` — id format is invalid.
+- `400` `{ error: "invalid_json" }` — body is not valid JSON.
+- `400` `{ error: "invalid_slug" }` — reserved word or invalid slug characters.
+- `400` `{ error: "invalid_title" }` — title is not a string.
+- `400` `{ error: "title_too_long" }` — title exceeds 256 characters.
+- `400` `{ error: "invalid_visibility" }` — visibility is not `public`/`unlisted`.
+- `400` `{ error: "invalid_show_source" }` — `showSource` is not a boolean.
+- `404` `{ error: "not_found" }` — page id does not exist.
+- `404` `{ error: "entry_not_found" }` — `showSource` toggled but `source.md` is missing.
+- `409` `{ error: "slug_conflict" }` — slug is already used by another page.
+- `403` `{ error: "Forbidden" }` — missing or invalid `Cf-Access-Jwt-Assertion`.
+
+### `POST /api/pages/:id/files`
+
+Add or replace files on a page. The request body is `multipart/form-data` with one file part per
+file: `file:<relative-path>` (same convention as `POST /api/pages`).
+
+- Adding a new file bumps `rev` (content-affecting).
+- Replacing the entry file is allowed:
+  - `index.html` for HTML pages is stored as `index.html`.
+  - `.md` uploads for Markdown pages re-render to `index.html` + `source.md`.
+  - `.md` uploads matching a bundle's Markdown entry re-render to `index.html` + `source.md`.
+  - The bundle's HTML entry path is stored as-is.
+
+Invalid paths (`%`, `../`, leading `/`, `\`) are rejected.
+
+**Response:** `200 OK` with the updated page + `files`.
+
+**Error responses:**
+
+- `400` `{ error: "invalid_id" }` — id format is invalid.
+- `400` `{ error: "no_files" }` — no file parts were uploaded.
+- `400` `{ error: "path_traversal" }` — a path contains `../`, starts with `/`, or uses `\`.
+- `400` `{ error: "invalid_filename" }` — a filename contains `%`.
+- `404` `{ error: "not_found" }` — page id does not exist.
+- `500` `{ error: "db_write_failed" }` — D1 write failed after R2 writes; new rev folder is
+  removed best-effort.
+- `403` `{ error: "Forbidden" }` — missing or invalid `Cf-Access-Jwt-Assertion`.
+
+### `DELETE /api/pages/:id/files/:path`
+
+Remove a file from a page. The path is URL-encoded; nested paths (`style.css`, `images/pic.png`)
+are supported.
+
+- File delete bumps `rev` (ADR 0012).
+- Remaining files are copied to the new rev folder.
+- Deleting the entry file is rejected:
+  - `index.html` for markdown pages and for bundle pages whose entry is Markdown.
+  - The original HTML path for HTML pages and for bundle pages whose entry is HTML (e.g.
+    `site/index.html` in a bundle with that entry).
+  - The raw Markdown source (`source.md`/`pages.raw_md_path`) for markdown/bundle-with-md
+    pages is also protected.
+  - The image filename (`pages.entry_path`) for image pages.
+
+**Response:** `200 OK` with the updated page + `files`.
+
+**Error responses:**
+
+- `400` `{ error: "invalid_id" }` — id format is invalid.
+- `400` `{ error: "entry_not_deletable" }` — the path is the page entry.
+- `404` `{ error: "not_found" }` — page id or file path does not exist.
+- `500` `{ error: "db_write_failed" }` — D1 write failed after R2 writes; new rev folder is
+  removed best-effort.
+- `403` `{ error: "Forbidden" }` — missing or invalid `Cf-Access-Jwt-Assertion`.
+
+### `DELETE /api/pages/:id`
+
+Delete a page and all its stored objects.
+
+- Deletes the `pages` row (cascade deletes `files` rows).
+- Deletes all R2 objects under `pages/{id}/`.
+- Purges the page's cache tag.
+
+**Response:** `204 No Content`.
+
+**Error responses:**
+
+- `400` `{ error: "invalid_id" }` — id format is invalid.
+- `404` `{ error: "not_found" }` — page id does not exist.
+- `403` `{ error: "Forbidden" }` — missing or invalid `Cf-Access-Jwt-Assertion`.
+
+### Unmatched admin/API paths
+
 - Other `/api/*` paths → `404 Not Found` `{ error: "not_found" }`
 
 Until S19 implements the admin UI:
