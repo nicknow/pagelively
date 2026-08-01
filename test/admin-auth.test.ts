@@ -66,13 +66,13 @@ describe("index.ts — admin/api JWT gate", () => {
     expect(await res.json()).toEqual({ error: "Forbidden" });
   });
 
-  it("GET /admin with a valid token returns the placeholder HTML 404 response", async () => {
+  it("GET /admin with a valid token returns the dashboard HTML", async () => {
     const res = await fetchAdmin("/admin", await validToken());
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
     expect(res.headers.get("Content-Type")).toContain("text/html");
     const text = await res.text();
-    expect(text).toContain("Not Found");
+    expect(text).toContain("Pagelively");
   });
 
   it("GET /api/pages without a token returns 403 Forbidden", async () => {
@@ -105,13 +105,11 @@ describe("index.ts — admin/api JWT gate", () => {
     expect(await res.json()).toEqual({ error: "invalid_form_data" });
   });
 
-  it("GET /admin/dashboard with a valid token returns the placeholder HTML 404 response", async () => {
+  it("GET /admin/dashboard with a valid token returns a 404 for an unknown admin path", async () => {
     const res = await fetchAdmin("/admin/dashboard", await validToken());
     expect(res.status).toBe(404);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
     expect(res.headers.get("Content-Type")).toContain("text/html");
-    const text = await res.text();
-    expect(text).toContain("Not Found");
   });
 
   it("GET /admin with an expired token returns 403 Forbidden", async () => {

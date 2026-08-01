@@ -34,6 +34,7 @@ import {
   handleDeleteFile,
   handleDeletePage,
 } from "./admin-api";
+import { handleAdminDashboard, handleAdminUpload, handleAdminEdit } from "./admin-ui";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -107,13 +108,18 @@ export default {
         };
 
         if (route.type === "admin") {
-          // Placeholder HTML 404 until S19 implements the admin UI.
-          const headers = cache.headersFor("admin");
-          headers.set("Content-Type", "text/html; charset=utf-8");
-          return new Response(
-            "<!doctype html><html><head><title>Not Found</title></head><body><h1>Not Found</h1></body></html>",
-            { status: 404, headers },
-          );
+          const adminPath = url.pathname.replace(/\/+$/, "") || "/admin";
+          if (adminPath === "/admin" || adminPath === "/admin/") {
+            return await handleAdminDashboard(request, ctx, adminDeps);
+          }
+          if (adminPath === "/admin/upload") {
+            return await handleAdminUpload(request, ctx, adminDeps);
+          }
+          if (adminPath.startsWith("/admin/edit/")) {
+            return await handleAdminEdit(request, ctx, adminDeps);
+          }
+          // Unknown admin path: clean 404 with no-store.
+          return clean404Response(url);
         }
 
         // API dispatch.

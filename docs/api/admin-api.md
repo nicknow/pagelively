@@ -229,10 +229,9 @@ Delete a page and all its stored objects.
 ### Unmatched admin/API paths
 
 - Other `/api/*` paths → `404 Not Found` `{ error: "not_found" }`
-
-Until S19 implements the admin UI:
-
-- `/admin*` with a valid token → placeholder `404` HTML page.
+- Unknown `/admin*` paths (e.g. `/admin/dashboard`) → `404 Not Found` HTML page (S19 wires
+  `/admin`, `/admin/upload`, and `/admin/edit/:id` to the buildless admin UI; everything else
+  falls through to the clean 404 handler).
 
 ## Spec references
 

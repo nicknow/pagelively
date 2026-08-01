@@ -98,8 +98,8 @@ deployed Worker behaves the same way on the real edge:
 - [ ] Markdown pages serve the stored rendered HTML with the same base tag and `text/html; charset=utf-8`.
 - [ ] Unknown slugs, unknown ids, and unknown paths return the clean 404 page with `no-store`.
 - [ ] `/admin*` and `/api/*` without a valid Access token return `403` JSON `{ error: "Forbidden" }`
-      with `no-store`; with a valid token they return the placeholder `404` JSON
-      `{ error: "not implemented" }` with `no-store` (S16).
+      with `no-store`; with a valid token `/admin` returns the dashboard HTML and `/api/*` returns
+      the API responses (S16 + S19).
 - [ ] Internal failures (e.g., D1 unavailable) return `500` JSON `{ error: "db_read_failed" }`
       with `no-store` and no stack trace or internal detail in the body.
 - [ ] A real browser load of an entry page resolves relative assets (`<img src="images/pic.png">`,
@@ -154,7 +154,7 @@ The JWT gate is fully unit-tested locally with generated keypairs and a mock JWK
 verifies the real end-to-end Access flow on the deployed Worker:
 
 - [ ] After a successful Cloudflare Access login, `GET /admin` with the `Cf-Access-Jwt-Assertion`
-      header returns the admin dashboard (or the placeholder response while S19 is pending).
+      header returns the admin dashboard HTML.
 - [ ] The verified email from the JWT is available to the admin/dashboard code (S19).
 - [ ] `GET /admin` and `GET /api/pages` **without** the `Cf-Access-Jwt-Assertion` header return
       `403` JSON `{ error: "Forbidden" }` with `Cache-Control: no-store`.
@@ -186,10 +186,10 @@ live behavior behind Cloudflare Access:
       with `no-store`.
 - [ ] `GET /api/pages/{id}` for an invalid id format (e.g., `bad.id`) returns `400`
       JSON `{ error: "invalid_id" }` with `no-store`.
-- [ ] `POST /api/pages` with a valid token returns `405` JSON `{ error: "method_not_allowed" }`
-      with `no-store` (write endpoints are S17).
-- [ ] `GET /admin` and `/admin/dashboard` with a valid token return a placeholder
-      `404` HTML page (the dashboard UI is S19).
+- [ ] `POST /api/pages` with a valid token returns `201` JSON `{ error: ... }` with `no-store`
+      (the upload UI posts to this endpoint; S17).
+- [ ] `GET /admin` with a valid token returns the dashboard HTML; `GET /admin/dashboard` returns a
+      clean `404` HTML page because it is not a known admin route.
 
 ## Pending sections (to be filled by S20/S22)
 
@@ -243,6 +243,39 @@ live behavior behind Cloudflare Access:
 - [ ] All S18 endpoints return `403` `{ error: "Forbidden" }` without a valid token.
 - [ ] A D1 write failure after R2 writes for file add/replace/delete removes the partial new-rev
       folder best-effort.
+
+## S19 — Admin UI (buildless dashboard/upload/edit)
+
+The UI is unit-tested for HTML structure and index.ts dispatch; the operator verifies the live
+end-to-end flows behind Cloudflare Access:
+
+- [ ] After a successful Access login, `GET /admin` returns `200` HTML with `Cache-Control: no-store`
+      and `Content-Type: text/html; charset=utf-8`.
+- [ ] The dashboard shows the product name "Pagelively" and the verified email address from the
+      Access JWT.
+- [ ] The dashboard lists existing pages (id, title, slug, kind, created_at, visibility) with
+      working View, Edit, and Delete links.
+- [ ] When no pages exist, the dashboard shows an "Upload your first page" CTA that links to
+      `/admin/upload`.
+- [ ] `GET /admin/upload` returns a form with file input (`multiple` + `webkitdirectory`), slug,
+      title, visibility radios, show-source checkbox, and an entry picker that appears when the
+      entry is ambiguous.
+- [ ] Uploading a single `.html` file creates a page; the browser is redirected back to `/admin`.
+- [ ] Uploading a single `.md` file creates a Markdown page; the show-source checkbox toggles the
+      `source.md` link in the rendered page.
+- [ ] Uploading a folder with multiple files (one `.html` entry) preserves relative paths and the
+      page is served correctly.
+- [ ] Uploading multiple entry candidates without selecting the entry shows an inline error from
+      the API (`ambiguous_entry`).
+- [ ] `GET /admin/edit/:id` pre-fills slug, title, visibility, and show-source, lists the current
+      files, and allows deleting individual files (with confirmation) or updating metadata.
+- [ ] Replacing a Markdown entry file or toggling show-source re-renders the page and the change is
+      visible at the slug/id URL after a short cache-propagation window.
+- [ ] The Delete page button removes the page and all its files from R2 and D1; the slug/id URLs
+      return 404.
+- [ ] `GET /admin/edit/:id` for a non-existent page returns a 404 page.
+- [ ] All admin UI responses carry `Cache-Control: no-store` and no admin UI path is reachable
+      without a valid Access token.
 
 ## Pending sections (to be filled by S20/S22)
 

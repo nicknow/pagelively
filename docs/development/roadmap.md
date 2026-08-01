@@ -59,13 +59,13 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 
 ### M3 — Admin, upload, auth
 
-| ID  | Slice                                                | Size | Status  | Depends on               |
-| --- | ---------------------------------------------------- | ---- | ------- | ------------------------ |
-| S15 | Admin API: list & detail                             | M    | done    | S10, S12, S16            |
-| S16 | Access JWT verification (defense-in-depth gate)      | M    | done    | S14, OQ-12               |
-| S17 | Upload & publish API (multipart, manifest, kinds)    | L    | done    | S12, S16, OQ-04/05/06/11 |
-| S18 | Edit & delete API (PATCH/DELETE, file ops, rev bump) | M    | done    | S17, OQ-04               |
-| S19 | Admin UI (buildless dashboard/upload/edit)           | L    | planned | S17, S18                 |
+| ID  | Slice                                                | Size | Status | Depends on               |
+| --- | ---------------------------------------------------- | ---- | ------ | ------------------------ |
+| S15 | Admin API: list & detail                             | M    | done   | S10, S12, S16            |
+| S16 | Access JWT verification (defense-in-depth gate)      | M    | done   | S14, OQ-12               |
+| S17 | Upload & publish API (multipart, manifest, kinds)    | L    | done   | S12, S16, OQ-04/05/06/11 |
+| S18 | Edit & delete API (PATCH/DELETE, file ops, rev bump) | M    | done   | S17, OQ-04               |
+| S19 | Admin UI (buildless dashboard/upload/edit)           | L    | done   | S17, S18                 |
 
 ### M4 — Setup & deploy (human-run; unit-tested with mocks)
 
@@ -278,7 +278,9 @@ thresholds).
 delete links); upload form (multi-file, `webkitdirectory`, slug, show-source, entry picker
 when ambiguous) posting multipart to S17; edit form pre-filled; delete with confirm;
 verified email shown (§9); "Pagelively" product name present (§10); empty state CTA;
-API errors surfaced; buildless (§10, §14).
+API errors surfaced; buildless (§10, §14). Admin UI handlers load data directly from
+repositories rather than making internal HTTP requests.
+**Done 2026-08-01** (admin-ui tests + validator additions; 146.22 KiB / 34.74 KiB gzip bundle).
 
 **S20 — setup.mjs** — §13 steps 1–11 with mocked Cloudflare API + mocked wrangler calls:
 idempotent resource creation (list-then-create per resource; double-run creates nothing
