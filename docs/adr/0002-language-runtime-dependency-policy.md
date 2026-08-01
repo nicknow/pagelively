@@ -28,7 +28,7 @@ verification with Web Crypto instead of `jose`.
 3. **Ids via Web Crypto, not `nanoid`** (spec §4 explicitly allows): `crypto.getRandomValues`
    → 8–10 URL-safe chars. Zero bytes, zero supply-chain surface; uniqueness is by entropy
    (verified practice; the 10k-sample uniqueness check is an S01 AC).
-4. **Runtime deps are exactly two:** `marked` (^18) and `jose` (latest on install).
+4. **Runtime deps are exactly one:** `marked` (^18).
    - `marked`: the spec's chosen renderer (§7, §14); `marked.parse(md[, opts])` is synchronous
      and isomorphic — runs in workerd/Workers without shims (verified against the official
      repo docs). It has **no built-in sanitizer since v5**; raw HTML passes through verbatim by
@@ -36,10 +36,11 @@ verification with Web Crypto instead of `jose`.
      (escape `html`/`tag` tokens) — the sanctioned v5+ mechanism — not a sanitizer dependency.
      Source: <https://github.com/markedjs/marked/blob/master/docs/USING_ADVANCED.md>,
      <https://github.com/markedjs/marked/blob/master/src/Renderer.ts>
-   - `jose`: the Cloudflare-documented library for Access JWT verification
-     (`createRemoteJWKSet` + `jwtVerify`). Hand-rolling JWKS/kid/alg handling is exactly where
-     verification bugs (risk R9) live; jose is small, audited, and official-recommended.
-     Source: <https://developers.cloudflare.com/changelog/product/workers/5/>
+   - Access JWT verification is implemented with the Web Crypto API (`crypto.subtle.verify`)
+     rather than `jose`. The JWKS provider (S14 / ADR 0023) fetches and caches the public
+     keys, and the Access verifier (S16 / ADR 0024) performs the signature and claim checks.
+     This avoids an additional dependency while keeping the same security properties.
+     Source: <https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/application-token/>
    - Everything else stays dev-only. Deferred: `fflate` (zip, §16), DOMPurify (no untrusted
      input in v1 — trust model, risk R12).
 5. **TypeScript 6.0.3, Wrangler 4.116.0, ESLint 10 flat + typescript-eslint, Prettier 3.9.6**
@@ -47,7 +48,7 @@ verification with Web Crypto instead of `jose`.
 
 ## Consequences
 
-- The deployed Worker has a tiny dependency surface: `marked` + `jose`; bundle stays far under
+- The deployed Worker has a tiny dependency surface: only `marked`; bundle stays far under
   the 3 MB compressed free limit (`npm run build` is the gate from S05).
 - Router/slug/id/header logic is pure TypeScript — the front-loaded unit-test strategy (S01–S09)
   has zero binding friction.

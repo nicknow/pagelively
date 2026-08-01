@@ -7,8 +7,9 @@
  * `try/catch` that converts unexpected failures to generic 500s and maps
  * `AppError` through `toErrorResponse`.
  *
- * Admin/API routes are recognized but only return a placeholder 404 for now;
- * their real handlers arrive in S15–S19.
+ * Admin/API routes are protected by the Access JWT verifier (S16). Unverified
+ * requests return 403; verified requests currently fall through to a placeholder
+ * 404 until the real handlers arrive in S15–S19.
  */
 
 import { AppError, toErrorResponse } from "./errors";
@@ -20,6 +21,8 @@ import { createCacheService } from "./cache-service";
 import { createPagesRepository } from "./pages-repository";
 import { createObjectStore } from "./object-store";
 import { serveEntry } from "./entry-serve";
+import { createAccessVerifier } from "./access-verify";
+import { createJwksProvider } from "./jwks-provider";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -32,7 +35,16 @@ export default {
       const config = createConfig(env);
       const pages = createPagesRepository(env.DB);
       const objects = createObjectStore(env.BUCKET);
-      const deps = { config, pages, objects, cache };
+      const jwksProvider = createJwksProvider({
+        teamDomainUrl: config.access.teamDomainUrl,
+        kv: env.KV,
+      });
+      const accessVerifier = createAccessVerifier({
+        teamDomainUrl: config.access.teamDomainUrl,
+        aud: config.access.aud,
+        jwksProvider,
+      });
+      const deps = { config, pages, objects, cache, accessVerifier };
 
       const url = new URL(request.url);
       const method = request.method;
@@ -61,7 +73,14 @@ export default {
       }
 
       if (route.type === "admin" || route.type === "api") {
+        const identity = await accessVerifier.verify(request);
         const headers = cache.headersFor("admin");
+        if (identity === null) {
+          return new Response(JSON.stringify({ error: "Forbidden" }), {
+            status: 403,
+            headers,
+          });
+        }
         return Response.json({ error: "not implemented" }, { status: 404, headers });
       }
 

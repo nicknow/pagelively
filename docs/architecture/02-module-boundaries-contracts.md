@@ -295,15 +295,17 @@ interface VerifiedIdentity {
 } // §9 dashboard display
 ```
 
-- Production: `jose`'s `createRemoteJWKSet(new URL(`${teamDomainUrl}/cdn-cgi/access/certs`))`
-  - `jwtVerify(token, JWKS, { issuer: teamDomainUrl, audience: aud })` — the official pattern
-    (verified docs). Claims: `iss` = `https://{ACCESS_TEAM_DOMAIN}`, `aud` = `ACCESS_AUD`,
-    `exp` checked by jose (±60 s clock skew), `kid` from JWKS.
+- Production: `JwksProvider` resolves the key by `kid` from the cached JWKS or from
+  `https://{teamDomainUrl}/cdn-cgi/access/certs`. `AccessVerifier` verifies the signature with
+  the Web Crypto API (`crypto.subtle.verify`) and checks claims (`iss`, `aud`, `exp`, `iat`)
+  with ±60 s clock skew (ADR 0024, verified docs). Claims: `iss` = `https://{ACCESS_TEAM_DOMAIN}`
+  (with or without `https://` prefix), `aud` = `ACCESS_AUD` (string or array), `email` optional.
 - KV cache (optional binding): `JwksProvider` wrapper storing `{ keys }` under key
   `access-jwks` with `expirationTtl: 3600` (1 h); refetch on miss/stale/corrupt; write
   failures ignored; absent KV → fetch every time; fetch failure → `null` ⇒ fail closed (S14 AC).
-- Tests: `createLocalJWKSet(jwks)` with locally generated RSA keypairs — no network, full
-  token matrix (06).
+- Tests: locally generated RSA/EC keypairs with a mock JWKS endpoint and a full token matrix
+  (valid, expired, wrong aud, wrong iss, tampered, unknown kid, missing, malformed) — no
+  network, no `jose` dependency (S16 AC).
 
 ## Handler contracts
 

@@ -223,12 +223,12 @@ describe("index.ts — public entry pipeline", () => {
     expect(text).toContain("Not Found");
   });
 
-  it("admin and api routes return 404 not-implemented with no-store", async () => {
+  it("admin and api routes without a valid token return 403 Forbidden with no-store", async () => {
     for (const path of ["/admin", "/admin/dashboard", "/api/pages", "/api/pages/123"]) {
       const res = await fetchIndex(path);
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(403);
       expect(res.headers.get("Cache-Control")).toBe("no-store");
-      expect(await res.json()).toEqual({ error: "not implemented" });
+      expect(await res.json()).toEqual({ error: "Forbidden" });
     }
   });
 
@@ -298,16 +298,16 @@ describe("index.ts — public entry pipeline", () => {
     expect(await res.text()).toContain("Not Found");
   });
 
-  it("admin/api routes return placeholder 404 for any HTTP method", async () => {
+  it("admin/api routes without a valid token return 403 for any HTTP method", async () => {
     for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE"]) {
       const res = await worker.fetch(
         new Request("https://pages.example.com/api/pages", { method }),
         env,
         createExecutionContext(),
       );
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(403);
       expect(res.headers.get("Cache-Control")).toBe("no-store");
-      expect(await res.json()).toEqual({ error: "not implemented" });
+      expect(await res.json()).toEqual({ error: "Forbidden" });
     }
   });
 });

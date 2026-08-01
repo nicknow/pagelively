@@ -4,6 +4,16 @@ import {
   type JwksProvider,
   type JwksProviderOptions,
 } from "../src/jwks-provider";
+import {
+  base64UrlDecode,
+  base64UrlEncode,
+  createMockFetch,
+  generateKeyPair,
+  signJwt,
+  TEAM_DOMAIN,
+  TEAM_DOMAIN_URL,
+  unsignedJwt,
+} from "./jwt-test-helpers";
 
 // S14 — KV-backed JWKS provider: key lookup by `kid` for later Access JWT verification.
 // Tests run against the local Vitest Workers pool with locally generated RSA keypairs
@@ -11,57 +21,6 @@ import {
 
 const JWKS_CACHE_KEY = "access-jwks";
 const JWKS_CACHE_TTL = 3600;
-const TEAM_DOMAIN = "testteam.cloudflareaccess.com";
-const TEAM_DOMAIN_URL = `https://${TEAM_DOMAIN}`;
-
-function base64UrlEncode(input: string): string {
-  return btoa(input).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(input: string): string {
-  const padding = (4 - (input.length % 4)) % 4;
-  const base64 = input.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(padding);
-  return atob(base64);
-}
-
-function unsignedJwt(kid: string): string {
-  const header = base64UrlEncode(JSON.stringify({ alg: "RS256", kid }));
-  const payload = base64UrlEncode(JSON.stringify({ sub: "test" }));
-  return `${header}.${payload}.`;
-}
-
-async function generateKeyPair(kid: string): Promise<{
-  privateKey: CryptoKey;
-  publicKey: CryptoKey;
-  jwk: JsonWebKey;
-}> {
-  const keyPair = (await crypto.subtle.generateKey(
-    {
-      name: "RSASSA-PKCS1-v1_5",
-      modulusLength: 2048,
-      publicExponent: new Uint8Array([1, 0, 1]),
-      hash: "SHA-256",
-    },
-    true,
-    ["sign", "verify"],
-  )) as CryptoKeyPair;
-  const jwk = (await crypto.subtle.exportKey("jwk", keyPair.publicKey)) as JsonWebKey & {
-    kid?: string;
-  };
-  jwk.kid = kid;
-  jwk.use = "sig";
-  jwk.alg = "RS256";
-  return { privateKey: keyPair.privateKey, publicKey: keyPair.publicKey, jwk };
-}
-
-async function signJwt(privateKey: CryptoKey, kid: string, payload: object): Promise<string> {
-  const header = base64UrlEncode(JSON.stringify({ alg: "RS256", kid }));
-  const body = base64UrlEncode(JSON.stringify(payload));
-  const data = new TextEncoder().encode(`${header}.${body}`);
-  const signature = await crypto.subtle.sign({ name: "RSASSA-PKCS1-v1_5" }, privateKey, data);
-  const sig = base64UrlEncode(String.fromCharCode(...new Uint8Array(signature)));
-  return `${header}.${body}.${sig}`;
-}
 
 class FakeKV {
   private store = new Map<string, string>();
@@ -98,27 +57,6 @@ class FakeKV {
 
 function asKvNamespace(kv: FakeKV): KVNamespace {
   return kv as unknown as KVNamespace;
-}
-
-function createMockFetch(
-  jwks: object,
-  options: { fail?: boolean; status?: number } = {},
-): {
-  fetchFn: typeof fetch;
-  calls: { url: string }[];
-} {
-  const calls: { url: string }[] = [];
-  const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
-    const url = typeof input === "string" ? input : input.toString();
-    calls.push({ url });
-    if (options.fail) {
-      throw new Error("network down");
-    }
-    const status = options.status ?? 200;
-    const body = status === 200 ? JSON.stringify(jwks) : "";
-    return new Response(body, { status, headers: { "Content-Type": "application/json" } });
-  }) as unknown as typeof fetch;
-  return { fetchFn, calls };
 }
 
 function createProvider(

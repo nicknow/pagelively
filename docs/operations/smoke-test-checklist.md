@@ -97,7 +97,9 @@ deployed Worker behaves the same way on the real edge:
       `Cache-Control: public, max-age=300, stale-while-revalidate=3600` and `Cache-Tag: page-{id}`.
 - [ ] Markdown pages serve the stored rendered HTML with the same base tag and `text/html; charset=utf-8`.
 - [ ] Unknown slugs, unknown ids, and unknown paths return the clean 404 page with `no-store`.
-- [ ] `/admin*` and `/api/*` return `404` JSON `{ error: "not implemented" }` with `no-store`.
+- [ ] `/admin*` and `/api/*` without a valid Access token return `403` JSON `{ error: "Forbidden" }`
+      with `no-store`; with a valid token they return the placeholder `404` JSON
+      `{ error: "not implemented" }` with `no-store` (S16).
 - [ ] Internal failures (e.g., D1 unavailable) return `500` JSON `{ error: "db_read_failed" }`
       with `no-store` and no stack trace or internal detail in the body.
 - [ ] A real browser load of an entry page resolves relative assets (`<img src="images/pic.png">`,
@@ -146,9 +148,28 @@ verifies the real Cloudflare Access JWKS endpoint and optional KV behavior:
 - [ ] A corrupt/missing `access-jwks` value in KV is treated as a cache miss: the provider
       fetches fresh and overwrites KV.
 
+## S16 — Access JWT verification (defense-in-depth gate)
+
+The JWT gate is fully unit-tested locally with generated keypairs and a mock JWKS. The operator
+verifies the real end-to-end Access flow on the deployed Worker:
+
+- [ ] After a successful Cloudflare Access login, `GET /admin` with the `Cf-Access-Jwt-Assertion`
+      header returns the admin dashboard (or the placeholder response while S19 is pending).
+- [ ] The verified email from the JWT is available to the admin/dashboard code (S19).
+- [ ] `GET /admin` and `GET /api/pages` **without** the `Cf-Access-Jwt-Assertion` header return
+      `403` JSON `{ error: "Forbidden" }` with `Cache-Control: no-store`.
+- [ ] A forged or tampered JWT (e.g., changed payload, invalid signature) returns `403` with the
+      same generic error — the Worker never exposes the verification failure reason.
+- [ ] An expired Access token (older than the 60-second skew window) returns `403`.
+- [ ] A token issued for a different Access application (wrong `aud`) or a different Zero Trust
+      team (wrong `iss`) returns `403`.
+- [ ] Public routes (`/health`, `/`, `/{slug}/`, `/p/{id}/`) remain reachable without any
+      `Cf-Access-Jwt-Assertion` header.
+- [ ] With `ACCESS_AUD` unset or still a placeholder (e.g., all zeros), every admin/API request
+      fails closed with `403`.
+
 ## Pending sections (to be filled by S20/S22)
 
-- Cloudflare Access login/logout flow
 - Worker custom domain DNS resolution
 - Free-tier quota verification
 - Reserved-name / traversal CDN 404 behavior (partially covered above; verify live CDN)

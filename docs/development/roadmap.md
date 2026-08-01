@@ -62,7 +62,7 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 | ID  | Slice                                                | Size | Status  | Depends on               |
 | --- | ---------------------------------------------------- | ---- | ------- | ------------------------ |
 | S15 | Admin API: list & detail                             | M    | planned | S10, S12, S16            |
-| S16 | Access JWT verification (defense-in-depth gate)      | M    | planned | S14, OQ-12               |
+| S16 | Access JWT verification (defense-in-depth gate)      | M    | done    | S14, OQ-12               |
 | S17 | Upload & publish API (multipart, manifest, kinds)    | L    | planned | S12, S16, OQ-04/05/06/11 |
 | S18 | Edit & delete API (PATCH/DELETE, file ops, rev bump) | M    | planned | S17, OQ-04               |
 | S19 | Admin UI (buildless dashboard/upload/edit)           | L    | planned | S17, S18                 |
@@ -238,11 +238,13 @@ before it reaches `buildR2Key`/the repository — an unvalidated id interpolated
 R2 key is a latent escape (S15 and S18 share this caller discipline).
 
 **S16 — Access JWT verification** — verify `Cf-Access-Jwt-Assertion` on `/admin*` and
-`/api/*` (§9): signature vs JWKS at `https://{ACCESS_TEAM_DOMAIN}/cdn-cgi/access/certs`
-(verified), `aud` == `ACCESS_AUD`, `iss` == team domain, expiry (±60 s skew); locally
-generated keypairs + mock JWKS covering **valid / expired / wrong-aud / tampered / unknown
-kid / missing / malformed** → all bad cases 403, never pass-open; `email` claim extracted
-for the dashboard; unset `ACCESS_AUD` → fail closed.
+`/api/*` (§9): signature with Web Crypto against JWKS from
+`https://{ACCESS_TEAM_DOMAIN}/cdn-cgi/access/certs` (verified), `aud` == `ACCESS_AUD`,
+`iss` == team domain, expiry/issued-at (±60 s skew); locally generated keypairs + mock JWKS
+covering **valid / expired / wrong-aud / tampered / unknown kid / missing / malformed** → all
+bad cases 403, never pass-open; `email` claim extracted for the dashboard; unset `ACCESS_AUD`
+→ fail closed. ADR 0024 supersedes ADR 0002's `jose` dependency; runtime deps are now only `marked`.
+**Done 2026-07-31** (access-verify tests + admin-auth integration; `src/access-verify.ts` 99% coverage).
 
 **S17 — Upload & publish API** — `POST /api/pages` multipart + manifest (§10): single
 `.html` → html page; single `.md` → markdown page (render + `source.md` + `raw_md_path`);
