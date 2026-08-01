@@ -24,3 +24,17 @@ export class AppError extends Error {
     }
   }
 }
+
+/**
+ * Map a typed `AppError` to a response that exposes the code (for debugging)
+ * but never leaks the stack or internal detail.
+ *
+ * The caller is responsible for attaching the cache headers (e.g. the `error`
+ * route class from `cache.headersFor("error")`).
+ */
+export function toErrorResponse(error: AppError, headers: Headers): Response {
+  const body = JSON.stringify({ error: error.code });
+  const h = new Headers(headers);
+  h.set("Content-Type", "application/json");
+  return new Response(body, { status: error.status, headers: h });
+}

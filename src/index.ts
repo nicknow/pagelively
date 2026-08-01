@@ -1,31 +1,77 @@
 /**
- * pagelively Worker — Phase 0 stub.
+ * pagelively Worker — public entry pipeline (S12).
  *
- * The real surface (public serving, admin UI, admin API) is built in later
- * slices. This stub exists so the toolchain — Worker runtime, TypeScript,
- * R2/D1 binding emulation, migrations-in-tests — is provably wired end-to-end
- * from the first commit. See docs/product-spec.md for the target behavior.
+ * Wires the previously built pure pieces (router, redirects, home resolution,
+ * D1 repository, R2 object store, cache headers, base injection) into the
+ * top-level `fetch` handler. The whole dispatch is wrapped in a single
+ * `try/catch` that converts unexpected failures to generic 500s and maps
+ * `AppError` through `toErrorResponse`.
+ *
+ * Admin/API routes are recognized but only return a placeholder 404 for now;
+ * their real handlers arrive in S15–S19.
  */
 
+import { AppError, toErrorResponse } from "./errors";
+import { classifyPath } from "./router";
+import { clean404Response, trailingSlashRedirect } from "./redirects";
+import { resolveHome } from "./home";
+import { createConfig } from "./config";
+import { createCacheService } from "./cache-service";
+import { createPagesRepository } from "./pages-repository";
+import { createObjectStore } from "./object-store";
+import { serveEntry } from "./entry-serve";
+
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // Reserved for S13/S16/S17 cache-purge, Access, and upload handlers.
+    void ctx;
 
-    if (url.pathname === "/health") {
-      // Liveness check (spec §5). Bindings are emulated locally; the booleans
-      // confirm the wiring reached the Worker.
-      return Response.json({
-        ok: true,
-        service: "pagelively",
-        siteName: env.SITE_NAME,
-        bindings: { d1: !!env.DB, r2: !!env.BUCKET },
-      });
+    const cache = createCacheService(env);
+
+    try {
+      const config = createConfig(env);
+      const pages = createPagesRepository(env.DB);
+      const objects = createObjectStore(env.BUCKET);
+      const deps = { config, pages, objects, cache };
+
+      const url = new URL(request.url);
+      const method = request.method;
+      const route = classifyPath(url.pathname);
+
+      if (route.type === "health") {
+        const headers = cache.headersFor("admin");
+        return Response.json({ ok: true, service: "pagelively" }, { headers });
+      }
+
+      const redirect = trailingSlashRedirect(route, url, method);
+      if (redirect) {
+        return redirect;
+      }
+
+      if (route.type === "home") {
+        const home = resolveHome(config.homeMode, config.homePageSlug);
+        if (home.type === "404") {
+          return clean404Response(url);
+        }
+        return await serveEntry(new Request(new URL(`/${home.slug}/`, url)), deps);
+      }
+
+      if (route.type === "slug" || route.type === "id") {
+        return await serveEntry(request, deps);
+      }
+
+      if (route.type === "admin" || route.type === "api") {
+        const headers = cache.headersFor("admin");
+        return Response.json({ error: "not implemented" }, { status: 404, headers });
+      }
+
+      return clean404Response(url);
+    } catch (error) {
+      const headers = cache.headersFor("error");
+      if (error instanceof AppError) {
+        return toErrorResponse(error, headers);
+      }
+      return Response.json({ error: "internal_error" }, { status: 500, headers });
     }
-
-    return new Response(
-      '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Pagelively</title></head>' +
-        "<body><h1>Pagelively</h1><p>Local scaffold — serving from <code>workerd</code>.</p></body></html>",
-      { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
-    );
   },
 } satisfies ExportedHandler<Env>;

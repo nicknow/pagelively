@@ -79,6 +79,34 @@ header contract:
 - [ ] R2 CDN traversal-ish requests (`/pages/{id}/{rev}/../…`, `/%2e%2e/…`) return the bucket's
       own 404 rather than resolving to a sibling key (ADR 0012, S03).
 
+## S12 — Entry request pipeline (added during implementation)
+
+The public entry pipeline is fully unit-tested locally; the operator checks that the
+deployed Worker behaves the same way on the real edge:
+
+- [ ] `GET /health` returns `200` JSON `{ ok: true, service: "pagelively" }` with no
+      binding details, no auth, and `Cache-Control: no-store`.
+- [ ] `GET /` with `HOME_MODE=404` returns the clean 404 page (status 404, `no-store`).
+- [ ] `GET /` with `HOME_MODE=page` and `HOME_PAGE_SLUG=hello` returns the same entry
+      HTML as `GET /hello/` (no `Location` header, `text/html; charset=utf-8`).
+- [ ] `GET /hello` → `301` to `GET /hello/` (absolute `Location` preserving host/scheme/port).
+- [ ] `GET /hello/` on an html page returns the entry HTML with `<base href="{ASSET_BASE_URL}/pages/{id}/{rev}/">`
+      injected as the first element of `<head>`.
+- [ ] `GET /p/{id}/` returns the same page by canonical id, with the same base tag.
+- [ ] Image pages return `301` to `{ASSET_BASE_URL}/pages/{id}/{rev}/{entry_path}` with
+      `Cache-Control: public, max-age=300, stale-while-revalidate=3600` and `Cache-Tag: page-{id}`.
+- [ ] Markdown pages serve the stored rendered HTML with the same base tag and `text/html; charset=utf-8`.
+- [ ] Unknown slugs, unknown ids, and unknown paths return the clean 404 page with `no-store`.
+- [ ] `/admin*` and `/api/*` return `404` JSON `{ error: "not implemented" }` with `no-store`.
+- [ ] Internal failures (e.g., D1 unavailable) return `500` JSON `{ error: "db_read_failed" }`
+      with `no-store` and no stack trace or internal detail in the body.
+- [ ] A real browser load of an entry page resolves relative assets (`<img src="images/pic.png">`,
+      `<link rel="stylesheet" href="style.css">`) through the injected base tag to the CDN host.
+      Verify in browser dev tools that the asset request URL is
+      `https://cdn.pages.acme.com/pages/{id}/{rev}/{asset-path}` and that it returns 200 from the
+      CDN host, not the Worker host. Root-relative references (`/images/pic.png`) are expected to
+      fail because the base tag points to the CDN host (spec §6).
+
 ## Pending sections (to be filled by S20/S22)
 
 - Cloudflare Access login/logout flow

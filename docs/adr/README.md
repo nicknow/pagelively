@@ -29,6 +29,7 @@ memory.
 | 0018 | [S09 home-mode behavior](0018-s09-home-mode.md)                                                                  | Accepted                         |
 | 0019 | [S10 D1 pages repository — read-only surface](0019-s10-pages-repository-reads.md)                                | Accepted                         |
 | 0020 | [S11 R2 object store adapter](0020-s11-r2-object-store.md)                                                       | Accepted                         |
+| 0021 | [S12 entry request pipeline](0021-s12-entry-request-pipeline.md)                                                 | Accepted                         |
 
 ## How to write an ADR
 

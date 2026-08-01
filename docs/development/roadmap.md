@@ -53,7 +53,7 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 | --- | ------------------------------------------------------------ | ---- | ------- | ---------- |
 | S10 | D1 pages repository (reads)                                  | M    | done    | S01        |
 | S11 | R2 object store (key layout + metadata)                      | M    | done    | S03, S06   |
-| S12 | Entry request pipeline (router + serve + 301 + 404 + health) | L    | planned | S01–S11    |
+| S12 | Entry request pipeline (router + serve + 301 + 404 + health) | L    | done    | S01–S11    |
 | S13 | Entry-HTML edge cache integration                            | M    | planned | S12, OQ-01 |
 | S14 | KV-backed JWKS cache (optional, degrades gracefully)         | S    | planned | —          |
 
