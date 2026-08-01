@@ -12,6 +12,11 @@ name = "pagelively"
 main = "src/index.ts"
 compatibility_date = "2026-06-29"
 
+# Enable Workers Caching (spec §11, ADR 0006). Entry responses are cached by
+# Cache-Control/Cache-Tag; admin/api responses carry no-store.
+[cache]
+enabled = true
+
 # --- Bindings (emulated locally; provisioned by setup.mjs) -------------------
 
 [[r2_buckets]]

@@ -54,7 +54,7 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 | S10 | D1 pages repository (reads)                                  | M    | done    | S01        |
 | S11 | R2 object store (key layout + metadata)                      | M    | done    | S03, S06   |
 | S12 | Entry request pipeline (router + serve + 301 + 404 + health) | L    | done    | S01–S11    |
-| S13 | Entry-HTML edge cache integration                            | M    | planned | S12, OQ-01 |
+| S13 | Entry-HTML edge cache integration                            | M    | done    | S12, OQ-01 |
 | S14 | KV-backed JWKS cache (optional, degrades gracefully)         | S    | planned | —          |
 
 ### M3 — Admin, upload, auth
@@ -222,6 +222,7 @@ works here because admin and entry handlers share the default entrypoint (keep i
 cold cache (Worker version is part of the cache key by default — acceptable for this
 workload; do not enable `cache.cross_version_cache`). If the pool can't emulate cache
 HITs, live HIT verification is an operator checklist item (risk R2) — never faked.
+**Done 2026-07-31** (19 cache-service tests + 6 validator regression tests; `src/cache-service.ts` 100% coverage).
 
 **S14 — KV-backed JWKS cache** — cache Access JWKS in KV (TTL ~1 h), refetch on
 miss/stale/corrupt; KV absent → fetch every time (§2, §9); write failures ignored; fetch

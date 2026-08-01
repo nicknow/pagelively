@@ -107,11 +107,31 @@ deployed Worker behaves the same way on the real edge:
       CDN host, not the Worker host. Root-relative references (`/images/pic.png`) are expected to
       fail because the base tag points to the CDN host (spec §6).
 
+## S13 — Entry-HTML edge cache integration
+
+The cache header contract and purge shape are unit-tested locally; the operator verifies the
+real Workers Caching behavior at the edge:
+
+- [ ] `wrangler.toml` contains `[cache] enabled = true` and no `cache.cross_version_cache`
+      (deploys start cold per version, which is the accepted default).
+- [ ] `GET /{slug}/` on an HTML page returns `Cache-Control: public, max-age=300, stale-while-revalidate=3600`
+      and `Cache-Tag: page-{id}`.
+- [ ] `GET /p/{id}/` for the same page returns the same `Cache-Tag` value.
+- [ ] Image/raw page redirects (`301`) carry the same `Cache-Control` and `Cache-Tag: page-{id}`.
+- [ ] A second identical `GET /{slug}/` within `max-age` returns `Cf-Cache-Status: HIT` (or `HIT`
+      after the first warm request) and the same body, proving the entry is cached.
+- [ ] Publish or edit a page, then immediately request its slug and id URLs; within a short
+      propagation window both return the fresh content (no stale entry), confirming
+      `ctx.cache.purge({ tags: ["page-{id}"] })` took effect.
+- [ ] `GET /admin*` and `/api/*` responses carry `Cache-Control: no-store` and are never served
+      from cache (confirm `Cf-Cache-Status` is absent or `BYPASS`/`DYNAMIC` for those paths).
+- [ ] The Worker has a single default entrypoint (`src/index.ts` is the only `fetch` export);
+      admin mutations and entry pages share it so that `purge()` is entrypoint-scoped.
+
 ## Pending sections (to be filled by S20/S22)
 
 - Cloudflare Access login/logout flow
 - Worker custom domain DNS resolution
-- Edge-cache HIT / purge-on-publish freshness
 - Free-tier quota verification
 - Reserved-name / traversal CDN 404 behavior (partially covered above; verify live CDN)
 

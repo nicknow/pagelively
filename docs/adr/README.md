@@ -30,6 +30,7 @@ memory.
 | 0019 | [S10 D1 pages repository — read-only surface](0019-s10-pages-repository-reads.md)                                | Accepted                         |
 | 0020 | [S11 R2 object store adapter](0020-s11-r2-object-store.md)                                                       | Accepted                         |
 | 0021 | [S12 entry request pipeline](0021-s12-entry-request-pipeline.md)                                                 | Accepted                         |
+| 0022 | [S13 entry-HTML edge cache integration](0022-s13-cache-integration.md)                                           | Accepted                         |
 
 ## How to write an ADR
 
