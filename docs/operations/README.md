@@ -66,6 +66,16 @@ This runs `setup.mjs` (or use `setup.sh` on Linux/macOS, `setup.ps1` on Windows)
 9. Deploy (`wrangler deploy`).
 10. Print the live URL, admin URL, and CDN URL.
 
+## GitHub Actions deploy
+
+Instead of running `npm run setup` locally, a human can trigger the manual-dispatch
+`.github/workflows/deploy.yml` workflow from the GitHub UI (Actions → "Deploy Pagelively to
+Cloudflare" → Run workflow). It runs `npm ci` + `npm run setup` headless with three repo
+secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `ADMIN_EMAILS`. The workflow
+is never triggered by push or pull requests — deploying stays a human action with the
+operator's own token. See the README quickstart for the token scopes, listed verbatim, and
+`docs/adr/0030-s21-github-actions-deploy.md` for the headless setup design.
+
 ## Idempotency
 
 Re-running is safe. The script lists existing resources by name and skips create calls for anything that already exists. If a previous run failed partway through, run it again and it will continue from where it left off.

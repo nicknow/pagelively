@@ -15,8 +15,8 @@ for the entry document; admin access is protected by Cloudflare Access.
 
 ## Status
 
-**Phase 1 — S01–S19 feature work complete; S20 setup script implemented.**
-Remaining: S21 GitHub Actions workflow and S22 end-to-end smoke test closeout.
+**Phase 1 — S01–S21 complete: feature work, setup script, and the GitHub Actions deploy
+workflow are done.** Remaining: S22 end-to-end smoke test closeout.
 
 ## Quickstart (devcontainer)
 
@@ -32,9 +32,15 @@ All gates: `npm run typecheck && npm run lint && npm run format:check && npm tes
 
 ## Quickstart (provision and deploy)
 
-1. **Prerequisites**: Cloudflare account, target domain added as a zone, Zero Trust initialized.
+**Prerequisite: Node.js 22 or newer** on Linux, macOS, and Windows 10/11 (Wrangler and
+`setup.mjs` both need it — no WSL required). The devcontainer pre-installs it. On Windows,
+run the setup script as `setup.ps1` (PowerShell) or `node setup.mjs` directly.
+
+1. **Cloudflare prerequisites**: account, target domain added as a zone, Zero Trust
+   initialized.
 2. Create a Cloudflare API token with the scopes listed in
-   [`docs/operations/README.md`](docs/operations/README.md).
+   [`docs/operations/README.md`](docs/operations/README.md) (the scopes are also reproduced
+   under **GitHub Actions deploy** below).
 3. `npm install`
 4. `export CLOUDFLARE_API_TOKEN="your-token"` (or skip this and use `wrangler login` at the
    prompt).
@@ -44,6 +50,27 @@ All gates: `npm run typecheck && npm run lint && npm run format:check && npm tes
 
 Re-running `npm run setup` is safe. See the operator checklist at
 [`docs/operations/smoke-test-checklist.md`](docs/operations/smoke-test-checklist.md).
+
+### GitHub Actions deploy
+
+1. Push/fork this repo to GitHub, then add these **repo secrets** (Settings → Secrets and
+   variables → Actions):
+   - `CLOUDFLARE_API_TOKEN` — a token with the scopes below
+   - `CLOUDFLARE_ACCOUNT_ID` — your Cloudflare account ID
+   - `ADMIN_EMAILS` — comma-separated emails allowed through Cloudflare Access
+2. Run **Actions → "Deploy Pagelively to Cloudflare" → Run workflow**. The manual-dispatch
+   workflow runs `npm ci` then `npm run setup` **headless** (`SETUP_NON_INTERACTIVE=1`) with
+   your token and the workflow inputs (worker domain, CDN/asset domain, project name, and
+   whether to create the optional KV namespace). It is never triggered by push or pull
+   requests — deploy stays a human action.
+3. The token must carry these scopes (create it copy-paste from §13 of the spec):
+   - **Account** → Workers Scripts: _Edit_, Workers R2 Storage: _Edit_, D1: _Edit_,
+     Workers KV Storage: _Edit_ (if KV used), Access: Apps and Policies: _Edit_,
+     Account Settings: _Read_.
+   - **Zone** (for the target zone) → DNS: _Edit_, Workers Routes: _Edit_.
+
+See [`docs/operations/README.md`](docs/operations/README.md) for the full provisioning guide
+and the exact workflow wiring.
 
 ## Provisioning & deploy (human-run, not part of the build)
 

@@ -1,4 +1,13 @@
 export function parseAdminEmails(input: unknown): string[];
+export function parseTruthy(value: unknown): boolean | undefined;
+export function envToSetupOptions(env: Record<string, string | undefined>): {
+  workerDomain: string | undefined;
+  cdnDomain: string | undefined;
+  projectName: string | undefined;
+  adminEmails: string | undefined;
+  headless: boolean;
+  createKv?: boolean;
+};
 export function normalizeDomain(domain: string): string;
 export function deriveBucketName(projectName: string): string;
 export function deriveDbName(projectName: string): string;

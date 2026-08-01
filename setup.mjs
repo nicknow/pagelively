@@ -4,11 +4,54 @@
 // dependency injection; the exported runSetup() accepts all external seams so
 // the test suite can mock Cloudflare API calls, wrangler, the filesystem, and
 // user prompts.
+//
+// Two modes:
+//   - Interactive (default): prompts for domains, project name, admin emails,
+//     KV choice; falls back to `wrangler login` without an API token.
+//   - Headless (SETUP_NON_INTERACTIVE=1, used by .github/workflows/deploy.yml):
+//     reads every value from the environment (see envToSetupOptions), never
+//     prompts, and fails deterministically (no pause) when something is
+//     missing — e.g. no CLOUDFLARE_API_TOKEN, no ADMIN_EMAILS, or Zero Trust
+//     not initialized.
 
 export const DEFAULTS = {
   minNodeVersion: 22,
   wranglerToml: "wrangler.toml",
 };
+
+// --- Headless (CI / non-interactive) mode -----------------------------------
+// GitHub Actions runs `npm run setup` with SETUP_NON_INTERACTIVE=1 and every
+// value supplied via env (see .github/workflows/deploy.yml). These helpers map
+// the environment into runSetup options and parse the truthy conventions
+// (1|true|yes) used by the workflow inputs.
+
+export function parseTruthy(value) {
+  if (value === undefined || value === null || value === "") return undefined;
+  return ["1", "true", "yes"].includes(String(value).trim().toLowerCase());
+}
+
+export function envToSetupOptions(env = {}) {
+  const createKv = parseTruthy(env.SETUP_CREATE_KV);
+  const options = {
+    workerDomain: env.SETUP_WORKER_DOMAIN || undefined,
+    cdnDomain: env.SETUP_CDN_DOMAIN || undefined,
+    projectName: env.SETUP_PROJECT_NAME || undefined,
+    adminEmails: env.ADMIN_EMAILS || undefined,
+    headless: parseTruthy(env.SETUP_NON_INTERACTIVE) === true,
+  };
+  if (createKv !== undefined) options.createKv = createKv;
+  return options;
+}
+
+// Fixed prompt messages -> the env var that supplies the value in headless
+// mode, so a missing value fails with a copy-pasteable instruction.
+const PROMPT_ENV_OVERRIDES = [
+  { match: "Cloudflare account ID", label: "Cloudflare account ID", env: "CLOUDFLARE_ACCOUNT_ID" },
+  { match: "Worker domain", label: "worker domain", env: "SETUP_WORKER_DOMAIN" },
+  { match: "CDN / asset domain", label: "CDN / asset domain", env: "SETUP_CDN_DOMAIN" },
+  { match: "Project name", label: "project name", env: "SETUP_PROJECT_NAME" },
+  { match: "Admin email", label: "admin email(s)", env: "ADMIN_EMAILS" },
+];
 
 export function parseAdminEmails(input) {
   if (!input) return [];
@@ -126,6 +169,32 @@ export async function runSetup(options, deps) {
   const { fs, wrangler, api, prompt, confirm, log, pause } = deps;
   const opts = { ...DEFAULTS, ...options };
   const env = deps.env || {};
+  const headless = opts.headless === true;
+
+  // Headless mode must never wait on a human: prompt falls back to its default
+  // or throws naming the missing value; confirm uses its default; the Zero
+  // Trust pause becomes a deterministic, actionable error.
+  const promptFn = headless
+    ? async (message, defaultValue) => {
+        if (defaultValue) return defaultValue;
+        const entry = PROMPT_ENV_OVERRIDES.find((e) => message.includes(e.match));
+        const label = entry ? entry.label : message.replace(/[:…].*$/, "").trim() || "value";
+        const envVar = entry ? entry.env : "SETUP_*";
+        throw new Error(
+          `Missing required value: ${label}. Set the ${envVar} environment variable, or run setup interactively.`,
+        );
+      }
+    : prompt;
+  const confirmFn = headless ? async (_message, defaultValue = true) => defaultValue : confirm;
+  const pauseFn = headless
+    ? async () => {
+        throw new Error(
+          "Cloudflare Access / Zero Trust is not initialized. Complete the one-time setup at " +
+            "https://one.dash.cloudflare.com/ (choose a team name, e.g. yourteam), then re-run " +
+            "this workflow.",
+        );
+      }
+    : pause;
 
   // --- 1. Verify Node.js version and wrangler availability ----------------
   if (typeof process !== "undefined" && process.version) {
@@ -143,11 +212,19 @@ export async function runSetup(options, deps) {
   let apiToken = opts.apiToken || env.CLOUDFLARE_API_TOKEN || null;
   let useWranglerLogin = !apiToken && opts.useWranglerLogin !== false;
 
-  if (useWranglerLogin && !opts.skipAuth) {
-    log("No CLOUDFLARE_API_TOKEN found. Running wrangler login (interactive browser)...");
-    const loginResult = await wrangler(["login"]);
-    if (loginResult.exitCode !== 0) {
-      throw new Error(`wrangler login failed: ${loginResult.stderr || loginResult.stdout}`);
+  if (useWranglerLogin) {
+    if (headless) {
+      throw new Error(
+        "No CLOUDFLARE_API_TOKEN found. In non-interactive (headless) mode, set " +
+          "CLOUDFLARE_API_TOKEN (and CLOUDFLARE_ACCOUNT_ID) in the environment before running setup.",
+      );
+    }
+    if (!opts.skipAuth) {
+      log("No CLOUDFLARE_API_TOKEN found. Running wrangler login (interactive browser)...");
+      const loginResult = await wrangler(["login"]);
+      if (loginResult.exitCode !== 0) {
+        throw new Error(`wrangler login failed: ${loginResult.stderr || loginResult.stdout}`);
+      }
     }
   }
 
@@ -166,7 +243,7 @@ export async function runSetup(options, deps) {
     if (match) accountId = match[1];
   }
   if (!accountId) {
-    accountId = await prompt("Cloudflare account ID:", "");
+    accountId = await promptFn("Cloudflare account ID:", "");
   }
   if (!accountId) {
     throw new Error("Cloudflare account ID is required.");
@@ -175,17 +252,20 @@ export async function runSetup(options, deps) {
   // --- 4. Prompt for inputs -----------------------------------------------
   const workerDomain = normalizeDomain(
     opts.workerDomain ||
-      (await prompt("Worker domain (e.g., pages.example.com):", "pages.example.com")),
+      (await promptFn("Worker domain (e.g., pages.example.com):", "pages.example.com")),
   );
   const cdnDomain = normalizeDomain(
     opts.cdnDomain ||
-      (await prompt("CDN / asset domain (e.g., cdn.pages.example.com):", "cdn.pages.example.com")),
+      (await promptFn(
+        "CDN / asset domain (e.g., cdn.pages.example.com):",
+        "cdn.pages.example.com",
+      )),
   );
   const projectName = (
-    opts.projectName || (await prompt("Project name (used for resource names):", "pagelively"))
+    opts.projectName || (await promptFn("Project name (used for resource names):", "pagelively"))
   ).trim();
   const adminEmails = parseAdminEmails(
-    opts.adminEmails || (await prompt("Admin email(s), comma-separated:", "")),
+    opts.adminEmails || (await promptFn("Admin email(s), comma-separated:", "")),
   );
 
   if (adminEmails.length === 0) {
@@ -195,7 +275,7 @@ export async function runSetup(options, deps) {
   const createKv =
     opts.createKv !== undefined
       ? opts.createKv
-      : await confirm("Create an optional KV namespace for JWKS caching?", true);
+      : await confirmFn("Create an optional KV namespace for JWKS caching?", true);
 
   const bucketName = opts.bucketName || deriveBucketName(projectName);
   const dbName = opts.dbName || deriveDbName(projectName);
@@ -219,7 +299,7 @@ export async function runSetup(options, deps) {
     log("  3. (Optional) set up your identity provider (email OTP is fine).");
     log("  4. Re-run this script.");
     log("");
-    await pause("Press Enter once Zero Trust is initialized...");
+    await pauseFn("Press Enter once Zero Trust is initialized...");
     return;
   }
   if (!accessAppsRes.ok) {
@@ -568,7 +648,10 @@ async function buildRealDeps() {
 
 async function main() {
   const deps = await buildRealDeps();
-  await runSetup({}, deps);
+  // Headless/CI: SETUP_WORKER_DOMAIN, SETUP_CDN_DOMAIN, SETUP_PROJECT_NAME,
+  // ADMIN_EMAILS, SETUP_CREATE_KV, SETUP_NON_INTERACTIVE (see
+  // envToSetupOptions). Interactive humans still get every prompt.
+  await runSetup(envToSetupOptions(deps.env || {}), deps);
   if (deps.rl && typeof deps.rl.close === "function") {
     deps.rl.close();
   }

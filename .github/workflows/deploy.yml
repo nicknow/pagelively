@@ -1,0 +1,56 @@
+name: Deploy Pagelively to Cloudflare
+
+# Manual-dispatch only: provisioning + deploy uses the operator's Cloudflare
+# credentials (repo secrets) and calls the live Cloudflare API, so it is
+# intentionally never triggered by push/PR. The build team never touches
+# Cloudflare — a human clicks "Run workflow" after review.
+#
+# Required repo secrets (Settings -> Secrets and variables -> Actions):
+#   CLOUDFLARE_API_TOKEN  — token with the scopes listed in docs/operations/README.md
+#   CLOUDFLARE_ACCOUNT_ID — the Cloudflare account ID
+#   ADMIN_EMAILS          — comma-separated emails allowed through Cloudflare Access
+#
+# This workflow runs `setup.mjs` headless (SETUP_NON_INTERACTIVE=1); every
+# value comes from the inputs above or the secrets.
+
+on:
+  workflow_dispatch:
+    inputs:
+      worker-domain:
+        description: Worker domain (e.g. pages.example.com)
+        required: true
+        default: pages.example.com
+      cdn-domain:
+        description: CDN / asset domain (e.g. cdn.pages.example.com)
+        required: true
+        default: cdn.pages.example.com
+      project-name:
+        description: Project name used for resource names (e.g. pagelively)
+        required: true
+        default: pagelively
+      create-kv:
+        description: Create the optional KV namespace for JWKS caching
+        required: true
+        default: "true"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Provision and deploy (setup.mjs)
+        run: npm run setup
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
+          SETUP_WORKER_DOMAIN: ${{ inputs.worker-domain }}
+          SETUP_CDN_DOMAIN: ${{ inputs.cdn-domain }}
+          SETUP_PROJECT_NAME: ${{ inputs.project-name }}
+          SETUP_CREATE_KV: ${{ inputs.create-kv }}
+          SETUP_NON_INTERACTIVE: "1"

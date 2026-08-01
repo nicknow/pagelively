@@ -208,6 +208,26 @@ The setup script is unit-tested with mocks, but these human-run checks verify th
 - [ ] Re-running `npm run setup` is idempotent: no new resources are created, no errors, and it still deploys.
 - [ ] If the target zone is removed, re-running `npm run setup` logs a clear "zone not found" error and exits before deploying.
 
+## S21 — GitHub Actions deploy (headless path)
+
+The workflow and headless failures are unit-tested with mocks; these checks verify the real
+GitHub Actions run against the operator's account:
+
+- [ ] The three repo secrets (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `ADMIN_EMAILS`)
+      exist and the manual-dispatch run (Actions → "Deploy Pagelively to Cloudflare" → Run
+      workflow) completes with exit 0 and prints the Worker/admin/CDN URLs.
+- [ ] A workflow run with a deliberately invalid token fails fast with the
+      "No CLOUDFLARE_API_TOKEN found" / API error and does **not** hang waiting for input
+      (headless never prompts, never opens a browser).
+- [ ] If Zero Trust is not initialized, the run prints the one-time steps
+      (`one.dash.cloudflare.com`) and fails the job (non-zero exit) — it does not pause or
+      deploy.
+- [ ] **Known limitation (ADR 0030):** if the worker or CDN domain is not a zone in the
+      account, the run logs a "zone not found" error but the job still **exits 0** without
+      deploying. Check the workflow log for this message before assuming success.
+- [ ] The workflow is manual-dispatch only: it is not listed under push/PR-triggered checks
+      (no `on.push`/`on.pull_request`), so it never runs without a human clicking Run.
+
 ## S22 — End-to-end / DoD closeout (pending)
 
 - [ ] Worker custom domain DNS resolution

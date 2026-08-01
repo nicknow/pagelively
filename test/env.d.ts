@@ -11,3 +11,10 @@ declare namespace Cloudflare {
     TEST_MIGRATIONS: import("cloudflare:test").D1Migration[];
   }
 }
+
+// Vite `?raw` imports (used by test/github-actions.test.ts to read the
+// committed deploy.yml without fs access in the workerd test runtime).
+declare module "*?raw" {
+  const content: string;
+  export default content;
+}

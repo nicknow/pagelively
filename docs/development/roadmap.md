@@ -69,10 +69,10 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 
 ### M4 — Setup & deploy (human-run; unit-tested with mocks)
 
-| ID  | Slice                                             | Size | Status      | Depends on                |
-| --- | ------------------------------------------------- | ---- | ----------- | ------------------------- |
-| S20 | setup.mjs provisioning (idempotent, mocked tests) | L    | done        | S15–S18 surface, OQ-09/10 |
-| S21 | GitHub Actions deploy workflow + quickstart docs  | S    | planned     | S20                       |
+| ID  | Slice                                             | Size | Status | Depends on                |
+| --- | ------------------------------------------------- | ---- | ------ | ------------------------- |
+| S20 | setup.mjs provisioning (idempotent, mocked tests) | L    | done   | S15–S18 surface, OQ-09/10 |
+| S21 | GitHub Actions deploy workflow + quickstart docs  | S    | done   | S20                       |
 
 ### M5 — End-to-end
 
@@ -297,6 +297,12 @@ tests; 939 tests / 31 files; coverage 99.69/97.26/97.83/99.91; bundle unchanged)
 (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `ADMIN_EMAILS`) running `npm ci` +
 setup (§13); YAML parses; README documents Node prerequisite (Linux + Windows 10/11) and
 the §13 token scopes verbatim.
+**Done 2026-08-01** (headless `SETUP_*`/`ADMIN_EMAILS`/`SETUP_NON_INTERACTIVE` env overrides
+in setup.mjs with exported `envToSetupOptions`/`parseTruthy`; headless determinism — no
+token/emails/Zero Trust each throw, no `wrangler login`, no pause; manual-dispatch
+deploy.yml wiring the three repo secrets + `SETUP_NON_INTERACTIVE: '1'`; YAML parse test via
+`yaml` devDependency; README quickstart Node 22 prerequisite + §13 scopes verbatim; ADR 0030;
+11 headless + 5 YAML tests added; all 38 interactive setup tests unchanged).
 
 **S22 — End-to-end + operator checklist + DoD** — full local journey (create html page →
 slug + id URLs serve with base → bundle with nested assets → markdown with show-source →
