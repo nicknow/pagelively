@@ -61,7 +61,7 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 
 | ID  | Slice                                                | Size | Status  | Depends on               |
 | --- | ---------------------------------------------------- | ---- | ------- | ------------------------ |
-| S15 | Admin API: list & detail                             | M    | planned | S10, S12, S16            |
+| S15 | Admin API: list & detail                             | M    | done    | S10, S12, S16            |
 | S16 | Access JWT verification (defense-in-depth gate)      | M    | done    | S14, OQ-12               |
 | S17 | Upload & publish API (multipart, manifest, kinds)    | L    | planned | S12, S16, OQ-04/05/06/11 |
 | S18 | Edit & delete API (PATCH/DELETE, file ops, rev bump) | M    | planned | S17, OQ-04               |
@@ -235,7 +235,8 @@ kind, created_at, visibility, show_source, rev); `GET /api/pages/{id}` → page 
 list (§5, §8); unknown id → 404 JSON; invalid id → 400; unauthenticated → 403 (S16 gate
 asserted end-to-end). NOTE (S03 validation, ADR 0012): call `validateId` on every id
 before it reaches `buildR2Key`/the repository — an unvalidated id interpolated into an
-R2 key is a latent escape (S15 and S18 share this caller discipline).
+R2 key is a latent escape (S15 and S18 share this caller discipline). **Done 2026-08-01**
+(36 tests; `src/admin-api.ts`, `src/files-repository.ts`, `src/index.ts` dispatch; ADR 0025).
 
 **S16 — Access JWT verification** — verify `Cf-Access-Jwt-Assertion` on `/admin*` and
 `/api/*` (§9): signature with Web Crypto against JWKS from

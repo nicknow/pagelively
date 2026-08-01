@@ -1,8 +1,16 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { env } from "cloudflare:workers";
 import { createExecutionContext } from "cloudflare:test";
 import worker from "../src/index";
 import { createObjectStore } from "../src/object-store";
+import {
+  ACCESS_AUD,
+  createMockFetch,
+  generateKeyPair,
+  signJwt,
+  TEAM_DOMAIN,
+  TEAM_DOMAIN_URL,
+} from "./jwt-test-helpers";
 
 // S12 — Entry request pipeline wired in src/index.ts. These tests run the real
 // Worker handler end-to-end against the local D1 + R2 emulation.
@@ -70,18 +78,59 @@ async function fetchIndex(path: string, customEnv?: Env): Promise<Response> {
   return worker.fetch(new Request(`https://pages.example.com${path}`), e, ctx);
 }
 
+let privateKey: CryptoKey;
+
+function buildAccessPayload(): object {
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    iss: TEAM_DOMAIN_URL,
+    aud: [ACCESS_AUD],
+    iat: now,
+    exp: now + 3600,
+    email: "admin@example.com",
+  };
+}
+
+async function validToken(): Promise<string> {
+  return signJwt(privateKey, "access-key-1", buildAccessPayload());
+}
+
+async function fetchApi(path: string, token?: string): Promise<Response> {
+  const headers = token ? new Headers({ "Cf-Access-Jwt-Assertion": token }) : new Headers();
+  const customEnv = makeEnv({
+    ACCESS_TEAM_DOMAIN: TEAM_DOMAIN,
+    ACCESS_AUD: ACCESS_AUD,
+  });
+  return worker.fetch(
+    new Request(`https://pages.example.com${path}`, { headers }),
+    customEnv,
+    createExecutionContext(),
+  );
+}
+
 describe("index.ts — public entry pipeline", () => {
   const db = env.DB;
   const bucket = env.BUCKET;
+  let fetchMock: ReturnType<typeof createMockFetch>;
 
   beforeEach(async () => {
     await clearPages(db);
     await clearBucket(bucket);
+    const keys = await generateKeyPair("access-key-1");
+    privateKey = keys.privateKey;
+    fetchMock = createMockFetch({ keys: [keys.jwk] });
+    vi.stubGlobal("fetch", fetchMock.fetchFn);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("GET /health returns public 200 JSON with no binding details", async () => {
     const res = await fetchIndex("/health");
     expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
     const body = await res.json();
     expect(body).toEqual({ ok: true, service: "pagelively" });
     expect(body).not.toHaveProperty("bindings");
@@ -232,6 +281,59 @@ describe("index.ts — public entry pipeline", () => {
     }
   });
 
+  it("GET /api/pages with a valid token returns the page list JSON", async () => {
+    const token = await validToken();
+    await insertPage(db, { id: "page000010", slug: "api-list", title: "API List" });
+    const res = await fetchApi("/api/pages", token);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    const body = (await res.json()) as Record<string, unknown>[];
+    expect(body).toHaveLength(1);
+    expect(body[0]).toMatchObject({ id: "page000010", slug: "api-list", title: "API List" });
+    expect(body[0]).not.toHaveProperty("files");
+  });
+
+  it("GET /api/pages/:id with a valid token returns page detail including files", async () => {
+    const token = await validToken();
+    const pageId = "page000011";
+    await insertPage(db, { id: pageId, slug: "api-detail", title: "API Detail" });
+    await db
+      .prepare(
+        "INSERT INTO files (page_id, path, r2_key, content_type, size) VALUES (?, ?, ?, ?, ?)",
+      )
+      .bind(pageId, "style.css", "pages/page000011/1/style.css", "text/css", 100)
+      .run();
+    const res = await fetchApi(`/api/pages/${pageId}`, token);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({ id: pageId, slug: "api-detail", title: "API Detail" });
+    expect(body.files).toHaveLength(1);
+    expect((body.files as Record<string, unknown>[])[0]).toMatchObject({
+      path: "style.css",
+      content_type: "text/css",
+      size: 100,
+    });
+  });
+
+  it("GET /api/pages/:id with an invalid id returns 400 JSON", async () => {
+    const token = await validToken();
+    const res = await fetchApi("/api/pages/bad.id", token);
+    expect(res.status).toBe(400);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(await res.json()).toEqual({ error: "invalid_id" });
+  });
+
+  it("GET /api/pages/:id with an unknown id returns 404 JSON", async () => {
+    const token = await validToken();
+    const res = await fetchApi("/api/pages/Unknown000", token);
+    expect(res.status).toBe(404);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(await res.json()).toEqual({ error: "not_found" });
+  });
+
   it("maps AppError from the repository to a generic JSON 500 with no-store", async () => {
     const brokenDb = {
       prepare: () => {
@@ -254,6 +356,7 @@ describe("index.ts — public entry pipeline", () => {
 
     expect(res.status).toBe(500);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(res.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
     const body = await res.json();
     expect(body).toEqual({ error: "internal_error" });
     expect(body).not.toHaveProperty("stack");
@@ -307,7 +410,36 @@ describe("index.ts — public entry pipeline", () => {
       );
       expect(res.status).toBe(403);
       expect(res.headers.get("Cache-Control")).toBe("no-store");
+      expect(res.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
       expect(await res.json()).toEqual({ error: "Forbidden" });
     }
+  });
+
+  it("GET /api/unknown with a valid token returns 404 JSON with no-store", async () => {
+    const token = await validToken();
+    const res = await fetchApi("/api/unknown", token);
+    expect(res.status).toBe(404);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(res.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
+    expect(await res.json()).toEqual({ error: "not_found" });
+  });
+
+  it("error responses include charset=utf-8 on the JSON content type", async () => {
+    const token = await validToken();
+    const invalid = await fetchApi("/api/pages/bad.id", token);
+    expect(invalid.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
+
+    const missing = await fetchApi("/api/pages/Unknown000", token);
+    expect(missing.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
+
+    const method = await worker.fetch(
+      new Request("https://pages.example.com/api/pages", {
+        method: "POST",
+        headers: { "Cf-Access-Jwt-Assertion": token },
+      }),
+      makeEnv({ ACCESS_TEAM_DOMAIN: TEAM_DOMAIN, ACCESS_AUD: ACCESS_AUD }),
+      createExecutionContext(),
+    );
+    expect(method.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
   });
 });

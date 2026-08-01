@@ -77,7 +77,8 @@ function decodeJwtHeader(jwt: string): { kid?: string; alg?: string } | undefine
   }
 }
 
-function decodeJwtPayload(jwt: string): unknown | undefined {
+/** Decode a JWT payload segment without verifying the signature. Exported for testing. */
+export function decodeJwtPayload(jwt: string): unknown | undefined {
   const parts = jwt.split(".");
   if (parts.length !== 3) {
     return undefined;

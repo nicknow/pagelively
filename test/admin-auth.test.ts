@@ -62,14 +62,17 @@ describe("index.ts — admin/api JWT gate", () => {
     const res = await fetchAdmin("/admin");
     expect(res.status).toBe(403);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(res.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
     expect(await res.json()).toEqual({ error: "Forbidden" });
   });
 
-  it("GET /admin with a valid token returns the placeholder 404 response", async () => {
+  it("GET /admin with a valid token returns the placeholder HTML 404 response", async () => {
     const res = await fetchAdmin("/admin", await validToken());
     expect(res.status).toBe(404);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "not implemented" });
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+    const text = await res.text();
+    expect(text).toContain("Not Found");
   });
 
   it("GET /api/pages without a token returns 403 Forbidden", async () => {
@@ -79,24 +82,36 @@ describe("index.ts — admin/api JWT gate", () => {
     expect(await res.json()).toEqual({ error: "Forbidden" });
   });
 
-  it("GET /api/pages with a valid token returns the placeholder 404 response", async () => {
+  it("GET /api/pages with a valid token returns the page list JSON", async () => {
     const res = await fetchAdmin("/api/pages", await validToken());
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "not implemented" });
+    expect(await res.json()).toEqual([]);
   });
 
-  it("POST /api/pages with a valid token returns the placeholder 404 response", async () => {
-    const res = await fetchAdmin("/api/pages", await validToken());
-    expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "not implemented" });
+  it("POST /api/pages with a valid token returns 405 Method Not Allowed", async () => {
+    const requestEnv = makeEnv({ ACCESS_TEAM_DOMAIN: TEAM_DOMAIN, ACCESS_AUD: ACCESS_AUD });
+    const res = await worker.fetch(
+      new Request("https://pages.example.com/api/pages", {
+        method: "POST",
+        headers: { "Cf-Access-Jwt-Assertion": await validToken() },
+      }),
+      requestEnv,
+      createExecutionContext(),
+    );
+    expect(res.status).toBe(405);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(await res.json()).toEqual({ error: "method_not_allowed" });
   });
 
-  it("GET /admin/dashboard with a valid token returns the placeholder 404 response", async () => {
+  it("GET /admin/dashboard with a valid token returns the placeholder HTML 404 response", async () => {
     const res = await fetchAdmin("/admin/dashboard", await validToken());
     expect(res.status).toBe(404);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "not implemented" });
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+    const text = await res.text();
+    expect(text).toContain("Not Found");
   });
 
   it("GET /admin with an expired token returns 403 Forbidden", async () => {

@@ -36,9 +36,8 @@ describe("toErrorResponse", () => {
     const res = toErrorResponse(err, headers);
 
     expect(res.status).toBe(500);
-    expect(res.headers.get("Content-Type")).toBe("application/json");
+    expect(res.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(res.headers.get("Content-Type")).toBe("application/json");
   });
 
   it("does not leak the internal detail or stack", async () => {

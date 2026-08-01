@@ -168,6 +168,29 @@ verifies the real end-to-end Access flow on the deployed Worker:
 - [ ] With `ACCESS_AUD` unset or still a placeholder (e.g., all zeros), every admin/API request
       fails closed with `403`.
 
+## S15 — Admin API: list & detail
+
+The endpoints are unit-tested locally with the JWT gate; the operator verifies the
+live behavior behind Cloudflare Access:
+
+- [ ] `GET /api/pages` without a `Cf-Access-Jwt-Assertion` header returns `403`
+      JSON `{ error: "Forbidden" }` with `Cache-Control: no-store`.
+- [ ] `GET /api/pages` with a valid Access token returns `200` JSON array with
+      `Content-Type: application/json; charset=utf-8` and `Cache-Control: no-store`.
+- [ ] Each object in the list contains: `id`, `slug`, `title`, `kind`, `rev`,
+      `entry_path`, `raw_md_path`, `show_source`, `visibility`, `created_at`,
+      `updated_at`. The list does **not** contain a `files` property.
+- [ ] `GET /api/pages/{id}` with a valid token returns `200` JSON with the same
+      page fields plus `files: FileRecord[]`.
+- [ ] `GET /api/pages/{id}` for an unknown id returns `404` JSON `{ error: "not_found" }`
+      with `no-store`.
+- [ ] `GET /api/pages/{id}` for an invalid id format (e.g., `bad.id`) returns `400`
+      JSON `{ error: "invalid_id" }` with `no-store`.
+- [ ] `POST /api/pages` with a valid token returns `405` JSON `{ error: "method_not_allowed" }`
+      with `no-store` (write endpoints are S17).
+- [ ] `GET /admin` and `/admin/dashboard` with a valid token return a placeholder
+      `404` HTML page (the dashboard UI is S19).
+
 ## Pending sections (to be filled by S20/S22)
 
 - Worker custom domain DNS resolution

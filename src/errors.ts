@@ -5,7 +5,7 @@
  * (toErrorResponse) lands with the error boundary in S12.
  */
 
-export type ErrorStatus = 400 | 403 | 404 | 409 | 413 | 422 | 500;
+export type ErrorStatus = 400 | 403 | 404 | 405 | 409 | 413 | 422 | 500;
 
 export class AppError extends Error {
   readonly code: string; // stable snake_case, e.g. "invalid_slug"
@@ -35,6 +35,6 @@ export class AppError extends Error {
 export function toErrorResponse(error: AppError, headers: Headers): Response {
   const body = JSON.stringify({ error: error.code });
   const h = new Headers(headers);
-  h.set("Content-Type", "application/json");
+  h.set("Content-Type", "application/json; charset=utf-8");
   return new Response(body, { status: error.status, headers: h });
 }

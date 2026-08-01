@@ -33,6 +33,7 @@ memory.
 | 0022 | [S13 entry-HTML edge cache integration](0022-s13-cache-integration.md)                                           | Accepted                         |
 | 0023 | [S14 KV-backed JWKS provider](0023-s14-jwks-provider.md)                                                         | Accepted                         |
 | 0024 | [S16 Access JWT verification](0024-s16-access-jwt-verification.md)                                               | Accepted                         |
+| 0025 | [S15 admin API — list & detail](0025-s15-admin-api-list-detail.md)                                               | Accepted                         |
 
 ## How to write an ADR
 

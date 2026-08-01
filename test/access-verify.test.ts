@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createAccessVerifier } from "../src/access-verify";
+import { createAccessVerifier, decodeJwtPayload } from "../src/access-verify";
 import {
   ACCESS_AUD,
   base64UrlDecode,
@@ -795,5 +795,34 @@ describe("createAccessVerifier", () => {
     });
     expect(await verifier.verify(requestWithToken(expiredToken))).toBeNull();
     expect(await verifier.verify(requestWithToken(futureToken))).toBeNull();
+  });
+});
+
+describe("decodeJwtPayload", () => {
+  it("returns the parsed payload for a valid JWT", () => {
+    const payload = { sub: "user", aud: ["app"] };
+    const header = base64UrlEncode(JSON.stringify({ alg: "RS256", kid: "key-1" }));
+    const body = base64UrlEncode(JSON.stringify(payload));
+    const token = `${header}.${body}.signature`;
+    expect(decodeJwtPayload(token)).toEqual(payload);
+  });
+
+  it("returns undefined for a JWT without three segments", () => {
+    expect(decodeJwtPayload("")).toBeUndefined();
+    expect(decodeJwtPayload("header")).toBeUndefined();
+    expect(decodeJwtPayload("header.payload")).toBeUndefined();
+    expect(decodeJwtPayload("header.payload.signature.extra")).toBeUndefined();
+  });
+
+  it("returns undefined when the payload segment is not valid base64url", () => {
+    const token = `header.!!!.signature`;
+    expect(decodeJwtPayload(token)).toBeUndefined();
+  });
+
+  it("returns undefined when the payload segment is not valid JSON", () => {
+    const header = base64UrlEncode(JSON.stringify({ alg: "RS256", kid: "key-1" }));
+    const body = base64UrlEncode("not json");
+    const token = `${header}.${body}.signature`;
+    expect(decodeJwtPayload(token)).toBeUndefined();
   });
 });
