@@ -150,6 +150,149 @@ export function updateWranglerToml(content, values) {
   return updated;
 }
 
+// --- Wrangler OAuth credential fallback -------------------------------------
+// Interactive setup has no CLOUDFLARE_API_TOKEN: `wrangler login` stores the
+// OAuth credentials it exchanges, and the plaintext token lands in a
+// `config/default.toml` under wrangler's global config directory. These pure
+// helpers locate and parse that file so API calls can authenticate. `os`
+// values are injected (homedir/platform) so the Workers-pool tests never touch
+// `node:os` (which is unavailable in workerd) — buildRealDeps passes the real
+// ones from a dynamic `import("node:os")`.
+
+export function wranglerConfigPaths(env = {}, osInfo = {}) {
+  const windows =
+    (osInfo.platform ? osInfo.platform() : undefined) === "win32" ||
+    (!osInfo.platform && typeof process !== "undefined" && process.platform === "win32");
+  const darwin =
+    (osInfo.platform ? osInfo.platform() : undefined) === "darwin" ||
+    (!osInfo.platform && typeof process !== "undefined" && process.platform === "darwin");
+  const sep = windows ? "\\" : "/";
+  const join = (...parts) => parts.join(sep);
+  const home = osInfo.homedir ? osInfo.homedir() : env.HOME || "";
+
+  const candidates = [];
+  // XDG_CONFIG_HOME, when set, overrides the platform config dir on every OS
+  // (xdg-portable XDG.config(): valOrPath(env XDG_CONFIG_HOME, default)).
+  if (env.XDG_CONFIG_HOME) {
+    candidates.push(join(env.XDG_CONFIG_HOME, ".wrangler", "config", "default.toml"));
+  }
+  if (home) {
+    if (darwin) {
+      // Native (xdg-portable macOS config()): ~/Library/Preferences/.wrangler.
+      candidates.push(join(home, "Library", "Preferences", ".wrangler", "config", "default.toml"));
+    } else if (windows) {
+      // Native (xdg-portable Windows config()): %APPDATA%\xdg.config\.wrangler
+      // where %APPDATA% falls back to ~\AppData\Roaming.
+      const appData = env.APPDATA || join(home, "AppData", "Roaming");
+      candidates.push(join(appData, "xdg.config", ".wrangler", "config", "default.toml"));
+    } else {
+      // Linux/other (xdg-portable Linux config()): ~/.config/.wrangler.
+      candidates.push(join(home, ".config", ".wrangler", "config", "default.toml"));
+    }
+    // Legacy ~/.wrangler dir override, kept by wrangler for backwards compat
+    // (getGlobalConfigPath checks os.homedir()/.wrangler before the XDG dir).
+    candidates.push(join(home, ".wrangler", "config", "default.toml"));
+  }
+  return candidates.filter((path, index) => candidates.indexOf(path) === index);
+}
+
+export function parseOauthToken(tomlContent) {
+  if (typeof tomlContent !== "string") return undefined;
+  const match = tomlContent.match(/^\s*oauth_token\s*=\s*"([^"]+)"/m);
+  return match ? match[1] : undefined;
+}
+
+export async function resolveWranglerAuthToken(paths, readFile) {
+  for (const path of paths) {
+    let content;
+    try {
+      content = await readFile(path, "utf8");
+    } catch (error) {
+      if (error && error.code === "ENOENT") continue;
+      throw error;
+    }
+    const token = parseOauthToken(content);
+    if (token) return { token, path };
+  }
+  return { token: undefined, path: undefined };
+}
+
+export async function findEncryptedWranglerConfig(paths, stat) {
+  // `wrangler login --use-keyring` stores an encrypted `default.enc` (key in
+  // the OS keychain) and deletes the plaintext token — this script cannot read
+  // it, so detect it and fail with actionable instructions.
+  for (const path of paths) {
+    const encPath = path.replace(/default\.toml$/, "default.enc");
+    try {
+      await stat(encPath);
+      return encPath;
+    } catch (error) {
+      if (error && error.code === "ENOENT") continue;
+      throw error;
+    }
+  }
+  return undefined;
+}
+
+export async function describeApiError(response, fallback) {
+  const base = `${fallback} (HTTP ${response.status})`;
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    return base;
+  }
+  const errors = (data && data.errors) || [];
+  if (!Array.isArray(errors) || errors.length === 0) return base;
+  const details = errors
+    .map((e) =>
+      e && e.code !== undefined ? `[${e.code}] ${e.message || ""}` : (e && e.message) || "",
+    )
+    .filter(Boolean)
+    .join(", ");
+  return details ? `${base}: ${details}` : base;
+}
+
+export function createApiClient({ env = {}, oauthToken, resolveOauthToken, fetchImpl }) {
+  const doFetch = fetchImpl || (typeof fetch !== "undefined" ? fetch.bind(globalThis) : null);
+  if (!doFetch) throw new Error("No fetch implementation available");
+  let cachedOauthToken = oauthToken;
+
+  const resolveToken = async () => {
+    const envToken = env.CLOUDFLARE_API_TOKEN;
+    if (envToken) return envToken;
+    if (cachedOauthToken) return cachedOauthToken;
+    if (resolveOauthToken) {
+      const result = await resolveOauthToken();
+      cachedOauthToken = result && result.token;
+      if (cachedOauthToken) return cachedOauthToken;
+    }
+    throw new Error(
+      "No Cloudflare credentials available: set CLOUDFLARE_API_TOKEN, or run `wrangler login` first.",
+    );
+  };
+
+  return async (method, path, body) => {
+    const token = await resolveToken();
+    const response = await doFetch(`https://api.cloudflare.com/client/v4${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      data = null;
+    }
+    return { ok: response.ok, status: response.status, json: async () => data };
+  };
+}
+
 async function isAccessNotInitializedError(response) {
   const data = await response.json();
   if (response.ok) return { notInitialized: false, data };
@@ -230,6 +373,8 @@ export async function runSetup(options, deps) {
 
   if (apiToken) {
     log("Using API token for Cloudflare API calls.");
+  } else {
+    log("Using wrangler OAuth credentials for Cloudflare API calls.");
   }
 
   // --- 3. Resolve account ID ----------------------------------------------
@@ -303,7 +448,7 @@ export async function runSetup(options, deps) {
     return;
   }
   if (!accessAppsRes.ok) {
-    throw new Error(`Failed to list Access apps: ${accessAppsRes.status}`);
+    throw new Error(await describeApiError(accessAppsRes, "Failed to list Access apps"));
   }
   const accessApps = accessAppsData?.result || [];
 
@@ -326,7 +471,7 @@ export async function runSetup(options, deps) {
       policies: [],
     });
     if (!createAppRes.ok) {
-      throw new Error(`Failed to create Access application: ${createAppRes.status}`);
+      throw new Error(await describeApiError(createAppRes, "Failed to create Access application"));
     }
     const createAppData = await createAppRes.json();
     app = createAppData.result;
@@ -343,7 +488,7 @@ export async function runSetup(options, deps) {
     // Fetch full app details if aud/team domain not in list response
     const appRes = await api("GET", `/accounts/${accountId}/access/apps/${appId}`);
     if (!appRes.ok) {
-      throw new Error(`Failed to fetch Access application details: ${appRes.status}`);
+      throw new Error(await describeApiError(appRes, "Failed to fetch Access application details"));
     }
     const appData = await appRes.json();
     app = appData.result;
@@ -364,7 +509,10 @@ export async function runSetup(options, deps) {
 
   // --- 7. Create or reuse Access policy -----------------------------------
   const appPoliciesRes = await api("GET", `/accounts/${accountId}/access/apps/${appId}/policies`);
-  const appPoliciesData = appPoliciesRes.ok ? await appPoliciesRes.json() : { result: [] };
+  if (!appPoliciesRes.ok) {
+    throw new Error(await describeApiError(appPoliciesRes, "Failed to list Access policies"));
+  }
+  const appPoliciesData = await appPoliciesRes.json();
   const appPolicies = appPoliciesData.result || [];
   const policyName = `${projectName} allow-admins`;
   const hasPolicy = appPolicies.some(
@@ -385,7 +533,7 @@ export async function runSetup(options, deps) {
       },
     );
     if (!createPolicyRes.ok) {
-      throw new Error(`Failed to create Access policy: ${createPolicyRes.status}`);
+      throw new Error(await describeApiError(createPolicyRes, "Failed to create Access policy"));
     }
   } else {
     log("Access policy already exists; skipping create.");
@@ -561,12 +709,15 @@ export async function runSetup(options, deps) {
 // --- Main entry point (Node.js only) ---------------------------------------
 
 async function buildRealDeps() {
-  const [{ readFile, writeFile }, { spawn }, readlineModule, { env }] = await Promise.all([
-    import("node:fs/promises"),
-    import("node:child_process"),
-    import("node:readline/promises"),
-    import("node:process"),
-  ]);
+  const [{ readFile, writeFile, stat }, { spawn }, readlineModule, { env }, os] = await Promise.all(
+    [
+      import("node:fs/promises"),
+      import("node:child_process"),
+      import("node:readline/promises"),
+      import("node:process"),
+      import("node:os"),
+    ],
+  );
 
   const rl = readlineModule.createInterface({
     input: process.stdin,
@@ -615,23 +766,28 @@ async function buildRealDeps() {
     await rl.question(message);
   };
 
-  const api = async (method, path, body) => {
-    const token = env.CLOUDFLARE_API_TOKEN;
-    const headers = {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    };
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
+  const api = (() => {
+    if (env.CLOUDFLARE_API_TOKEN) {
+      return createApiClient({ env, fetchImpl: fetch });
     }
-    const response = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const data = await response.json();
-    return { ok: response.ok, status: response.status, json: async () => data };
-  };
+    // Interactive mode: `wrangler login` (run inside runSetup) stores OAuth
+    // credentials in the global wrangler config dir. Resolve the token lazily
+    // on the first API call — which happens after login — and fail fast when
+    // the only credential present is an unreadable keyring-encrypted one.
+    const configPaths = wranglerConfigPaths(env, { homedir: os.homedir, platform: os.platform });
+    const readOauth = async () => {
+      const encrypted = await findEncryptedWranglerConfig(configPaths, stat);
+      if (encrypted) {
+        throw new Error(
+          `Found an encrypted wrangler OAuth credential at ${encrypted}, which this script ` +
+            "cannot read. Re-run `wrangler login --no-use-keyring` to store the token as " +
+            "plaintext, or set CLOUDFLARE_API_TOKEN and re-run setup.",
+        );
+      }
+      return resolveWranglerAuthToken(configPaths, readFile);
+    };
+    return createApiClient({ env, resolveOauthToken: readOauth, fetchImpl: fetch });
+  })();
 
   return {
     fs: { readFile, writeFile },

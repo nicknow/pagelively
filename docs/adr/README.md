@@ -41,6 +41,7 @@ memory.
 | 0030 | [S21 — GitHub Actions deploy workflow and headless setup](0030-s21-github-actions-deploy.md)                     | Accepted                         |
 | 0031 | [S22 — end-to-end smoke journey, build-size gate, and closeout findings](0031-s22-e2e-smoke-build-size-gate.md)  | Accepted                         |
 | 0032 | [S22 follow-up — journey extended to the acceptance criteria's full leg list](0032-s22-followup-journey-legs.md) | Accepted                         |
+| 0033 | [setup.mjs OAuth fallback auth and API error surfacing](0033-setup-oauth-fallback-auth.md)                       | Accepted                         |
 
 ## How to write an ADR
 

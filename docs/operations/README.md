@@ -39,6 +39,39 @@ export CLOUDFLARE_API_TOKEN="your-token-here"
 export CLOUDFLARE_ACCOUNT_ID="your-account-id-here"  # optional; setup can read it from wrangler
 ```
 
+## Token vs interactive auth
+
+`setup.mjs` authenticates Cloudflare API calls one of two ways:
+
+- **API token (headless/CI and locals who prefer it):** set `CLOUDFLARE_API_TOKEN` (see scopes
+  above). The script sends `Authorization: Bearer <token>` on every call. This is the
+  authoritative path and the only one that works in headless mode.
+- **Wrangler OAuth (interactive):** with no `CLOUDFLARE_API_TOKEN`, `setup.mjs` runs
+  `wrangler login` in your browser. After login, wrangler stores OAuth credentials in its
+  global config directory, resolved as `xdgAppPaths(".wrangler").config()` per the
+  `xdg-portable` rules (honoring `XDG_CONFIG_HOME` on every OS):
+  - Linux: `~/.config/.wrangler/config/default.toml`
+  - macOS: `~/Library/Preferences/.wrangler/config/default.toml`
+  - Windows: `%APPDATA%\xdg.config\.wrangler\config\default.toml` (`%APPDATA%` falls back
+    to `~\AppData\Roaming`)
+  - Legacy override kept by wrangler for backwards compatibility:
+    `~/.wrangler/config/default.toml` on every OS (checked after the native path).
+
+  The script reads the plaintext `oauth_token` from that file and uses it as the Bearer token
+  for the REST API calls. (`WRANGLER_HOME` is not a wrangler environment variable and is not
+  honored.)
+
+Caveats:
+
+- **`wrangler login --use-keyring` is not supported.** It stores the token encrypted in a
+  `default.enc` file with the key in the OS keychain, which `setup.mjs` cannot read. If the
+  script detects `default.enc` with no plaintext token, it fails fast with instructions:
+  re-run `wrangler login --no-use-keyring` (plaintext), or set `CLOUDFLARE_API_TOKEN`.
+- **API token is authoritative for Access (§13 of the product spec).** The token scopes above
+  include _Access: Apps and Policies: Edit_. The OAuth path is a convenience for local runs;
+  CI and anything scripted should use a scoped API token so failures are deterministic and
+  don't depend on a browser.
+
 ## Provisioning
 
 From the repo root:
@@ -51,7 +84,8 @@ npm run setup
 This runs `setup.mjs` (or use `setup.sh` on Linux/macOS, `setup.ps1` on Windows). The script will:
 
 1. Verify Node.js and Wrangler.
-2. Use `CLOUDFLARE_API_TOKEN` if present; otherwise prompt for `wrangler login`.
+2. Use `CLOUDFLARE_API_TOKEN` if present; otherwise run `wrangler login` and reuse its OAuth
+   token for the API calls (see "Token vs interactive auth").
 3. Prompt for:
    - Worker domain (e.g. `pages.example.com`)
    - CDN / asset domain (e.g. `cdn.pages.example.com`)
@@ -93,6 +127,11 @@ Re-running is safe. The script lists existing resources by name and skips create
 - **"Zero Trust not initialized"**: complete the one-time Zero Trust setup above, then re-run.
 - **D1 migration errors**: ensure the `wrangler.toml` `database_id` matches the provisioned database.
 - **Custom domain not active**: DNS propagation can take a few minutes; `setup.mjs` does not wait for it.
+- **"Failed to list Access apps (HTTP 400)… Authentication error"**: the API call went out
+  unauthenticated — e.g. a stale or encrypted wrangler credential. Re-run `wrangler login
+--no-use-keyring`, or set `CLOUDFLARE_API_TOKEN` and re-run.
+- **"Found an encrypted wrangler OAuth credential…"**: you previously used `wrangler login
+--use-keyring`; re-run `wrangler login --no-use-keyring` to store the token as plaintext.
 
 ## Next steps
 

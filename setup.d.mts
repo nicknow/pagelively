@@ -14,6 +14,37 @@ export function deriveDbName(projectName: string): string;
 export function deriveKvName(projectName: string): string;
 export function updateWranglerToml(content: string, values: Record<string, unknown>): string;
 
+export function wranglerConfigPaths(
+  env?: Record<string, string | undefined>,
+  osInfo?: { homedir?: () => string; platform?: () => string },
+): string[];
+export function parseOauthToken(tomlContent: string | null | undefined): string | undefined;
+export function resolveWranglerAuthToken(
+  paths: string[],
+  readFile: (path: string, encoding?: string) => Promise<string>,
+): Promise<{ token: string | undefined; path: string | undefined }>;
+export function findEncryptedWranglerConfig(
+  paths: string[],
+  stat: (path: string) => Promise<unknown>,
+): Promise<string | undefined>;
+export function describeApiError(
+  response: { status: number; json: () => Promise<unknown> },
+  fallback: string,
+): Promise<string>;
+export function createApiClient(options: {
+  env?: Record<string, string | undefined>;
+  oauthToken?: string;
+  resolveOauthToken?: () => Promise<{ token: string | undefined } | undefined>;
+  fetchImpl?: (
+    url: string,
+    init?: { method?: string; headers?: Record<string, string>; body?: string },
+  ) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
+}): (
+  method: string,
+  path: string,
+  body?: unknown,
+) => Promise<{ ok: boolean; status: number; json: () => Promise<Record<string, unknown>> }>;
+
 export interface Deps {
   fs: {
     readFile: (path: string, encoding?: string) => Promise<string>;

@@ -199,6 +199,8 @@ The setup script is unit-tested with mocks, but these human-run checks verify th
 - [ ] `CLOUDFLARE_API_TOKEN` is exported (or `wrangler login` has been run) and has the scopes listed in `docs/operations/README.md`.
 - [ ] Cloudflare Zero Trust is initialized for the account (`https://one.dash.cloudflare.com/` shows a team name).
 - [ ] `npm run setup` completes and prints the Worker URL, admin URL, and CDN URL.
+- [ ] **OAuth fallback path (ADR 0033):** with `CLOUDFLARE_API_TOKEN` unset, run `npm run setup` interactively; after `wrangler login` opens the browser and you authorize, the script proceeds past "Failed to list Access apps" and completes. Verify the logged-in token file exists: `ls ~/.config/.wrangler/config/default.toml` (Linux), `~/Library/Preferences/.wrangler/config/default.toml` (macOS), or `%APPDATA%\xdg.config\.wrangler\config\default.toml` (Windows) and that `oauth_token = "..."` is present.
+- [ ] **Keyring fail-fast (ADR 0033):** after `wrangler login --use-keyring`, re-run `npm run setup` with no `CLOUDFLARE_API_TOKEN`; it must fail immediately with the "Found an encrypted wrangler OAuth credential… re-run `wrangler login --no-use-keyring`" message (never a confusing HTTP 400). Then run `wrangler login --no-use-keyring` and confirm setup succeeds.
 - [ ] `wrangler.toml` contains the real `database_id`, `bucket_name`, `ASSET_BASE_URL`, `ACCESS_AUD`, `ACCESS_TEAM_DOMAIN`, and an uncommented `[[kv_namespaces]]` block if KV was created.
 - [ ] `wrangler.toml` contains a `[[routes]]` block with `pattern = "pages.example.com"` and `custom_domain = true`.
 - [ ] The R2 bucket, D1 database, and (optional) KV namespace exist in the Cloudflare dashboard.

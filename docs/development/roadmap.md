@@ -294,6 +294,17 @@ pre-deploy error; `setup.sh`/`setup.ps1` wrappers exist (§13).
 double-response-body bug and the `String.replace` `$`-pattern corruption fix; regression
 tests; suite at S22 close: 976 tests / 35 files; coverage 99.69/97.26/97.83/99.91; bundle
 unchanged).
+**Field fix 2026-08-01** (OAuth fallback auth): interactive runs without
+`CLOUDFLARE_API_TOKEN` were sending unauthenticated REST calls (`Failed to list Access apps:
+400`). setup.mjs now reads the plaintext `oauth_token` stored by `wrangler login` from the
+global config dir resolved as `xdgAppPaths(".wrangler").config()` — Linux
+`~/.config/.wrangler/config/default.toml`, macOS `~/Library/Preferences/.wrangler/config/default.toml`,
+Windows `%APPDATA%\xdg.config\.wrangler\config\default.toml` — honoring `XDG_CONFIG_HOME` on
+every OS and falling back to the legacy `~/.wrangler/config/default.toml` (`WRANGLER_HOME` is
+not a wrangler variable and is not honored), fails fast with actionable instructions on
+`--use-keyring` (`default.enc`), and surfaces the Cloudflare `errors[].code/message` on Access
+failures (distinguishing auth code `10000` from Zero Trust-not-initialized code `1047`). See
+ADR 0033. +44 tests (`test/setup-auth.test.ts`); suite: 1020 tests / 36 files.
 
 **S21 — GitHub Actions + quickstart** — manual-dispatch `deploy.yml` using repo secrets
 (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `ADMIN_EMAILS`) running `npm ci` +
