@@ -128,6 +128,24 @@ real Workers Caching behavior at the edge:
 - [ ] The Worker has a single default entrypoint (`src/index.ts` is the only `fetch` export);
       admin mutations and entry pages share it so that `purge()` is entrypoint-scoped.
 
+## S14 — KV-backed JWKS cache
+
+The provider is unit-tested locally with mock JWKS endpoints and a fake KV; the operator
+verifies the real Cloudflare Access JWKS endpoint and optional KV behavior:
+
+- [ ] `GET https://{yourteam}.cloudflareaccess.com/cdn-cgi/access/certs` returns a valid JWKS
+      JSON object with a `keys` array containing at least one RSA key with a `kid`.
+- [ ] With the KV binding provisioned and uncommented in `wrangler.toml`, the first admin/API
+      request after a cold start fetches the JWKS and stores it under KV key `access-jwks`.
+- [ ] Subsequent admin/API requests within the TTL read the JWKS from KV without re-fetching
+      the remote endpoint (confirm via KV read metrics or tail logs).
+- [ ] With the KV binding still absent/commented out, the Worker still works: every admin/API
+      request fetches the JWKS remotely and serves requests successfully.
+- [ ] A key rotation at the Access endpoint is reflected within the TTL bound (1 hour) or sooner
+      if the cached value is manually deleted; the provider refetches and overwrites KV.
+- [ ] A corrupt/missing `access-jwks` value in KV is treated as a cache miss: the provider
+      fetches fresh and overwrites KV.
+
 ## Pending sections (to be filled by S20/S22)
 
 - Cloudflare Access login/logout flow

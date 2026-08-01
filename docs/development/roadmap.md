@@ -49,13 +49,13 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 
 ### M2 — Binding integration (D1/R2/KV via local emulation)
 
-| ID  | Slice                                                        | Size | Status  | Depends on |
-| --- | ------------------------------------------------------------ | ---- | ------- | ---------- |
-| S10 | D1 pages repository (reads)                                  | M    | done    | S01        |
-| S11 | R2 object store (key layout + metadata)                      | M    | done    | S03, S06   |
-| S12 | Entry request pipeline (router + serve + 301 + 404 + health) | L    | done    | S01–S11    |
-| S13 | Entry-HTML edge cache integration                            | M    | done    | S12, OQ-01 |
-| S14 | KV-backed JWKS cache (optional, degrades gracefully)         | S    | planned | —          |
+| ID  | Slice                                                        | Size | Status | Depends on |
+| --- | ------------------------------------------------------------ | ---- | ------ | ---------- |
+| S10 | D1 pages repository (reads)                                  | M    | done   | S01        |
+| S11 | R2 object store (key layout + metadata)                      | M    | done   | S03, S06   |
+| S12 | Entry request pipeline (router + serve + 301 + 404 + health) | L    | done   | S01–S11    |
+| S13 | Entry-HTML edge cache integration                            | M    | done   | S12, OQ-01 |
+| S14 | KV-backed JWKS cache (optional, degrades gracefully)         | S    | done   | —          |
 
 ### M3 — Admin, upload, auth
 
@@ -226,7 +226,9 @@ HITs, live HIT verification is an operator checklist item (risk R2) — never fa
 
 **S14 — KV-backed JWKS cache** — cache Access JWKS in KV (TTL ~1 h), refetch on
 miss/stale/corrupt; KV absent → fetch every time (§2, §9); write failures ignored; fetch
-failure → fail closed at the gate.
+failure → fail closed at the gate. `JwksProvider` returns a Web Crypto `CryptoKey` for the
+JWT `kid`; no `jose` dependency added.
+**Done 2026-07-31** (32 tests incl. validator additions; `src/jwks-provider.ts` 100% coverage).
 
 **S15 — Admin API: list & detail** — `GET /api/pages` → ordered JSON (title, slug, id,
 kind, created_at, visibility, show_source, rev); `GET /api/pages/{id}` → page + files

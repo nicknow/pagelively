@@ -4,6 +4,7 @@
 interface __BaseEnv_Env {
 	BUCKET: R2Bucket;
 	DB: D1Database;
+	KV?: KVNamespace;
 	SITE_NAME: "Pagelively";
 	ASSET_BASE_URL: "https://cdn.example.com";
 	HOME_MODE: "404";
