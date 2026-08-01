@@ -197,4 +197,33 @@ live behavior behind Cloudflare Access:
 - Free-tier quota verification
 - Reserved-name / traversal CDN 404 behavior (partially covered above; verify live CDN)
 
+## S17 — Upload & publish API
+
+- [ ] `POST /api/pages` with a valid Access token returns `201` JSON with the same page fields
+      plus `files: FileRecord[]`.
+- [ ] A single `.html` upload creates an `html` page with `entry_path = "index.html"` and the
+      file stored under `pages/{id}/1/index.html`.
+- [ ] A single `.md` upload creates a `markdown` page with rendered `index.html` and raw
+      `source.md` in R2, and `raw_md_path = "source.md"`.
+- [ ] A single image upload creates an `image` page with `entry_path = <filename>`.
+- [ ] A bundle upload with multiple documents/images and a `manifest.entry` creates a `bundle`
+      page with all relative paths preserved under `pages/{id}/1/`.
+- [ ] A missing or ambiguous `manifest.entry` when there are multiple candidates returns `400`
+      with code `ambiguous_entry`.
+- [ ] Auto-generated slugs are derived from the filename; collisions get deterministic `-2`, `-3`
+      suffixes.
+- [ ] Reserved/invalid slugs return `400` with code `invalid_slug`; user-provided taken slugs
+      return `409` with code `slug_conflict`.
+- [ ] Files with `../`, leading `/`, `%`, or `\` in the path are rejected with `400`.
+- [ ] A request with `Content-Length` above the ~95 MB guard is rejected with `413`.
+- [ ] Publishing purges the page's cache tag (`page-{id}`); the entry URL returns fresh content.
+- [ ] A D1 write failure after R2 writes does not leave orphaned `pages/{id}/` objects in R2
+      (best-effort rollback).
+
+## Pending sections (to be filled by S20/S22)
+
+- Worker custom domain DNS resolution
+- Free-tier quota verification
+- Reserved-name / traversal CDN 404 behavior (partially covered above; verify live CDN)
+
 See `docs/operations/README.md` for the full provisioning and deploy guide.

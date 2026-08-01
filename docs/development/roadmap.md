@@ -59,13 +59,13 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 
 ### M3 — Admin, upload, auth
 
-| ID  | Slice                                                | Size | Status  | Depends on               |
-| --- | ---------------------------------------------------- | ---- | ------- | ------------------------ |
-| S15 | Admin API: list & detail                             | M    | done    | S10, S12, S16            |
-| S16 | Access JWT verification (defense-in-depth gate)      | M    | done    | S14, OQ-12               |
-| S17 | Upload & publish API (multipart, manifest, kinds)    | L    | planned | S12, S16, OQ-04/05/06/11 |
-| S18 | Edit & delete API (PATCH/DELETE, file ops, rev bump) | M    | planned | S17, OQ-04               |
-| S19 | Admin UI (buildless dashboard/upload/edit)           | L    | planned | S17, S18                 |
+| ID  | Slice                                                | Size | Status      | Depends on               |
+| --- | ---------------------------------------------------- | ---- | ----------- | ------------------------ |
+| S15 | Admin API: list & detail                             | M    | done        | S10, S12, S16            |
+| S16 | Access JWT verification (defense-in-depth gate)      | M    | done        | S14, OQ-12               |
+| S17 | Upload & publish API (multipart, manifest, kinds)    | L    | in-progress | S12, S16, OQ-04/05/06/11 |
+| S18 | Edit & delete API (PATCH/DELETE, file ops, rev bump) | M    | planned     | S17, OQ-04               |
+| S19 | Admin UI (buildless dashboard/upload/edit)           | L    | planned     | S17, S18                 |
 
 ### M4 — Setup & deploy (human-run; unit-tested with mocks)
 

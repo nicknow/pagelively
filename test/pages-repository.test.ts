@@ -393,6 +393,188 @@ describe("createPagesRepository", () => {
     });
   });
 
+  // --- create ---
+
+  describe("create", () => {
+    it("inserts a new page and returns the record", async () => {
+      const now = isoNow();
+      const page = {
+        id: "newpage000",
+        slug: "new-page",
+        title: "New Page",
+        kind: "html" as const,
+        rev: 1,
+        entry_path: "index.html",
+        raw_md_path: null,
+        show_source: 0 as const,
+        visibility: "public" as const,
+        created_at: now,
+        updated_at: now,
+      };
+      const created = await repo.create(page);
+      expect(created).toEqual(page);
+
+      const row = await db.prepare("SELECT * FROM pages WHERE id = ?").bind(page.id).first();
+      expect(row).toMatchObject({ id: page.id, slug: page.slug, title: page.title });
+    });
+
+    it("throws db_write_failed (500) when the insert fails", async () => {
+      const badRepo = createPagesRepository({
+        prepare: () => {
+          throw new Error("simulated write failure");
+        },
+      } as unknown as D1Database);
+      const now = isoNow();
+      await expect(
+        badRepo.create({
+          id: "newpage001",
+          slug: null,
+          title: "X",
+          kind: "html",
+          rev: 1,
+          entry_path: "index.html",
+          raw_md_path: null,
+          show_source: 0,
+          visibility: "public",
+          created_at: now,
+          updated_at: now,
+        }),
+      ).rejects.toMatchObject({
+        code: "db_write_failed",
+        status: 500,
+      });
+    });
+  });
+
+  // --- updateMeta (stub) ---
+
+  describe("updateMeta", () => {
+    it("throws 'not implemented' (it is a stub for S18)", async () => {
+      await expect(repo.updateMeta("page000001", { title: "New" })).rejects.toThrow(
+        "not implemented",
+      );
+    });
+  });
+
+  // --- applyRevBump ---
+
+  describe("applyRevBump", () => {
+    it("updates rev, entry_path, raw_md_path, and updated_at", async () => {
+      const pageId = "revpage000";
+      const t1 = "2026-01-01T00:00:00.000Z";
+      await insertPage(db, {
+        id: pageId,
+        slug: "rev-page",
+        rev: 1,
+        entry_path: "index.html",
+        raw_md_path: "source.md",
+        created_at: t1,
+        updated_at: t1,
+      });
+
+      const updated = await repo.applyRevBump(pageId, 2, "new/index.html", null);
+      expect(updated).not.toBeNull();
+      expect(updated!.rev).toBe(2);
+      expect(updated!.entry_path).toBe("new/index.html");
+      expect(updated!.raw_md_path).toBeNull();
+      expect(updated!.updated_at).not.toBe(t1);
+      expect(updated!.created_at).toBe(t1);
+
+      const row = await db.prepare("SELECT * FROM pages WHERE id = ?").bind(pageId).first();
+      expect(row).toMatchObject({ rev: 2, entry_path: "new/index.html", raw_md_path: null });
+    });
+
+    it("returns null for an unknown id", async () => {
+      const updated = await repo.applyRevBump("Unknown000", 2, "index.html", null);
+      expect(updated).toBeNull();
+    });
+
+    it("throws invalid_id (400) for an invalid id", async () => {
+      await expect(repo.applyRevBump("bad/id", 2, "index.html", null)).rejects.toMatchObject({
+        code: "invalid_id",
+        status: 400,
+      });
+    });
+
+    it("throws db_write_failed (500) when the update fails", async () => {
+      const badRepo = createPagesRepository({
+        prepare: () => {
+          throw new Error("simulated write failure");
+        },
+      } as unknown as D1Database);
+      await expect(badRepo.applyRevBump("validId000", 2, "index.html", null)).rejects.toMatchObject(
+        {
+          code: "db_write_failed",
+          status: 500,
+        },
+      );
+    });
+  });
+
+  // --- delete ---
+
+  describe("delete", () => {
+    it("deletes a page and returns true", async () => {
+      const pageId = "delpage000";
+      await insertPage(db, { id: pageId, slug: "del-page" });
+      expect(await repo.delete(pageId)).toBe(true);
+      const row = await db.prepare("SELECT * FROM pages WHERE id = ?").bind(pageId).first();
+      expect(row).toBeNull();
+    });
+
+    it("returns false for an unknown id", async () => {
+      expect(await repo.delete("Unknown000")).toBe(false);
+    });
+
+    it("throws invalid_id (400) for an invalid id", async () => {
+      await expect(repo.delete("bad/id")).rejects.toMatchObject({
+        code: "invalid_id",
+        status: 400,
+      });
+    });
+
+    it("cascades file rows when a page is deleted", async () => {
+      const pageId = "delpage001";
+      await insertPage(db, { id: pageId, slug: "del-page" });
+      await db
+        .prepare(
+          "INSERT INTO files (page_id, path, r2_key, content_type, size) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(pageId, "style.css", "pages/delpage001/1/style.css", "text/css", 100)
+        .run();
+      await repo.delete(pageId);
+      const files = await db
+        .prepare("SELECT * FROM files WHERE page_id = ?")
+        .bind(pageId)
+        .all<Record<string, unknown>>();
+      expect(files.results).toHaveLength(0);
+    });
+
+    it("throws db_write_failed (500) when the delete fails", async () => {
+      const badRepo = createPagesRepository({
+        prepare: () => {
+          throw new Error("simulated write failure");
+        },
+      } as unknown as D1Database);
+      await expect(badRepo.delete("validId000")).rejects.toMatchObject({
+        code: "db_write_failed",
+        status: 500,
+      });
+    });
+
+    it("throws db_write_failed (500) when D1 throws a non-Error value", async () => {
+      const badRepo = createPagesRepository({
+        prepare: () => {
+          throw "simulated string failure";
+        },
+      } as unknown as D1Database);
+      await expect(badRepo.delete("validId000")).rejects.toMatchObject({
+        code: "db_write_failed",
+        status: 500,
+      });
+    });
+  });
+
   // --- failure modes ---
 
   describe("failure modes", () => {

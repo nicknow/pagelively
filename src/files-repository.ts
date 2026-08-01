@@ -21,7 +21,16 @@ export interface FileRecord {
   size: number;
 }
 
+export interface NewFile {
+  path: string;
+  r2_key: string;
+  content_type: string;
+  size: number;
+}
+
 export interface FilesRepository {
+  replaceAll(pageId: string, rev: number, files: NewFile[]): Promise<void>;
+  deleteFile(pageId: string, path: string): Promise<boolean>;
   listForPage(pageId: string): Promise<FileRecord[]>;
 }
 
@@ -53,8 +62,51 @@ function wrapDbError(error: unknown): AppError {
   return new AppError("db_read_failed", 500, "Database read failed.", message);
 }
 
+function wrapDbWriteError(error: unknown): AppError {
+  const message = error instanceof Error ? error.message : "Unexpected database error";
+  return new AppError("db_write_failed", 500, "Database write failed.", message);
+}
+
+/** D1 batch is limited to 100 statements; leave a small margin. */
+const BATCH_SIZE = 95;
+
 export function createFilesRepository(db: D1Database): FilesRepository {
   return {
+    async replaceAll(pageId: string, rev: number, files: NewFile[]): Promise<void> {
+      assertValidId(pageId);
+      void rev;
+      try {
+        const deleteStatement = db.prepare("DELETE FROM files WHERE page_id = ?").bind(pageId);
+        const insertStatements = files.map((file) =>
+          db
+            .prepare(
+              "INSERT INTO files (page_id, path, r2_key, content_type, size) VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(pageId, file.path, file.r2_key, file.content_type, file.size),
+        );
+        const allStatements = [deleteStatement, ...insertStatements];
+        for (let i = 0; i < allStatements.length; i += BATCH_SIZE) {
+          const chunk = allStatements.slice(i, i + BATCH_SIZE);
+          await db.batch(chunk);
+        }
+      } catch (error) {
+        throw wrapDbWriteError(error);
+      }
+    },
+
+    async deleteFile(pageId: string, path: string): Promise<boolean> {
+      assertValidId(pageId);
+      try {
+        const result = await db
+          .prepare("DELETE FROM files WHERE page_id = ? AND path = ?")
+          .bind(pageId, path)
+          .run();
+        return result.meta.changes > 0;
+      } catch (error) {
+        throw wrapDbWriteError(error);
+      }
+    },
+
     async listForPage(pageId: string): Promise<FileRecord[]> {
       assertValidId(pageId);
       try {

@@ -90,7 +90,7 @@ describe("index.ts — admin/api JWT gate", () => {
     expect(await res.json()).toEqual([]);
   });
 
-  it("POST /api/pages with a valid token returns 405 Method Not Allowed", async () => {
+  it("POST /api/pages with a valid token reaches the publish endpoint", async () => {
     const requestEnv = makeEnv({ ACCESS_TEAM_DOMAIN: TEAM_DOMAIN, ACCESS_AUD: ACCESS_AUD });
     const res = await worker.fetch(
       new Request("https://pages.example.com/api/pages", {
@@ -100,9 +100,9 @@ describe("index.ts — admin/api JWT gate", () => {
       requestEnv,
       createExecutionContext(),
     );
-    expect(res.status).toBe(405);
+    expect(res.status).toBe(400);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "method_not_allowed" });
+    expect(await res.json()).toEqual({ error: "invalid_form_data" });
   });
 
   it("GET /admin/dashboard with a valid token returns the placeholder HTML 404 response", async () => {
@@ -147,6 +147,48 @@ describe("index.ts — admin/api JWT gate", () => {
     expect(res.status).toBe(403);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
     expect(await res.json()).toEqual({ error: "Forbidden" });
+  });
+
+  it("PATCH /api/pages returns 405 method_not_allowed", async () => {
+    const res = await worker.fetch(
+      new Request("https://pages.example.com/api/pages", {
+        method: "PATCH",
+        headers: { "Cf-Access-Jwt-Assertion": await validToken() },
+      }),
+      makeEnv({ ACCESS_TEAM_DOMAIN: TEAM_DOMAIN, ACCESS_AUD: ACCESS_AUD }),
+      createExecutionContext(),
+    );
+    expect(res.status).toBe(405);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(await res.json()).toEqual({ error: "method_not_allowed" });
+  });
+
+  it("DELETE /api/pages returns 405 method_not_allowed", async () => {
+    const res = await worker.fetch(
+      new Request("https://pages.example.com/api/pages", {
+        method: "DELETE",
+        headers: { "Cf-Access-Jwt-Assertion": await validToken() },
+      }),
+      makeEnv({ ACCESS_TEAM_DOMAIN: TEAM_DOMAIN, ACCESS_AUD: ACCESS_AUD }),
+      createExecutionContext(),
+    );
+    expect(res.status).toBe(405);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(await res.json()).toEqual({ error: "method_not_allowed" });
+  });
+
+  it("PUT /api/pages returns 405 method_not_allowed", async () => {
+    const res = await worker.fetch(
+      new Request("https://pages.example.com/api/pages", {
+        method: "PUT",
+        headers: { "Cf-Access-Jwt-Assertion": await validToken() },
+      }),
+      makeEnv({ ACCESS_TEAM_DOMAIN: TEAM_DOMAIN, ACCESS_AUD: ACCESS_AUD }),
+      createExecutionContext(),
+    );
+    expect(res.status).toBe(405);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(await res.json()).toEqual({ error: "method_not_allowed" });
   });
 
   it("public routes remain unauthenticated", async () => {

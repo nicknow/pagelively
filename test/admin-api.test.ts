@@ -4,6 +4,7 @@ import { createExecutionContext } from "cloudflare:test";
 import { handleListPages, handleGetPage } from "../src/admin-api";
 import { createPagesRepository } from "../src/pages-repository";
 import { createFilesRepository } from "../src/files-repository";
+import { createObjectStore } from "../src/object-store";
 import { createTestCacheService } from "../src/cache-service";
 import { createConfig } from "../src/config";
 
@@ -79,10 +80,11 @@ function makeDeps() {
   const db = env.DB;
   const pagesRepository = createPagesRepository(db);
   const filesRepository = createFilesRepository(db);
+  const objectStore = createObjectStore(env.BUCKET);
   const cacheService = createTestCacheService();
   const config = makeConfig();
   const verifiedIdentity = { email: "admin@example.com" };
-  return { pagesRepository, filesRepository, cacheService, config, verifiedIdentity };
+  return { pagesRepository, filesRepository, objectStore, cacheService, config, verifiedIdentity };
 }
 
 describe("admin-api handlers", () => {

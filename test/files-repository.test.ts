@@ -214,4 +214,219 @@ describe("createFilesRepository", () => {
       });
     });
   });
+
+  // --- replaceAll ---
+
+  describe("replaceAll", () => {
+    it("deletes existing files and inserts the new batch", async () => {
+      const pageId = "page000100";
+      await insertPage(db, { id: pageId, slug: "replace" });
+      await insertFile(db, {
+        page_id: pageId,
+        path: "old.txt",
+        r2_key: "pages/page000100/1/old.txt",
+        content_type: "text/plain",
+        size: 1,
+      });
+
+      await repo.replaceAll(pageId, 1, [
+        {
+          path: "new.txt",
+          r2_key: "pages/page000100/1/new.txt",
+          content_type: "text/plain",
+          size: 2,
+        },
+      ]);
+
+      const files = (
+        await db
+          .prepare("SELECT * FROM files WHERE page_id = ?")
+          .bind(pageId)
+          .all<Record<string, unknown>>()
+      ).results;
+      expect(files).toHaveLength(1);
+      expect(files[0]).toMatchObject({ path: "new.txt", size: 2 });
+    });
+
+    it("inserts files when none existed", async () => {
+      const pageId = "page000101";
+      await insertPage(db, { id: pageId, slug: "fresh" });
+      await repo.replaceAll(pageId, 1, [
+        { path: "a.txt", r2_key: "pages/page000101/1/a.txt", content_type: "text/plain", size: 1 },
+      ]);
+      const files = (
+        await db
+          .prepare("SELECT * FROM files WHERE page_id = ?")
+          .bind(pageId)
+          .all<Record<string, unknown>>()
+      ).results;
+      expect(files).toHaveLength(1);
+    });
+
+    it("partitions large batches into multiple D1 batches", async () => {
+      const pageId = "page000102";
+      await insertPage(db, { id: pageId, slug: "bulk" });
+      const files = Array.from({ length: 100 }, (_, i) => ({
+        path: `file${i}.txt`,
+        r2_key: `pages/page000102/1/file${i}.txt`,
+        content_type: "text/plain",
+        size: i,
+      }));
+      await repo.replaceAll(pageId, 1, files);
+      const rows = (
+        await db
+          .prepare("SELECT * FROM files WHERE page_id = ?")
+          .bind(pageId)
+          .all<Record<string, unknown>>()
+      ).results;
+      expect(rows).toHaveLength(100);
+    });
+
+    it("throws db_write_failed (500) when the database batch fails", async () => {
+      const badRepo = createFilesRepository({
+        prepare: () => ({
+          bind: () => ({
+            first: async () => null,
+            all: async () => ({ results: [], success: true, meta: {} as D1Meta }),
+            run: async () => ({ success: true, meta: {} as D1Meta }),
+          }),
+        }),
+        batch: () => {
+          throw new Error("simulated batch failure");
+        },
+      } as unknown as D1Database);
+      await expect(
+        badRepo.replaceAll("validId000", 1, [
+          {
+            path: "x.txt",
+            r2_key: "pages/validId000/1/x.txt",
+            content_type: "text/plain",
+            size: 1,
+          },
+        ]),
+      ).rejects.toMatchObject({
+        code: "db_write_failed",
+        status: 500,
+      });
+    });
+
+    it("throws db_write_failed (500) when the database batch throws a non-Error value", async () => {
+      const badRepo = createFilesRepository({
+        prepare: () => ({
+          bind: () => ({
+            first: async () => null,
+            all: async () => ({ results: [], success: true, meta: {} as D1Meta }),
+            run: async () => ({ success: true, meta: {} as D1Meta }),
+          }),
+        }),
+        batch: () => {
+          throw "simulated string failure";
+        },
+      } as unknown as D1Database);
+      await expect(
+        badRepo.replaceAll("validId000", 1, [
+          {
+            path: "x.txt",
+            r2_key: "pages/validId000/1/x.txt",
+            content_type: "text/plain",
+            size: 1,
+          },
+        ]),
+      ).rejects.toMatchObject({
+        code: "db_write_failed",
+        status: 500,
+      });
+    });
+
+    it("throws db_write_failed (500) when prepare fails (statement construction outside batch)", async () => {
+      const badRepo = createFilesRepository({
+        prepare: () => {
+          throw new Error("simulated prepare failure");
+        },
+      } as unknown as D1Database);
+      await expect(
+        badRepo.replaceAll("validId000", 1, [
+          {
+            path: "x.txt",
+            r2_key: "pages/validId000/1/x.txt",
+            content_type: "text/plain",
+            size: 1,
+          },
+        ]),
+      ).rejects.toMatchObject({
+        code: "db_write_failed",
+        status: 500,
+      });
+    });
+
+    it("throws invalid_id (400) for an invalid page id", async () => {
+      await expect(
+        repo.replaceAll("bad/id", 1, [
+          { path: "x.txt", r2_key: "pages/bad/id/1/x.txt", content_type: "text/plain", size: 1 },
+        ]),
+      ).rejects.toMatchObject({
+        code: "invalid_id",
+        status: 400,
+      });
+    });
+  });
+
+  // --- deleteFile ---
+
+  describe("deleteFile", () => {
+    it("deletes a file and returns true", async () => {
+      const pageId = "page000200";
+      await insertPage(db, { id: pageId, slug: "del-file" });
+      await insertFile(db, {
+        page_id: pageId,
+        path: "style.css",
+        r2_key: "pages/page000200/1/style.css",
+        content_type: "text/css",
+        size: 100,
+      });
+      expect(await repo.deleteFile(pageId, "style.css")).toBe(true);
+      const files = await db
+        .prepare("SELECT * FROM files WHERE page_id = ?")
+        .bind(pageId)
+        .all<Record<string, unknown>>();
+      expect(files.results).toHaveLength(0);
+    });
+
+    it("returns false for a non-existent file", async () => {
+      const pageId = "page000201";
+      await insertPage(db, { id: pageId, slug: "del-file" });
+      expect(await repo.deleteFile(pageId, "missing.txt")).toBe(false);
+    });
+
+    it("throws invalid_id (400) for an invalid page id", async () => {
+      await expect(repo.deleteFile("bad/id", "x.txt")).rejects.toMatchObject({
+        code: "invalid_id",
+        status: 400,
+      });
+    });
+
+    it("throws db_write_failed (500) when the database fails", async () => {
+      const badRepo = createFilesRepository({
+        prepare: () => {
+          throw new Error("simulated write failure");
+        },
+      } as unknown as D1Database);
+      await expect(badRepo.deleteFile("validId000", "x.txt")).rejects.toMatchObject({
+        code: "db_write_failed",
+        status: 500,
+      });
+    });
+
+    it("throws db_write_failed (500) when the database throws a non-Error value", async () => {
+      const badRepo = createFilesRepository({
+        prepare: () => {
+          throw "simulated string failure";
+        },
+      } as unknown as D1Database);
+      await expect(badRepo.deleteFile("validId000", "x.txt")).rejects.toMatchObject({
+        code: "db_write_failed",
+        status: 500,
+      });
+    });
+  });
 });

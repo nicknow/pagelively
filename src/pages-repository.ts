@@ -34,10 +34,40 @@ export interface PageRecord {
   updated_at: string;
 }
 
+export interface NewPage {
+  id: string;
+  slug: string | null;
+  title: string;
+  kind: PageKind;
+  rev: number;
+  entry_path: string;
+  raw_md_path: string | null;
+  show_source: 0 | 1;
+  visibility: Visibility;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MetaPatch {
+  slug?: string | null;
+  title?: string;
+  visibility?: Visibility;
+  show_source?: 0 | 1;
+}
+
 export interface PagesRepository {
   getById(id: string): Promise<PageRecord | null>;
   getBySlug(slug: string): Promise<PageRecord | null>;
   list(): Promise<PageRecord[]>;
+  create(p: NewPage): Promise<PageRecord>;
+  updateMeta(id: string, patch: MetaPatch): Promise<PageRecord | null>;
+  applyRevBump(
+    id: string,
+    rev: number,
+    entryPath: string,
+    rawMdPath: string | null,
+  ): Promise<PageRecord | null>;
+  delete(id: string): Promise<boolean>;
   slugTaken(slug: string, exceptId?: string): Promise<boolean>;
   filterVisible(pages: PageRecord[]): PageRecord[];
 }
@@ -98,6 +128,11 @@ function assertValidSlug(slug: string): void {
 function wrapDbError(error: unknown): AppError {
   const message = error instanceof Error ? error.message : "Unexpected database error";
   return new AppError("db_read_failed", 500, "Database read failed.", message);
+}
+
+function wrapDbWriteError(error: unknown): AppError {
+  const message = error instanceof Error ? error.message : "Unexpected database error";
+  return new AppError("db_write_failed", 500, "Database write failed.", message);
 }
 
 export function createPagesRepository(db: D1Database): PagesRepository {
@@ -167,6 +202,72 @@ export function createPagesRepository(db: D1Database): PagesRepository {
         return row !== null;
       } catch (error) {
         throw wrapDbError(error);
+      }
+    },
+
+    async create(p: NewPage): Promise<PageRecord> {
+      try {
+        await db
+          .prepare(
+            `INSERT INTO pages (id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            p.id,
+            p.slug,
+            p.title,
+            p.kind,
+            p.rev,
+            p.entry_path,
+            p.raw_md_path,
+            p.show_source,
+            p.visibility,
+            p.created_at,
+            p.updated_at,
+          )
+          .run();
+        return { ...p };
+      } catch (error) {
+        throw wrapDbWriteError(error);
+      }
+    },
+
+    async updateMeta(id: string, patch: MetaPatch): Promise<PageRecord | null> {
+      void id;
+      void patch;
+      throw new Error("not implemented");
+    },
+
+    async applyRevBump(
+      id: string,
+      rev: number,
+      entryPath: string,
+      rawMdPath: string | null,
+    ): Promise<PageRecord | null> {
+      assertValidId(id);
+      try {
+        const result = await db
+          .prepare(
+            `UPDATE pages
+             SET rev = ?, entry_path = ?, raw_md_path = ?, updated_at = ?
+             WHERE id = ?
+             RETURNING id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, created_at, updated_at`,
+          )
+          .bind(rev, entryPath, rawMdPath, new Date().toISOString(), id)
+          .first<Record<string, unknown>>();
+        return result ? toPageRecord(result) : null;
+      } catch (error) {
+        throw wrapDbWriteError(error);
+      }
+    },
+
+    async delete(id: string): Promise<boolean> {
+      assertValidId(id);
+      try {
+        const result = await db.prepare("DELETE FROM pages WHERE id = ?").bind(id).run();
+        return result.meta.changes > 0;
+      } catch (error) {
+        throw wrapDbWriteError(error);
       }
     },
 

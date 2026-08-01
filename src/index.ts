@@ -25,7 +25,7 @@ import { createObjectStore } from "./object-store";
 import { serveEntry } from "./entry-serve";
 import { createAccessVerifier } from "./access-verify";
 import { createJwksProvider } from "./jwks-provider";
-import { handleListPages, handleGetPage } from "./admin-api";
+import { handleListPages, handleGetPage, handleCreatePage } from "./admin-api";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -91,7 +91,12 @@ export default {
           );
         }
 
-        const adminDeps = { ...deps, cacheService: cache, verifiedIdentity: identity };
+        const adminDeps = {
+          ...deps,
+          objectStore: objects,
+          cacheService: cache,
+          verifiedIdentity: identity,
+        };
 
         if (route.type === "admin") {
           // Placeholder HTML 404 until S19 implements the admin UI.
@@ -107,6 +112,9 @@ export default {
         const pathname = url.pathname;
         if (pathname === "/api/pages" && method === "GET") {
           return await handleListPages(request, ctx, adminDeps);
+        }
+        if (pathname === "/api/pages" && method === "POST") {
+          return await handleCreatePage(request, ctx, adminDeps);
         }
         const detailMatch = pathname.match(/^\/api\/pages\/([^/]+)\/?$/);
         if (detailMatch && method === "GET") {
