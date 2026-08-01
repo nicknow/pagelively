@@ -44,6 +44,21 @@ correct 404 fallback:
 - [ ] `GET /` with a trailing slash (`GET /` only, root has no slash variant) is handled correctly
       — there is no 301 redirect for the root path.
 
+## S10 — D1 pages repository (reads) (added during validation)
+
+The local D1 emulation verifies the schema, SQL, and row mapping; the operator checks the
+production D1 behavior for index coverage and the agreed error surface:
+
+- [ ] `GET /{slug}/` and `GET /p/{id}/` resolve pages with a single-row D1 lookup (no full-table
+      scan for public reads). Confirm via D1 query metrics or `EXPLAIN` that slug lookups use
+      `idx_pages_slug` and id lookups use the primary key.
+- [ ] `GET /admin` (or `GET /api/pages`) list is ordered newest-first; when multiple pages share
+      the same `created_at` timestamp, ordering is deterministic (tie-breaker `id DESC`).
+- [ ] Malformed ids (`/p/bad/id/`) and slugs (`/Admin/`) return 400 with code `invalid_id` or
+      `invalid_slug`; no raw SQLite error text is leaked in the response body.
+- [ ] Internal D1 failures (e.g., unavailable DB) return 500 with code `db_read_failed` and a
+      generic public message; logs contain the original detail but the client does not.
+
 ## Pending sections (to be filled by S20/S22)
 
 - Cloudflare Access login/logout flow

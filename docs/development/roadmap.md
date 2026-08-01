@@ -35,23 +35,23 @@ Status legend: `planned` (default), `in-progress`, `done`, `blocked`. Size: S/M/
 
 ### M1 — Pure logic, infra-light (unit-testable, no bindings)
 
-| ID  | Slice                                   | Size | Status      | Depends on             |
-| --- | --------------------------------------- | ---- | ----------- | ---------------------- |
-| S01 | Slug & id resolution primitives         | L    | done        | —                      |
-| S02 | Reserved-word validation                | S    | done        | S01                    |
-| S03 | Rev handling (bump policy + key layout) | S    | done        | S01, OQ-04             |
-| S04 | `<base>`-tag injection                  | S    | done        | S01, OQ-14             |
-| S05 | Markdown rendering pipeline             | M    | done        | S01, S04, OQ-05, OQ-14 |
-| S06 | Content-type mapping                    | S    | done        | —                      |
-| S07 | Cache-header construction               | S    | done        | S01, OQ-01             |
-| S08 | Trailing-slash redirects & clean 404    | S    | done        | S01                    |
-| S09 | Home-mode behavior                      | S    | done        | S01, S08, OQ-08        |
+| ID  | Slice                                   | Size | Status | Depends on             |
+| --- | --------------------------------------- | ---- | ------ | ---------------------- |
+| S01 | Slug & id resolution primitives         | L    | done   | —                      |
+| S02 | Reserved-word validation                | S    | done   | S01                    |
+| S03 | Rev handling (bump policy + key layout) | S    | done   | S01, OQ-04             |
+| S04 | `<base>`-tag injection                  | S    | done   | S01, OQ-14             |
+| S05 | Markdown rendering pipeline             | M    | done   | S01, S04, OQ-05, OQ-14 |
+| S06 | Content-type mapping                    | S    | done   | —                      |
+| S07 | Cache-header construction               | S    | done   | S01, OQ-01             |
+| S08 | Trailing-slash redirects & clean 404    | S    | done   | S01                    |
+| S09 | Home-mode behavior                      | S    | done   | S01, S08, OQ-08        |
 
 ### M2 — Binding integration (D1/R2/KV via local emulation)
 
 | ID  | Slice                                                        | Size | Status  | Depends on |
 | --- | ------------------------------------------------------------ | ---- | ------- | ---------- |
-| S10 | D1 pages repository (reads)                                  | M    | planned | S01        |
+| S10 | D1 pages repository (reads)                                  | M    | done    | S01        |
 | S11 | R2 object store (key layout + metadata)                      | M    | planned | S03, S06   |
 | S12 | Entry request pipeline (router + serve + 301 + 404 + health) | L    | planned | S01–S11    |
 | S13 | Entry-HTML edge cache integration                            | M    | planned | S12, OQ-01 |
@@ -187,10 +187,11 @@ passes `validateSlug` (S02) → `{ type: "page", slug }`; every other mode/slug 
 surfaced to the user. S12 handles missing-page 404s with `clean404Response` (S08).
 **Done 2026-07-31** (46 unit tests + 3 validator regression tests; `src/home.ts` 100% coverage).
 
-**S10 — D1 pages repository (reads)** — `getById`/`getBySlug`/`listPages` (created_at DESC)
-against the real migrated schema (§8); null on miss; visibility filtering helper; slug
-uniqueness constraint asserted; queries stay index-covered (D1 free tier: 5 M rows
-read/day).
+**S10 — D1 pages repository (reads)** — `getById`/`getBySlug`/`list` (created_at DESC, id DESC)
+against the real migrated schema (§8); null on miss; `filterVisible` helper; `slugTaken`
+uniqueness check with optional `exceptId`; queries stay index-covered (D1 free tier: 5 M rows
+read/day). `PageRecord` uses the architecture 02 / SQL-mapped snake_case fields.
+**Done 2026-07-31** (28 unit tests + 4 validator regression tests; `src/pages-repository.ts` 100% coverage).
 
 **S11 — R2 object store** — put/get/delete/list under `pages/{id}/{rev}/…` (§8); bytes
 round-trip; httpMetadata carries content type + immutable Cache-Control (verified: R2

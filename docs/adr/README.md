@@ -27,6 +27,7 @@ memory.
 | 0016 | [S07 cache-header construction](0016-s07-cache-headers.md)                                                       | Accepted                         |
 | 0017 | [S08 trailing-slash redirects & clean 404](0017-s08-trailing-slash-redirects.md)                                 | Accepted                         |
 | 0018 | [S09 home-mode behavior](0018-s09-home-mode.md)                                                                  | Accepted                         |
+| 0019 | [S10 D1 pages repository — read-only surface](0019-s10-pages-repository-reads.md)                                | Accepted                         |
 
 ## How to write an ADR
 

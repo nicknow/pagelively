@@ -1,0 +1,180 @@
+/**
+ * D1 pages repository — read-only surface (S10).
+ *
+ * Implements the `PagesRepository` contract from `docs/architecture/02-module-boundaries-contracts.md`
+ * using the real migrated schema (`migrations/0001_init.sql`).
+ *
+ * Query discipline:
+ * - `getById`: primary-key lookup.
+ * - `getBySlug`/`slugTaken`: index-covered (`idx_pages_slug`) single-condition reads.
+ * - `list`: admin-only scan, `created_at DESC, id DESC` for deterministic ordering.
+ *
+ * Validation (`validateId` from S01, `validateSlug` from S02) runs before any SQL
+ * interpolation/binding so malformed input never reaches the database.
+ */
+
+import { AppError } from "./errors";
+import { validateId } from "./ids";
+import { validateSlug } from "./slug";
+
+type PageKind = "image" | "html" | "markdown" | "bundle";
+type Visibility = "public" | "unlisted";
+
+export interface PageRecord {
+  id: string;
+  slug: string | null;
+  title: string;
+  kind: PageKind;
+  rev: number;
+  entry_path: string;
+  raw_md_path: string | null;
+  show_source: 0 | 1;
+  visibility: Visibility;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PagesRepository {
+  getById(id: string): Promise<PageRecord | null>;
+  getBySlug(slug: string): Promise<PageRecord | null>;
+  list(): Promise<PageRecord[]>;
+  slugTaken(slug: string, exceptId?: string): Promise<boolean>;
+  filterVisible(pages: PageRecord[]): PageRecord[];
+}
+
+/**
+ * SQLite/D1 returns integers as `number` (safe for our rev values) and may
+ * return `null` for nullable columns. The schema also stores booleans as `0|1`.
+ * This function validates the row shape before casting to `PageRecord`.
+ */
+function toPageRecord(row: Record<string, unknown>): PageRecord {
+  const rev = Number(row.rev);
+  const show_source = Number(row.show_source) as 0 | 1;
+  if (!Number.isInteger(rev) || rev < 1) {
+    throw new AppError("db_read_failed", 500, "Invalid rev value from database.", { rev: row.rev });
+  }
+  if (show_source !== 0 && show_source !== 1) {
+    throw new AppError("db_read_failed", 500, "Invalid show_source value from database.", {
+      show_source: row.show_source,
+    });
+  }
+
+  const visibility = row.visibility ?? "public";
+  if (visibility !== "public" && visibility !== "unlisted") {
+    throw new AppError("db_read_failed", 500, "Invalid visibility value from database.", {
+      visibility,
+    });
+  }
+
+  return {
+    id: String(row.id),
+    slug: row.slug === null || row.slug === undefined ? null : String(row.slug),
+    title: String(row.title ?? ""),
+    kind: String(row.kind) as PageKind,
+    rev,
+    entry_path: String(row.entry_path),
+    raw_md_path:
+      row.raw_md_path === null || row.raw_md_path === undefined ? null : String(row.raw_md_path),
+    show_source,
+    visibility: visibility as Visibility,
+    created_at: String(row.created_at),
+    updated_at: String(row.updated_at),
+  };
+}
+
+function assertValidId(id: string): void {
+  if (!validateId(id)) {
+    throw new AppError("invalid_id", 400, "Invalid page id.");
+  }
+}
+
+function assertValidSlug(slug: string): void {
+  const result = validateSlug(slug);
+  if (!result.ok) {
+    throw result.error;
+  }
+}
+
+function wrapDbError(error: unknown): AppError {
+  const message = error instanceof Error ? error.message : "Unexpected database error";
+  return new AppError("db_read_failed", 500, "Database read failed.", message);
+}
+
+export function createPagesRepository(db: D1Database): PagesRepository {
+  return {
+    async getById(id: string): Promise<PageRecord | null> {
+      assertValidId(id);
+      try {
+        const row = await db
+          .prepare(
+            `SELECT id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, created_at, updated_at
+             FROM pages
+             WHERE id = ?`,
+          )
+          .bind(id)
+          .first<Record<string, unknown>>();
+        return row ? toPageRecord(row) : null;
+      } catch (error) {
+        throw wrapDbError(error);
+      }
+    },
+
+    async getBySlug(slug: string): Promise<PageRecord | null> {
+      assertValidSlug(slug);
+      try {
+        const row = await db
+          .prepare(
+            `SELECT id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, created_at, updated_at
+             FROM pages
+             WHERE slug = ?`,
+          )
+          .bind(slug)
+          .first<Record<string, unknown>>();
+        return row ? toPageRecord(row) : null;
+      } catch (error) {
+        throw wrapDbError(error);
+      }
+    },
+
+    async list(): Promise<PageRecord[]> {
+      try {
+        const result = await db
+          .prepare(
+            `SELECT id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, created_at, updated_at
+             FROM pages
+             ORDER BY created_at DESC, id DESC`,
+          )
+          .all<Record<string, unknown>>();
+        return result.results.map(toPageRecord);
+      } catch (error) {
+        throw wrapDbError(error);
+      }
+    },
+
+    async slugTaken(slug: string, exceptId?: string): Promise<boolean> {
+      assertValidSlug(slug);
+      if (exceptId !== undefined) {
+        assertValidId(exceptId);
+      }
+      try {
+        const query =
+          exceptId === undefined
+            ? db.prepare("SELECT 1 FROM pages WHERE slug = ? LIMIT 1").bind(slug)
+            : db
+                .prepare("SELECT 1 FROM pages WHERE slug = ? AND id != ? LIMIT 1")
+                .bind(slug, exceptId);
+        const row = await query.first<Record<string, unknown>>();
+        return row !== null;
+      } catch (error) {
+        throw wrapDbError(error);
+      }
+    },
+
+    filterVisible(pages: PageRecord[]): PageRecord[] {
+      return pages.filter(
+        (page) =>
+          page.visibility === "public" || page.visibility === null || page.visibility === undefined,
+      );
+    },
+  };
+}
