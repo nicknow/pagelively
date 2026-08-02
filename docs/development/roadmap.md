@@ -589,6 +589,10 @@ re-verified 2026-08-01.
 | OQ-12 | `ACCESS_TEAM_DOMAIN` bare domain vs URL.                                                                                      | §9, §12  | Store bare; code prepends `https://`; strip scheme defensively.                                                                                                        | Architect         | S16           | decided            |
 | OQ-13 | "Re-render all Markdown" (§7) vs deferred (§17).                                                                              | §7, §17  | Defer per §17; roadmap records it.                                                                                                                                     | Human             | —             | decided            |
 | OQ-14 | Base tag: bake into markdown template (§7) vs serve-time injection (§6).                                                      | §6, §7   | Uniform serve-time injection; template links stay relative; no stale-rev risk; no rev bump on show_source toggle.                                                      | Architect + human | S04, S05, S12 | decided            |
+| OQ-15 | User-entered slug on create/edit: clean instead of reject?                                                                    | §4, §12  | Clean where fixable (trim, lowercase, disallowed runs → `-`, truncate to 64) and echo the cleaned slug; reject only empty/reserved-after-cleaning with an actionable message (T1). | Architect + human | T1 (S02/S17/S18) | open               |
+| OQ-16 | Deleting `source.md` from a Markdown page: what happens to `kind`/`raw_md_path`/`show_source`?                                 | §8, §12  | Allow the delete; keep the rendered `index.html`; set `raw_md_path = NULL`; re-adding a `.md` restores it. Kind stays `markdown` (records how it was created) unless human prefers `html` (T2). | Human            | T2 (S18)         | open               |
+| OQ-17 | Paste-content API shape: JSON body vs multipart `content` field; create-only vs also replace-on-edit.                          | §10      | Recommend `POST /api/pages` accepts `application/json` `{ content, format: html|markdown, … }` (create-only first; replace-on-edit is a follow-up) — one endpoint, no multipart overhead for text (T4). | Architect         | T4 (S17)         | open               |
+| OQ-18 | Admin UI modernization: framework vs buildless.                                                                                | §15      | Recommend buildless overhaul (design tokens, modern responsive layout, toasts, inline feedback) — zero new deps, stays within Workers free limit; framework/SPA documented deferred (T3). | Human            | T3 (S19)         | open               |
 
 ---
 
@@ -684,3 +688,20 @@ Miniflare emulates Workers Caching HITs (S13 test strategy, risk R15), and **kee
 and entry handlers on the same Worker entrypoint** — `ctx.cache.purge` is entrypoint-scoped,
 and splitting entrypoints would break purge-on-publish unless reworked. Re-verify every
 platform fact in §6 against current docs before locking an ADR that depends on it.
+
+---
+
+## 9. Post-S22 task backlog (2026-08-02, user-requested)
+
+Small user-requested field tasks, planned and executed in dependency order
+**T1 → T2 → T4 → T3** (independent/self-contained first; the admin-UI overhaul
+last so it restyles the new surfaces in one pass). Each is a normal
+test-first slice with the standard gates; the three OQ rows above (OQ-15..OQ-18)
+are resolved during planning, human-approved for the user-visible ones.
+
+| ID | Task | State | Why this order | Dependencies |
+| --- | --- | --- | --- | --- |
+| T1 | **Slug feedback + auto-clean** — `invalid_slug` should be rare: clean user-entered slugs (trim, lowercase, disallowed runs → `-`, length truncate) before rejecting; reject only empty/reserved-after-cleaning with an actionable message; echo the cleaned slug to the UI. | planned | Smallest, self-contained, pure logic + one API surface; de-risks the shared `slug.ts` before other tasks touch it. | OQ-15 |
+| T2 | **Delete `source.md`** — currently blocked by `entry_not_deletable` (`isProtectedEntryPath`). Allow deleting the raw markdown source while keeping the rendered `index.html`; set `raw_md_path = NULL`; re-adding a `.md` restores it; entry `index.html` stays protected. | planned | Touches the same entry/source semantics T4 will use (render pipeline, `prepareEntryFiles`); land first to avoid conflicts. | OQ-16 |
+| T4 | **Paste HTML/Markdown** — publish API accepts pasted text (create-only first) instead of a file; Markdown goes through the same render pipeline (`source.md` + `index.html`). | planned | Rides on the entry/source machinery T2 settled; a new API surface the UI overhaul (T3) will style. | OQ-17 |
+| T3 | **Admin UI modernization** — modern, friendly look; buildless CSS overhaul + UX polish (toasts, inline slug feedback, disabled states) recommended; framework decision per OQ-18. | planned | Last: restyles the surfaces T1/T2/T4 introduce in a single pass instead of twice. | OQ-18 |
