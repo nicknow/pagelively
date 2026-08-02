@@ -1,7 +1,7 @@
 # Pagelively — Development Roadmap (living plan)
 
 Status: **approved** (human, 2026-07-30) — Phase 1 plan locked; Phase 2 (architecture) next.
-Last updated: 2026-08-01.
+Last updated: 2026-08-02.
 
 Source of truth for _what_ we build: `docs/product-spec.md` (§refs below point at it). This
 roadmap is the slice-by-slice plan: ordering, acceptance criteria, risks, open questions.
@@ -485,7 +485,9 @@ a no-op) and scoped-app responders in the provisioning/headless/auth suites. Gat
 coverage 99.69/97.26/97.83/99.91; build dry-run ok. ADR 0029 Consequences records the fix
 (including the first-match reconcile limitation);
 operator checklist S20 gained the live "public URLs load with no Access prompt" regression
-check.
+check. **Verified live 2026-08-02:** the user re-ran `npm run setup` (existing app reconciled
+via PUT) and confirmed `https://n.3a8r.com/sadds-sdsd/` loads with **no** Access prompt while
+`/admin` still prompts — merged to `main` (`1e0a09a`).
 
 ---
 
