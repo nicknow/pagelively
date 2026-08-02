@@ -276,7 +276,8 @@ validation, ADR 0012): `validateId` before every `buildR2Key` call (see S15 NOTE
 thresholds).
 
 **S19 — Admin UI** — `GET /admin` dashboard (title, slug, id, kind, created, view/edit/
-delete links); upload form (multi-file, `webkitdirectory`, slug, show-source, entry picker
+delete links); upload form (separate multi-file picker + folder picker with
+`webkitdirectory`, slug, show-source, entry picker
 when ambiguous) posting multipart to S17; edit form pre-filled; delete with confirm;
 verified email shown (§9); "Pagelively" product name present (§10); empty state CTA;
 API errors surfaced; buildless (§10, §14). Admin UI handlers load data directly from
@@ -393,6 +394,29 @@ old code), `domain` + `enabled: true` — and assert the error path carries stat
 `errors[]` body (`[9999] something`). Verified facts recorded in ADR 0029 (assumption now
 confirmed against the live API + official schema) and spec §13 step 9. Suite now: 1076 tests
 / 38 files; coverage 99.69/97.26/97.83/99.91 (threshold 85/85/80/85); bundle unchanged.
+
+**Field fix 2026-08-01** (upload picker forced directory-only): the upload form's
+`<input id="files" … multiple webkitdirectory>` and the edit page's
+`<input id="add-files" … multiple webkitdirectory>` forced directory-only selection — the
+user could not pick loose files at all ("it only lets me select a directory"),
+because `webkitdirectory` on the same input as `multiple` makes browsers ignore loose-file
+selection. Fixed test-first in `src/admin-ui.ts` (the only `src/` file changed; API contract
+untouched — multipart parts are still `file:<relative-path>` + `manifest`, no changes to
+form-parser/admin-api/rev/R2/D1/KV): each form now has a `multiple`-only files input
+(`#files`, `#add-files`) plus a separate opt-in folder input (`#folder`, `#add-folder`) with
+`webkitdirectory`; the inline JS reads the union of both inputs
+(`Array.from(filesInput.files || []).concat(Array.from(folderInput.files || []))`), keeps the
+`webkitRelativePath || name` fallback, registers the entry picker on both inputs' `change`
+events, and shows "Choose at least one file or folder." on an empty union. Tests pin the split
+in `test/admin-ui.test.ts`: `#files` and `#add-files` have `multiple` and NOT
+`webkitdirectory`; `#folder` and `#add-folder` HAVE `webkitdirectory`; the inline scripts
+reference both input ids, the `selectedFiles()` union helper, and the
+"Choose at least one file or folder." empty-union guard (regression-pinned). Docs updated:
+ADR 0028 §4, `docs/api/admin-ui.md`,
+spec §10 (pickers are separate), this roadmap, `docs/operations/smoke-test-checklist.md`
+(which gained an operator browser check that a deploy succeeds with both pickers in use).
+Suite now: 1077 tests / 38 files; coverage 99.69/97.26/97.83/99.91 (threshold
+85/85/80/85); bundle 147.42 KiB raw / 35.01 KiB gzip.
 
 **S21 — GitHub Actions + quickstart** — manual-dispatch `deploy.yml` using repo secrets
 (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `ADMIN_EMAILS`) running `npm ci` +

@@ -309,7 +309,10 @@ delete.
 
 **Create / upload:**
 - Drag‑and‑drop or file picker. Supports **multiple files** and **folder upload**
-  (`<input webkitdirectory>`), which preserves relative paths for bundles.
+  (`<input webkitdirectory>`), which preserves relative paths for bundles. These are two
+  separate pickers: a `multiple`-only files picker plus an opt-in folder picker
+  (`webkitdirectory`) — `webkitdirectory` on the same input as `multiple` forces
+  directory-only selection, so the split is what lets users pick loose files *and* folders.
 - The client sends a small **manifest** (which file is the entry, each file's relative path)
   plus the file bytes as `multipart/form-data`. The Worker reads it via `request.formData()`.
 - **Entry detection:** if exactly one `.html`/`.md` is present, it's the entry automatically.

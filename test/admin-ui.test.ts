@@ -179,8 +179,15 @@ describe("index.ts — admin UI", () => {
     expect(text).toContain("multipart/form-data");
     expect(text).toContain('action="/api/pages"');
     expect(text).toContain("file:<path>");
-    expect(text).toContain("webkitdirectory");
-    expect(text).toContain("multiple");
+    // AC1: #files is the primary multiple-files picker — never webkitdirectory.
+    const filesTag = text.match(/<input[^>]*\bid="files"[^>]*>/)?.[0] ?? "";
+    expect(filesTag).toContain("multiple");
+    expect(filesTag).not.toContain("webkitdirectory");
+    // AC2: folder upload is a separate opt-in webkitdirectory picker.
+    const folderTag = text.match(/<input[^>]*\bid="folder"[^>]*>/)?.[0] ?? "";
+    expect(folderTag).toContain("multiple");
+    expect(folderTag).toContain("webkitdirectory");
+    expect(text).toContain("or upload a folder (preserves relative paths)");
     expect(text).toContain("slug");
     expect(text).toContain("title");
     expect(text).toContain("public");
@@ -228,6 +235,42 @@ describe("index.ts — admin UI", () => {
     expect(text).toContain("style.css");
     expect(text).toContain("/api/pages/page000003");
     expect(text).toContain("/api/pages/page000003/files");
+  });
+
+  it("edit page splits add-files into a multiple-only picker and a separate folder picker", async () => {
+    const db = env.DB;
+    const pageId = "page000006";
+    await insertPage(db, {
+      id: pageId,
+      slug: "split-picker",
+      title: "Split Picker",
+      kind: "html",
+      visibility: "public",
+    });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "index.html",
+      r2_key: `pages/${pageId}/1/index.html`,
+      content_type: "text/html; charset=utf-8",
+      size: 100,
+    });
+
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // AC3: #add-files picks loose files (multiple, no webkitdirectory)…
+    const addFilesTag = text.match(/<input[^>]*\bid="add-files"[^>]*>/)?.[0] ?? "";
+    expect(addFilesTag).toContain("multiple");
+    expect(addFilesTag).not.toContain("webkitdirectory");
+    // …while a separate #add-folder picker keeps folder upload (relative paths).
+    const addFolderTag = text.match(/<input[^>]*\bid="add-folder"[^>]*>/)?.[0] ?? "";
+    expect(addFolderTag).toContain("multiple");
+    expect(addFolderTag).toContain("webkitdirectory");
+    // The add-files form script reads the union of both pickers.
+    expect(text).toContain("getElementById('add-folder')");
+    expect(text).toContain("concat(Array.from(addFolderInput.files || []))");
+    // Empty-union guard message is regression-pinned.
+    expect(text).toContain("Choose at least one file or folder.");
   });
 
   it("GET /admin/edit/:id returns 404 for a missing page", async () => {
@@ -303,10 +346,15 @@ describe("index.ts — admin UI", () => {
     expect(text).toContain("function isDocument(name)");
     expect(text).toContain("function isImage(name)");
     expect(text).toContain("function updateEntryPicker()");
+    expect(text).toContain("function selectedFiles()");
     expect(text).toContain("entry-field");
     expect(text).toContain('id="entry"');
-    expect(text).toContain("webkitdirectory");
-    expect(text).toContain("multiple");
+    // AC4: the inline script reads the UNION of both pickers, not #files alone.
+    expect(text).toContain("getElementById('files')");
+    expect(text).toContain("getElementById('folder')");
+    expect(text).toContain("concat(Array.from(folderInput.files || []))");
+    // Empty-union guard message is regression-pinned.
+    expect(text).toContain("Choose at least one file or folder.");
   });
 
   it("dashboard displays the verified email from the Access token", async () => {

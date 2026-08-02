@@ -62,10 +62,22 @@ The upload form builds a `multipart/form-data` body identical to the S17 API con
 - one JSON `manifest` field (`{ slug?, title?, showSource?, visibility?, entry? }`), and
 - one file part per file keyed `file:<relative-path>`.
 
-Browser `webkitdirectory` and `multiple` uploads provide `webkitRelativePath` for folder
-uploads; the JS falls back to `file.name` for single files. The entry picker is shown only when
-the entry is ambiguous (more than one document/image candidate). If exactly one HTML/MD file is
-present, the picker is hidden and the entry is auto-detected.
+Browser uploads come from **two separate file pickers**: the primary `#files` input is
+`multiple`-only (so the user can pick one or more loose files), and folder upload — which
+preserves relative paths — is an opt-in `#add-folder`/`#folder` input with `webkitdirectory`.
+Putting `webkitdirectory` on the same input as `multiple` forces directory-only selection in
+browsers, so the split is required to support both spec §10 behaviors. The JS unifies both
+sources via `webkitRelativePath || name` and falls back to `file.name` for loose files. The
+entry picker is shown only when the entry is ambiguous (more than one document/image
+candidate). If exactly one HTML/MD file is present, the picker is hidden and the entry is
+auto-detected.
+
+> **Field fix 2026-08-01:** the original S19 implementation combined `multiple` and
+> `webkitdirectory` on one input (`#files`, `#add-files`), which forced directory-only
+> selection — users could not pick loose files. Split into a `multiple`-only files input plus
+> a separate `webkitdirectory` folder input on both the upload and edit pages; the inline JS
+> reads the union of both inputs. Pinned by regression tests in `test/admin-ui.test.ts` (see
+> the field-fix entry in `docs/development/roadmap.md`).
 
 ### 5. Forms use `fetch` for PATCH/DELETE and multipart
 

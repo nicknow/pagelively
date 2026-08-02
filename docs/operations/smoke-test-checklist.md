@@ -383,7 +383,8 @@ end-to-end flows behind Cloudflare Access:
       working View, Edit, and Delete links.
 - [ ] When no pages exist, the dashboard shows an "Upload your first page" CTA that links to
       `/admin/upload`.
-- [ ] `GET /admin/upload` returns a form with file input (`multiple` + `webkitdirectory`), slug,
+- [ ] `GET /admin/upload` returns a form with a `multiple`-only files input (`#files`), a
+      separate folder input (`#folder`, `webkitdirectory`), slug,
       title, visibility radios, show-source checkbox, and an entry picker that appears when the
       entry is ambiguous.
 - [ ] Uploading a single `.html` file creates a page; the browser is redirected back to `/admin`.
@@ -391,6 +392,8 @@ end-to-end flows behind Cloudflare Access:
       `source.md` link in the rendered page.
 - [ ] Uploading a folder with multiple files (one `.html` entry) preserves relative paths and the
       page is served correctly.
+- [ ] Admin → Upload: with both the loose-files picker and the folder picker in use, a deploy
+      succeeds (validates the files + folder union end-to-end in a real browser).
 - [ ] Uploading multiple entry candidates without selecting the entry shows an inline error from
       the API (`ambiguous_entry`).
 - [ ] `GET /admin/edit/:id` pre-fills slug, title, visibility, and show-source, lists the current

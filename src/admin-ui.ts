@@ -180,13 +180,21 @@ export async function handleAdminDashboard(
 function uploadContent(): string {
   return `<div class="card">
     <h2>Upload a page</h2>
-    <p class="hint">Select one or more files. Folder uploads preserve relative paths.</p>
+    <p class="hint">Choose one or more files, or upload a folder to preserve its relative paths.</p>
     <!-- Multipart convention: manifest JSON field + file:<path> file parts -->
     <form id="upload-form" action="/api/pages" method="POST" enctype="multipart/form-data">
       <div class="error" id="upload-error" role="alert"></div>
+      <!-- Two pickers: webkitdirectory on the same input as multiple forces
+           directory-only selection, so loose files live on #files (multiple-only)
+           and folder upload (relative paths, spec §10) is a separate opt-in input.
+           The JS unifies both via webkitRelativePath || name. -->
       <label>
         Files
-        <input type="file" name="files" id="files" multiple webkitdirectory>
+        <input type="file" name="files" id="files" multiple>
+      </label>
+      <label>
+        or upload a folder (preserves relative paths)
+        <input type="file" name="folder" id="folder" multiple webkitdirectory>
       </label>
       <label>
         Slug <span class="hint">(optional)</span>
@@ -224,11 +232,16 @@ function uploadContent(): string {
   <script>
     const form = document.getElementById('upload-form');
     const filesInput = document.getElementById('files');
+    const folderInput = document.getElementById('folder');
     const manifestInput = document.getElementById('manifest');
     const entryField = document.getElementById('entry-field');
     const entrySelect = document.getElementById('entry');
     const errorBox = document.getElementById('upload-error');
     const documentExts = ['.html', '.htm', '.md', '.markdown'];
+
+    function selectedFiles() {
+      return Array.from(filesInput.files || []).concat(Array.from(folderInput.files || []));
+    }
 
     function isDocument(name) {
       const lower = name.toLowerCase();
@@ -241,7 +254,7 @@ function uploadContent(): string {
     }
 
     function buildManifest() {
-      const files = Array.from(filesInput.files || []);
+      const files = selectedFiles();
       const relative = f => f.webkitRelativePath || f.name;
       const manifest = {
         slug: document.getElementById('slug').value || undefined,
@@ -254,7 +267,7 @@ function uploadContent(): string {
     }
 
     function updateEntryPicker() {
-      const files = Array.from(filesInput.files || []);
+      const files = selectedFiles();
       const relative = f => f.webkitRelativePath || f.name;
       const docs = files.filter(f => isDocument(relative(f))).map(relative);
       const images = files.filter(f => isImage(relative(f))).map(relative);
@@ -277,14 +290,15 @@ function uploadContent(): string {
     }
 
     filesInput.addEventListener('change', updateEntryPicker);
+    folderInput.addEventListener('change', updateEntryPicker);
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       errorBox.style.display = 'none';
       errorBox.textContent = '';
-      const files = Array.from(filesInput.files || []);
+      const files = selectedFiles();
       if (files.length === 0) {
-        errorBox.textContent = 'Choose at least one file.';
+        errorBox.textContent = 'Choose at least one file or folder.';
         errorBox.style.display = 'block';
         return;
       }
@@ -385,8 +399,17 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
     <h4>Add / replace files</h4>
     <form id="add-files-form" data-api="${escapeHtml(filesApiUrl)}">
       <div class="error" id="add-files-error" role="alert"></div>
+      <!-- Two pickers: #add-files is multiple-only (webkitdirectory on the same
+           input as multiple forces directory-only selection); folder upload is a
+           separate opt-in webkitdirectory input. The JS unifies both via
+           webkitRelativePath || name. -->
       <label>
-        <input type="file" name="files" id="add-files" multiple webkitdirectory>
+        Files
+        <input type="file" name="files" id="add-files" multiple>
+      </label>
+      <label>
+        or a folder
+        <input type="file" name="folder" id="add-folder" multiple webkitdirectory>
       </label>
       <button type="submit">Upload files</button>
     </form>
@@ -435,13 +458,14 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
 
     const addFilesForm = document.getElementById('add-files-form');
     const addFilesError = document.getElementById('add-files-error');
+    const addFilesInput = document.getElementById('add-files');
+    const addFolderInput = document.getElementById('add-folder');
     addFilesForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       addFilesError.style.display = 'none';
-      const input = document.getElementById('add-files');
-      const files = Array.from(input.files || []);
+      const files = Array.from(addFilesInput.files || []).concat(Array.from(addFolderInput.files || []));
       if (files.length === 0) {
-        addFilesError.textContent = 'Choose at least one file.';
+        addFilesError.textContent = 'Choose at least one file or folder.';
         addFilesError.style.display = 'block';
         return;
       }

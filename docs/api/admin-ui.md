@@ -24,8 +24,11 @@ empty state displays an "Upload your first page" call to action.
 
 The upload form contains:
 
-- File input with `multiple` and `webkitdirectory` attributes (folder uploads preserve relative
-  paths).
+- Files input (`multiple`-only) for picking one or more loose files.
+- A separate folder input with `webkitdirectory` for folder uploads (preserves relative
+  paths). The two pickers are split because `webkitdirectory` on the same input as `multiple`
+  forces directory-only selection; the inline JS reads the union of both inputs and keys file
+  parts by `webkitRelativePath || name`.
 - Optional slug input.
 - Optional title input (auto-generated from the filename if omitted).
 - Visibility radio buttons (`public` / `unlisted`, default `public`).
