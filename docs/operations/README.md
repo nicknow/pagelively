@@ -107,7 +107,7 @@ This runs `setup.mjs` (or use `setup.sh` on Linux/macOS, `setup.ps1` on Windows)
    - Whether to create the optional KV namespace for JWKS caching
    - Zero Trust team domain (e.g. `yourteam.cloudflareaccess.com`) — only if it could not be
      resolved from `SETUP_ACCESS_TEAM_DOMAIN` or the Access organizations endpoint
-4. Idempotently create the R2 bucket, D1 database, optional KV namespace, and Cloudflare Access application + policy.
+4. Idempotently create the R2 bucket, D1 database, optional KV namespace, and Cloudflare Access application + policy. The Access application is created with an exact path scope of `{workerDomain}/admin` and `{workerDomain}/api` (primary `domain` = `{workerDomain}/admin`, `destinations` = `/admin` + `/api`), so **public content is never behind an Access prompt**. If an app named `{project} admin` already exists for the worker host but is not scoped to exactly those two paths (e.g. it was created with the bare hostname and currently prompts on every URL), setup repairs it **in place** with an update call — the app id and its `aud` tag are unchanged, so `ACCESS_AUD` in `wrangler.toml` keeps working.
 5. Connect the R2 bucket to the CDN domain via the Cloudflare API.
 6. Write the returned IDs, the CDN URL, and the Access `aud` / team domain into `wrangler.toml`.
 7. Add a `[[routes]]` block for the Worker custom domain.
@@ -127,7 +127,7 @@ operator's own token. See the README quickstart for the token scopes, listed ver
 
 ## Idempotency
 
-Re-running is safe. The script lists existing resources by name and skips create calls for anything that already exists. If a previous run failed partway through, run it again and it will continue from where it left off.
+Re-running is safe. The script lists existing resources by name and skips create calls for anything that already exists. If a previous run failed partway through, run it again and it will continue from where it left off. The one resource that can be **changed** on a re-run is the Access application: if it exists but protects the whole worker domain (the pre-2026-08-01 bug), setup fixes its scope to exactly `/admin` and `/api` in place — other resources are only ever created or skipped, never modified.
 
 ## After provisioning
 

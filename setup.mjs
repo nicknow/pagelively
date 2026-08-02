@@ -578,18 +578,99 @@ export async function runSetup(options, deps) {
 
   // --- 6. Find or create Access application -------------------------------
   const appName = `${projectName} admin`;
+
+  // The Access application must protect EXACTLY `${host}/admin` and `${host}/api`
+  // (spec §9) and nothing else. Creating it with `domain: workerDomain` and no
+  // path scopes the app to the ENTIRE worker domain, so Access prompts on every
+  // public URL (live bug: public content URLs required Access auth). Verified
+  // against the current API reference and the app-paths doc:
+  //   https://developers.cloudflare.com/api/resources/zero_trust/subresources/access/subresources/applications/methods/create/
+  //   https://developers.cloudflare.com/api/resources/zero_trust/subresources/access/subresources/applications/methods/update/
+  //   https://developers.cloudflare.com/cloudflare-one/access-controls/policies/app-paths/
+  // `destinations` (PublicDestination uri, path-capable) supersedes the
+  // deprecated `self_hosted_domains` field.
+  const accessPathSpecs = [{ path: "/admin" }, { path: "/api" }];
+
+  function normalizeAccessUri(uri) {
+    return String(uri)
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, "")
+      .replace(/\/+$/, "");
+  }
+
+  function requiredDestinations(host) {
+    return accessPathSpecs.map((spec) => ({ type: "public", uri: `${host}${spec.path}` }));
+  }
+
+  function requiredDomain(host) {
+    return `${host}${accessPathSpecs[0].path}`;
+  }
+
+  // The set of protected URIs of an existing app: public destinations PLUS the
+  // legacy top-level `domain` (treated as a URI). Normalized; empties dropped.
+  function appProtectedUris(app) {
+    const uris = [];
+    if (Array.isArray(app.destinations)) {
+      for (const d of app.destinations) {
+        if (d && d.type === "public" && d.uri) uris.push(d.uri);
+      }
+    }
+    if (app.domain) uris.push(app.domain);
+    return uris.map(normalizeAccessUri).filter((u) => u.length > 0);
+  }
+
+  // Correct scope is EXACTLY {host/admin, host/api} — nothing more, nothing
+  // less, so whole-domain entries like `host` or `host/*` are detected as wrong.
+  function isCorrectlyScoped(app, host) {
+    const required = new Set([
+      normalizeAccessUri(requiredDomain(host)),
+      ...requiredDestinations(host).map((d) => normalizeAccessUri(d.uri)),
+    ]);
+    const actual = new Set(appProtectedUris(app));
+    if (required.size !== actual.size) return false;
+    for (const uri of required) if (!actual.has(uri)) return false;
+    return true;
+  }
+
+  // The worker host an app is scoped to: `a.domain` split("/")[0] OR the host
+  // portion of any public destination uri (scheme stripped defensively).
+  function accessHostOf(app) {
+    const hosts = new Set();
+    const hostFrom = (uri) => {
+      const h = normalizeDomain(
+        String(uri)
+          .replace(/^https?:\/\//, "")
+          .split("/")[0],
+      );
+      if (h) hosts.add(h);
+    };
+    if (app.domain) hostFrom(app.domain);
+    if (Array.isArray(app.destinations)) {
+      for (const d of app.destinations) {
+        if (d && d.type === "public" && d.uri) hostFrom(d.uri);
+      }
+    }
+    return [...hosts];
+  }
+
+  const accessHost = normalizeDomain(workerDomain);
   let app = accessApps.find((a) => {
     const nameMatch = a.name && a.name.toLowerCase() === appName.toLowerCase();
-    const domainMatch = !a.domain || a.domain === workerDomain;
-    return nameMatch && domainMatch;
+    const hosts = accessHostOf(a);
+    // Lenient: an app with no scope info at all still matches, as do legacy
+    // whole-domain apps (a.domain === workerDomain).
+    const hostMatch = hosts.length === 0 || hosts.includes(accessHost);
+    return nameMatch && hostMatch;
   });
 
   if (!app) {
     log("Creating Cloudflare Access application...");
     const createAppRes = await api("POST", `/accounts/${accountId}/access/apps`, {
       name: appName,
-      domain: workerDomain,
       type: "self_hosted",
+      domain: requiredDomain(accessHost),
+      destinations: requiredDestinations(accessHost),
       session_duration: "24h",
       app_launcher_visible: false,
       policies: [],
@@ -599,8 +680,28 @@ export async function runSetup(options, deps) {
     }
     const createAppData = await createAppRes.json();
     app = createAppData.result;
+  } else if (!isCorrectlyScoped(app, accessHost)) {
+    // Found an app for this host that protects the whole domain or is otherwise
+    // not scoped to exactly /admin and /api. Fix it in place with PUT — the app
+    // id (and therefore its aud, derived from the id) is stable, so ACCESS_AUD
+    // in wrangler.toml keeps working. The allow-admins policy is re-verified
+    // separately below, so `policies` is deliberately omitted here.
+    log(
+      "Access application found but protects the whole domain / is not scoped to /admin and /api; updating in place...",
+    );
+    const updateAppRes = await api("PUT", `/accounts/${accountId}/access/apps/${app.id}`, {
+      name: appName,
+      type: "self_hosted",
+      domain: requiredDomain(accessHost),
+      destinations: requiredDestinations(accessHost),
+      session_duration: app.session_duration ?? "24h",
+      app_launcher_visible: app.app_launcher_visible ?? false,
+    });
+    if (!updateAppRes.ok) {
+      throw new Error(await describeApiError(updateAppRes, "Failed to update Access application"));
+    }
   } else {
-    log("Cloudflare Access application already exists; skipping create.");
+    log("Cloudflare Access application already correctly scoped; skipping update.");
   }
 
   const appId = app.id;
@@ -833,6 +934,7 @@ export async function runSetup(options, deps) {
   log(`  Admin URL:   https://${workerDomain}/admin`);
   log(`  CDN URL:     ${assetBaseUrl}/`);
   log("");
+  log(`Access protects: https://${accessHost}/admin and https://${accessHost}/api`);
   log("Access is enforced on /admin* and /api/* for:");
   for (const email of adminEmails) {
     log(`  - ${email}`);

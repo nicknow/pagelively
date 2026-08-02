@@ -177,7 +177,11 @@ function makeRunResponder(ids: RunIds, opts: RunResponderOptions = {}): ApiCalle
             id: ids.appId,
             aud: ids.aud,
             name: "Pagelively Admin",
-            domain: "pages.example.com",
+            domain: "pages.example.com/admin",
+            destinations: [
+              { type: "public", uri: "pages.example.com/admin" },
+              { type: "public", uri: "pages.example.com/api" },
+            ],
             type: "self_hosted",
           },
         ],

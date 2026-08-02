@@ -1,7 +1,7 @@
 # Pagelively — Development Roadmap (living plan)
 
 Status: **approved** (human, 2026-07-30) — Phase 1 plan locked; Phase 2 (architecture) next.
-Last updated: 2026-07-31.
+Last updated: 2026-08-01.
 
 Source of truth for _what_ we build: `docs/product-spec.md` (§refs below point at it). This
 roadmap is the slice-by-slice plan: ordering, acceptance criteria, risks, open questions.
@@ -465,6 +465,28 @@ resolutions (no `/api/assets` route — spec §6 CDN bypass; create returns 201 
 extension decisions; no production code changed; suite at close: 976 tests / 35 files;
 coverage 99.69/97.26/97.83/99.91; bundle 146.22 KiB raw / 34.74 KiB gzip).
 
+**Field fix 2026-08-01 — Access application path scope (live bug, no new slice):** the
+Access application provisioned by `setup.mjs` was created with `domain: workerDomain` and no
+path, so Access prompted on **every** public content URL (e.g. `https://n.3a8r.com/sadds-sdsd/`)
+instead of only `/admin`. Fixed in `setup.mjs` only (no Worker changes — S16's fail-closed JWT
+gate was already correct): the app is created with primary `domain` = `{host}/admin` and
+`destinations` exactly `{host}/admin` + `{host}/api` (`destinations` supersedes the deprecated
+`self_hosted_domains`; path `example.com/admin` covers `/admin` and everything under it, not
+`/administrator`), and a legacy whole-domain app found by name+host is repaired **in place**
+via `PUT /access/apps/{app_id}` — app id and `aud` are stable, so `ACCESS_AUD` keeps working;
+`policies` is omitted from the PUT (the allow-admins policy is re-verified separately).
+Acceptance pinned by 13 new/updated tests in `test/setup.mjs.test.ts` (create shape; legacy
+reconcile; already-scoped no-op; whole-domain via destinations and via `domain` `/*`; PUT
+failure; final `Access protects:` summary; plus 3 edge regressions added 2026-08-02 —
+foreign-host app is never matched/mutated, a no-scope-info app is lenient-matched then
+repaired via PUT, and scheme/case/trailing-slash variants of the correct scope normalize to
+a no-op) and scoped-app responders in the provisioning/headless/auth suites. Gates:
+1087 tests / 38 files; typecheck, lint, format all clean;
+coverage 99.69/97.26/97.83/99.91; build dry-run ok. ADR 0029 Consequences records the fix
+(including the first-match reconcile limitation);
+operator checklist S20 gained the live "public URLs load with no Access prompt" regression
+check.
+
 ---
 
 ## 3. Dependency order and critical path
@@ -613,8 +635,16 @@ stale-while-revalidate=M`; **s-maxage/must-revalidate disable SWR**; **Cache API
 - R2 object metadata: `httpMetadata` (incl. `cacheControl`) stored at upload and echoed on
   public serving → immutable asset headers work without a Worker.
   https://developers.cloudflare.com/r2/api/workers/workers-api-reference/
-- Access API: `GET/POST /accounts/{account_id}/access/apps`; permission "Access: Apps and
-  Policies Write"; app `aud` captured for `ACCESS_AUD`.
+- Access API: `GET/POST /accounts/{account_id}/access/apps` (+ `PUT …/apps/{app_id}` update);
+  permission "Access: Apps and Policies Write"; app `aud` captured for `ACCESS_AUD`. The
+  application body's `domain` is "the primary hostname and path secured by Access", and
+  `destinations` (`PublicDestination` uri, path-capable) supersedes the deprecated
+  `self_hosted_domains` field — verified 2026-08-01 via the create/update API references.
+  `example.com/admin` covers `/admin` and everything under it (not `/administrator`);
+  a pathless `example.com` covers the whole domain (the bug this field fix repairs).
+  https://developers.cloudflare.com/api/resources/zero_trust/subresources/access/subresources/applications/methods/create/ ,
+  https://developers.cloudflare.com/api/resources/zero_trust/subresources/access/subresources/applications/methods/update/ ,
+  https://developers.cloudflare.com/cloudflare-one/access-controls/policies/app-paths/ ,
   https://developers.cloudflare.com/cloudflare-one/access-controls/applications/linked-app-token/
 - Local D1 migrations + Workers-pool test emulation: Phase 0 ADR 0001 (verified then;
   re-verify on upgrades). https://developers.cloudflare.com/workers/testing/vitest-integration/

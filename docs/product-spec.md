@@ -277,7 +277,11 @@ or login forms live in the app itself.
   linked provider such as Google/GitHub). Access authenticates you at the edge *before* the
   Worker runs, so the admin surface is never exposed unauthenticated.
 - **Public content is unaffected.** The Access application is scoped to the admin/api paths
-  only; everything else (`/{slug}/…`, `/p/{id}/…`, `/health`) stays public.
+  only; everything else (`/{slug}/…`, `/p/{id}/…`, `/health`) stays public. To guarantee this,
+  setup (§13) creates the application with its primary `domain` set to `pages.acme.com/admin`
+  and a `destinations` list of exactly `/admin` and `/api` on the Worker host — never the bare
+  hostname, which would protect the entire domain. If an older application was created with the
+  bare hostname, setup repairs it in place.
 - **Defense in depth in the Worker:** the Worker independently **verifies the Access JWT** on
   every admin/api request. Access injects a signed `Cf-Access-Jwt-Assertion` token; the Worker
   validates its signature against your team's public keys, checks the audience (`aud`) tag

@@ -316,7 +316,11 @@ function makeRunResponder(zones: Record<string, { id: string; name: string }>): 
             id: IDS.appId,
             aud: IDS.aud,
             name: "Pagelively Admin",
-            domain: "n.3a8r.com",
+            domain: "n.3a8r.com/admin",
+            destinations: [
+              { type: "public", uri: "n.3a8r.com/admin" },
+              { type: "public", uri: "n.3a8r.com/api" },
+            ],
             type: "self_hosted",
           },
         ],

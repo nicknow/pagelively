@@ -213,7 +213,8 @@ The setup script is unit-tested with mocks, but these human-run checks verify th
 - [ ] `wrangler.toml` contains the real `database_id`, `bucket_name`, `ASSET_BASE_URL`, `ACCESS_AUD`, `ACCESS_TEAM_DOMAIN`, and an uncommented `[[kv_namespaces]]` block if KV was created.
 - [ ] `wrangler.toml` contains a `[[routes]]` block with `pattern = "pages.example.com"` and `custom_domain = true`.
 - [ ] The R2 bucket, D1 database, and (optional) KV namespace exist in the Cloudflare dashboard.
-- [ ] A Cloudflare Access application named `{project} admin` exists and protects `pages.example.com/admin*` and `pages.example.com/api/*`.
+- [ ] A Cloudflare Access application named `{project} admin` exists with primary `domain` = `pages.example.com/admin` and `destinations` exactly `pages.example.com/admin` and `pages.example.com/api` (the bare hostname must NOT appear — that scopes the app to the whole domain).
+- [ ] **Access path-scope regression (field fix 2026-08-01):** in a real browser, `https://pages.example.com/sadds-sdsd/` (an arbitrary public URL) and an asset on the CDN host load with **no** Access login prompt, while `https://pages.example.com/admin` and `https://pages.example.com/api/pages` DO prompt for Access. If public URLs prompt, the app is whole-domain-scoped; re-run `npm run setup` to reconcile it in place (the app id and `ACCESS_AUD` stay the same).
 - [ ] The Access policy allows the admin email(s) provided during setup.
 - [ ] The R2 bucket is connected to the CDN domain (`cdn.pages.example.com`) under the bucket's Custom Domains settings.
 - [ ] Re-running `npm run setup` is idempotent: no new resources are created, no errors, and it still deploys.

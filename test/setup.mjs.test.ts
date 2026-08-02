@@ -475,7 +475,11 @@ describe("setup.mjs runSetup", () => {
       id: ids.appId,
       aud: ids.aud,
       name: "Pagelively Admin",
-      domain: "pages.example.com",
+      domain: "pages.example.com/admin",
+      destinations: [
+        { type: "public", uri: "pages.example.com/admin" },
+        { type: "public", uri: "pages.example.com/api" },
+      ],
       type: "self_hosted",
       policies: [
         {
@@ -581,6 +585,11 @@ describe("setup.mjs runSetup", () => {
     expect(postCalls[0][1]).toBe(
       `/accounts/${ids.accountId}/r2/buckets/${ids.bucketName}/domains/custom`,
     );
+    // The correctly scoped Access app is also not touched via PUT
+    const putCalls = deps.api.mock.calls.filter(
+      (c) => c[0] === "PUT" && c[1].includes("/access/apps/"),
+    );
+    expect(putCalls).toHaveLength(0);
   });
 
   it("uses token auth when CLOUDFLARE_API_TOKEN is provided", async () => {
@@ -1377,7 +1386,11 @@ describe("setup.mjs runSetup", () => {
                 id: ids.appId,
                 aud: ids.aud,
                 name: "Pagelively Admin",
-                domain: "pages.example.com",
+                domain: "pages.example.com/admin",
+                destinations: [
+                  { type: "public", uri: "pages.example.com/admin" },
+                  { type: "public", uri: "pages.example.com/api" },
+                ],
               },
             ],
           }),
@@ -1455,6 +1468,10 @@ describe("setup.mjs runSetup", () => {
     );
     expect(policyPostCalls).toHaveLength(0);
     expect(deps._calls.logs.some((m) => m.includes("Access policy already exists"))).toBe(true);
+    // The correctly scoped app is not reconciled via PUT either
+    expect(
+      deps.api.mock.calls.filter((c) => c[0] === "PUT" && c[1].includes("/access/apps/")),
+    ).toHaveLength(0);
   });
 
   it("fetches full Access app details when aud is missing from the list (team domain via org endpoint)", async () => {
@@ -1473,7 +1490,17 @@ describe("setup.mjs runSetup", () => {
           status: 200,
           json: async () => ({
             success: true,
-            result: [{ id: ids.appId, name: "Pagelively Admin", domain: "pages.example.com" }],
+            result: [
+              {
+                id: ids.appId,
+                name: "Pagelively Admin",
+                domain: "pages.example.com/admin",
+                destinations: [
+                  { type: "public", uri: "pages.example.com/admin" },
+                  { type: "public", uri: "pages.example.com/api" },
+                ],
+              },
+            ],
           }),
         }),
       },
@@ -1610,6 +1637,431 @@ describe("setup.mjs runSetup", () => {
     const module = await import("../setup.mjs");
     expect(module.runSetup).toBeTypeOf("function");
     expect((module as Record<string, unknown>).main).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Access application path scoping (field fix 2026-08-01)
+// ---------------------------------------------------------------------------
+// The Access application must protect EXACTLY `<host>/admin` and `<host>/api`
+// (spec §9). A whole-domain scope (domain: workerDomain, no path) makes Access
+// prompt on every public URL — the reported bug. These tests pin the create
+// shape, the in-place PUT reconcile of legacy whole-domain apps, the no-op for
+// already-scoped apps, and the policy re-verification after reconcile.
+
+describe("setup.mjs Access application path scoping", () => {
+  const AC_IDS = {
+    accountId: "acc-123",
+    appId: "app-123",
+    aud: "aud-123",
+    dbId: "d1-123",
+    bucketName: "pagelively-assets",
+    kvId: "kv-123",
+  };
+
+  const scopedDestinations = [
+    { type: "public", uri: "pages.example.com/admin" },
+    { type: "public", uri: "pages.example.com/api" },
+  ];
+
+  function runOptions(extra: Record<string, unknown> = {}) {
+    return {
+      accountId: AC_IDS.accountId,
+      apiToken: "token-123",
+      workerDomain: "pages.example.com",
+      cdnDomain: "cdn.pages.example.com",
+      projectName: "pagelively",
+      accessTeamDomain: "team.cloudflareaccess.com",
+      adminEmails: "admin@example.com",
+      createKv: true,
+      ...extra,
+    };
+  }
+
+  /** Full responder for a run where the Access app and all resources already exist. */
+  function makeExistingResponder(
+    apps: Record<string, unknown>[],
+    opts: { policies?: Record<string, unknown>[] } = {},
+  ) {
+    const policies = opts.policies ?? [];
+    return apiResponder([
+      {
+        match: (m, p) => m === "GET" && p === `/accounts/${AC_IDS.accountId}/access/apps`,
+        response: async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true, result: apps }),
+        }),
+      },
+      {
+        match: (m, p) =>
+          m === "PUT" && p === `/accounts/${AC_IDS.accountId}/access/apps/${AC_IDS.appId}`,
+        response: async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            result: { id: AC_IDS.appId, aud: "put-aud", name: "Pagelively Admin" },
+          }),
+        }),
+      },
+      {
+        match: (m, p) =>
+          m === "GET" && p === `/accounts/${AC_IDS.accountId}/access/apps/${AC_IDS.appId}/policies`,
+        response: async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true, result: policies }),
+        }),
+      },
+      {
+        match: (m, p) =>
+          m === "POST" &&
+          p === `/accounts/${AC_IDS.accountId}/access/apps/${AC_IDS.appId}/policies`,
+        response: async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true, result: { id: "policy-new" } }),
+        }),
+      },
+      {
+        match: (m, p) => m === "GET" && p.startsWith("/zones"),
+        response: async (_m, path) => {
+          const name = new URLSearchParams(path.split("?")[1]).get("name");
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              success: true,
+              result: name?.includes("cdn.")
+                ? [{ id: "zone-cdn", name: "cdn.pages.example.com" }]
+                : [{ id: "zone-worker", name: "pages.example.com" }],
+            }),
+          };
+        },
+      },
+      {
+        match: (m, p) => m === "GET" && p === `/accounts/${AC_IDS.accountId}/r2/buckets`,
+        response: async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            result: { buckets: [{ name: AC_IDS.bucketName }] },
+          }),
+        }),
+      },
+      {
+        match: (m, p) => m === "POST" && p.includes("/domains/custom"),
+        response: async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            result: { domain: "cdn.pages.example.com", status: "active" },
+          }),
+        }),
+      },
+      {
+        match: (m, p) => m === "GET" && p === `/accounts/${AC_IDS.accountId}/d1/database`,
+        response: async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            result: [{ uuid: AC_IDS.dbId, name: "pagelively-db" }],
+          }),
+        }),
+      },
+      {
+        match: (m, p) => m === "GET" && p === `/accounts/${AC_IDS.accountId}/storage/kv/namespaces`,
+        response: async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            result: [{ id: AC_IDS.kvId, title: "pagelively-kv" }],
+          }),
+        }),
+      },
+    ]);
+  }
+
+  it("AC1: create request is path-scoped — domain <host>/admin and destinations exactly /admin and /api", async () => {
+    const deps = makeDeps({ api: makeCreateFirstRunResponder(AC_IDS) });
+    await runSetup(runOptions(), deps);
+
+    const createAppCall = deps.api.mock.calls.find(
+      (c) => c[0] === "POST" && c[1] === `/accounts/${AC_IDS.accountId}/access/apps`,
+    );
+    expect(createAppCall).toBeTruthy();
+    const body = createAppCall![2] as Record<string, unknown>;
+    expect(body.domain).toBe("pages.example.com/admin");
+    expect(body.destinations).toEqual(scopedDestinations);
+    // No whole-domain entry anywhere: every protected URI carries a path.
+    const uris = [
+      body.domain,
+      ...((body.destinations as { uri: string }[]) ?? []).map((d) => d.uri),
+    ];
+    expect(uris.every((u) => u !== "pages.example.com" && u !== "pages.example.com/*")).toBe(true);
+  });
+
+  it("AC2+AC5: legacy whole-domain app is reconciled in place via PUT (no new app, existing aud kept, policy still ensured)", async () => {
+    const legacyApp = {
+      id: AC_IDS.appId,
+      aud: "legacy-aud-987",
+      name: "Pagelively Admin",
+      domain: "pages.example.com",
+      domains: null,
+      type: "self_hosted",
+    };
+    const deps = makeDeps({ api: makeExistingResponder([legacyApp]) });
+    await runSetup(runOptions(), deps);
+
+    const putCall = deps.api.mock.calls.find(
+      (c) => c[0] === "PUT" && c[1] === `/accounts/${AC_IDS.accountId}/access/apps/${AC_IDS.appId}`,
+    );
+    expect(putCall).toBeTruthy();
+    const body = putCall![2] as Record<string, unknown>;
+    expect(body.domain).toBe("pages.example.com/admin");
+    expect(body.destinations).toEqual(scopedDestinations);
+    expect(body.policies).toBeUndefined(); // policies are re-verified separately
+    expect(body.session_duration).toBe("24h");
+    expect(body.app_launcher_visible).toBe(false);
+    // No new app is created
+    expect(
+      deps.api.mock.calls.some(
+        (c) => c[0] === "POST" && c[1] === `/accounts/${AC_IDS.accountId}/access/apps`,
+      ),
+    ).toBe(false);
+    // The EXISTING app's aud is written to wrangler.toml (aud is stable across PUT)
+    const written = deps._calls.writes[0].content;
+    expect(written).toContain(`ACCESS_AUD = "legacy-aud-987"`);
+    // AC5: the allow-admins policy still gets created after the reconcile
+    expect(
+      deps.api.mock.calls.some(
+        (c) =>
+          c[0] === "POST" &&
+          c[1] === `/accounts/${AC_IDS.accountId}/access/apps/${AC_IDS.appId}/policies`,
+      ),
+    ).toBe(true);
+  });
+
+  it("AC3: already correctly scoped app is left untouched (no PUT, no POST, aud reused)", async () => {
+    const scopedApp = {
+      id: AC_IDS.appId,
+      aud: "scoped-aud-456",
+      name: "Pagelively Admin",
+      domain: "pages.example.com/admin",
+      destinations: scopedDestinations,
+      type: "self_hosted",
+    };
+    const deps = makeDeps({
+      api: makeExistingResponder([scopedApp], {
+        policies: [{ id: "p-1", name: "pagelively allow-admins", decision: "allow" }],
+      }),
+    });
+    await runSetup(runOptions(), deps);
+
+    expect(
+      deps.api.mock.calls.filter((c) => c[0] === "PUT" && c[1].includes("/access/apps/")),
+    ).toHaveLength(0);
+    expect(deps.api.mock.calls.some((c) => c[0] === "POST" && c[1].endsWith("/access/apps"))).toBe(
+      false,
+    );
+    const written = deps._calls.writes[0].content;
+    expect(written).toContain(`ACCESS_AUD = "scoped-aud-456"`);
+    expect(deps._calls.logs.some((m) => m.includes("already correctly scoped"))).toBe(true);
+  });
+
+  it("AC4: whole-domain scope via destinations triggers the PUT reconcile", async () => {
+    const wholeDomainApp = {
+      id: AC_IDS.appId,
+      aud: AC_IDS.aud,
+      name: "Pagelively Admin",
+      domain: "pages.example.com",
+      destinations: [{ type: "public", uri: "pages.example.com" }],
+      type: "self_hosted",
+    };
+    const deps = makeDeps({ api: makeExistingResponder([wholeDomainApp]) });
+    await runSetup(runOptions(), deps);
+
+    const putCall = deps.api.mock.calls.find(
+      (c) => c[0] === "PUT" && c[1].includes(`/access/apps/${AC_IDS.appId}`),
+    );
+    expect(putCall).toBeTruthy();
+    const body = putCall![2] as Record<string, unknown>;
+    expect(body.domain).toBe("pages.example.com/admin");
+    expect(body.destinations).toEqual(scopedDestinations);
+  });
+
+  it("AC4: wildcard whole-domain domain field triggers the PUT reconcile", async () => {
+    const wildcardApp = {
+      id: AC_IDS.appId,
+      aud: AC_IDS.aud,
+      name: "Pagelively Admin",
+      domain: "pages.example.com/*",
+      type: "self_hosted",
+    };
+    const deps = makeDeps({ api: makeExistingResponder([wildcardApp]) });
+    await runSetup(runOptions(), deps);
+
+    const putCall = deps.api.mock.calls.find(
+      (c) => c[0] === "PUT" && c[1].includes(`/access/apps/${AC_IDS.appId}`),
+    );
+    expect(putCall).toBeTruthy();
+    const body = putCall![2] as Record<string, unknown>;
+    expect(body.domain).toBe("pages.example.com/admin");
+  });
+
+  it("throws a clear error when the Access application update (PUT) fails", async () => {
+    const legacyApp = {
+      id: AC_IDS.appId,
+      aud: AC_IDS.aud,
+      name: "Pagelively Admin",
+      domain: "pages.example.com",
+      type: "self_hosted",
+    };
+    const responder = withApiOverrides(makeExistingResponder([legacyApp]), [
+      {
+        match: (m, p) =>
+          m === "PUT" && p === `/accounts/${AC_IDS.accountId}/access/apps/${AC_IDS.appId}`,
+        response: async () => ({
+          ok: false,
+          status: 400,
+          json: async () => ({ success: false, errors: [{ message: "invalid app update" }] }),
+        }),
+      },
+    ]);
+    const deps = makeDeps({ api: responder });
+    await expect(runSetup(runOptions(), deps)).rejects.toThrow(
+      "Failed to update Access application",
+    );
+  });
+
+  it("prints the exact protected URLs in the final summary", async () => {
+    const deps = makeDeps({ api: makeCreateFirstRunResponder(AC_IDS) });
+    await runSetup(runOptions(), deps);
+    expect(
+      deps._calls.logs.some((m) =>
+        m.includes(
+          "Access protects: https://pages.example.com/admin and https://pages.example.com/api",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  // --- Edge-case regression pins (reviewer follow-up 2026-08-02) -----------
+  // Pin matcher branches the AC tests do not cover: foreign-host non-match
+  // (a security-relevant pin: an app on another host must never be mutated),
+  // the lenient name-only match for apps with no scope info, and the
+  // normalizeAccessUri scheme/case/trailing-slash logic through the public
+  // reconcile flow.
+
+  it("does not match or mutate an app scoped to a different host (creates a new path-scoped app, foreign aud not reused)", async () => {
+    const foreignApp = {
+      id: "foreign-app-1",
+      aud: "foreign-aud-111",
+      name: "Pagelively Admin",
+      domain: "other.example.com/admin",
+      destinations: [
+        { type: "public", uri: "other.example.com/admin" },
+        { type: "public", uri: "other.example.com/api" },
+      ],
+      type: "self_hosted",
+    };
+    const responder = withApiOverrides(makeExistingResponder([foreignApp]), [
+      {
+        match: (m, p) => m === "POST" && p === `/accounts/${AC_IDS.accountId}/access/apps`,
+        response: async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            result: {
+              id: "new-app-456",
+              aud: "new-aud-789",
+              name: "Pagelively Admin",
+              domain: "pages.example.com/admin",
+              destinations: scopedDestinations,
+              type: "self_hosted",
+            },
+          }),
+        }),
+      },
+    ]);
+    const deps = makeDeps({ api: responder });
+    await runSetup(runOptions(), deps);
+
+    // The foreign-host app is never PUT-repaired
+    expect(
+      deps.api.mock.calls.filter((c) => c[0] === "PUT" && c[1].includes("/access/apps/")),
+    ).toHaveLength(0);
+    // Expected behavior applies instead: a new app is created for the correct
+    // host, path-scoped
+    const createAppCall = deps.api.mock.calls.find(
+      (c) => c[0] === "POST" && c[1] === `/accounts/${AC_IDS.accountId}/access/apps`,
+    );
+    expect(createAppCall).toBeTruthy();
+    const body = createAppCall![2] as Record<string, unknown>;
+    expect(body.domain).toBe("pages.example.com/admin");
+    expect(body.destinations).toEqual(scopedDestinations);
+    // The foreign app's aud is NOT reused — the new app's aud is written
+    const written = deps._calls.writes[0].content;
+    expect(written).toContain(`ACCESS_AUD = "new-aud-789"`);
+    expect(written).not.toContain(`ACCESS_AUD = "foreign-aud-111"`);
+  });
+
+  it("matches an app with no domain/destinations by name (lenient) and repairs it in place via PUT", async () => {
+    const noScopeApp = {
+      id: AC_IDS.appId,
+      aud: "no-scope-aud-321",
+      name: "Pagelively Admin",
+      type: "self_hosted",
+    };
+    const deps = makeDeps({ api: makeExistingResponder([noScopeApp]) });
+    await runSetup(runOptions(), deps);
+
+    const putCall = deps.api.mock.calls.find(
+      (c) => c[0] === "PUT" && c[1] === `/accounts/${AC_IDS.accountId}/access/apps/${AC_IDS.appId}`,
+    );
+    expect(putCall).toBeTruthy();
+    const body = putCall![2] as Record<string, unknown>;
+    expect(body.domain).toBe("pages.example.com/admin");
+    expect(body.destinations).toEqual(scopedDestinations);
+    // aud comes from the existing (no-scope-info) app object, not a new create
+    const written = deps._calls.writes[0].content;
+    expect(written).toContain(`ACCESS_AUD = "no-scope-aud-321"`);
+  });
+
+  it("normalizes scheme / case / trailing-slash variants of the correct scope (no-op, no PUT)", async () => {
+    const messyScopedApp = {
+      id: AC_IDS.appId,
+      aud: "norm-aud-654",
+      name: "Pagelively Admin",
+      domain: "https://PAGES.EXAMPLE.COM/admin/",
+      destinations: [
+        { type: "public", uri: "Pages.Example.com/API/" },
+        { type: "public", uri: "https://pages.example.com/admin/" },
+      ],
+      type: "self_hosted",
+    };
+    const deps = makeDeps({
+      api: makeExistingResponder([messyScopedApp], {
+        policies: [{ id: "p-1", name: "pagelively allow-admins", decision: "allow" }],
+      }),
+    });
+    await runSetup(runOptions(), deps);
+
+    expect(
+      deps.api.mock.calls.filter((c) => c[0] === "PUT" && c[1].includes("/access/apps/")),
+    ).toHaveLength(0);
+    expect(deps.api.mock.calls.some((c) => c[0] === "POST" && c[1].endsWith("/access/apps"))).toBe(
+      false,
+    );
+    const written = deps._calls.writes[0].content;
+    expect(written).toContain(`ACCESS_AUD = "norm-aud-654"`);
+    expect(deps._calls.logs.some((m) => m.includes("already correctly scoped"))).toBe(true);
   });
 });
 
