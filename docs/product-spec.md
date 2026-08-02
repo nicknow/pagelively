@@ -414,7 +414,8 @@ ship in the README.
 9. Connects the **R2 bucket to the CDN domain** (`cdn.pages.acme.com`) for public reads via the
    Cloudflare API, and writes `ASSET_BASE_URL`. This is the path that serves asset bytes free
    and unlimited. R2 must be enabled on the account (error `[10042]` gets an actionable
-   message).
+   message). The attach request body is verified against the official schema: `domain` +
+   `zoneId` (camelCase, required), `enabled` optional (defaults true).
 10. `wrangler deploy`. A token missing the D1 permission (error `[10000]` on the D1 calls)
     gets an actionable "add D1: Edit" message.
 11. Prints the live URL, the CDN URL, and the admin URL.

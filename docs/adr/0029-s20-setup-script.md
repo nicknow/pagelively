@@ -41,6 +41,6 @@ This slice is the boundary between the build team's local-only work and the real
 ## Consequences
 
 - The script is fully unit-testable with mocks and does not need a Cloudflare account in CI.
-- The API endpoint for connecting an R2 bucket custom domain is based on Cloudflare's REST API conventions (`/accounts/{account_id}/r2/buckets/{bucket_name}/domains/custom`) and must be verified on the first real run; the ADR documents this assumption.
+- The API endpoint for connecting an R2 bucket custom domain (`/accounts/{account_id}/r2/buckets/{bucket_name}/domains/custom`) was verified on the first real run against the live API and the official schema (`developers.cloudflare.com/api/resources/r2/subresources/buckets/subresources/domains/subresources/custom/methods/create/`): the request body requires `domain` and `zoneId` (camelCase — the initial `zone_id` guess was rejected with HTTP 400), and `enabled` is optional (defaults to true). The failure path surfaces the API `errors[]` body via `describeApiError` (field fix 2026-08-01).
 - The script is intentionally not run automatically in CI. A human (or the `deployer` agent) runs it after review.
 - Because the script edits `wrangler.toml` in place, it must be committed with placeholders; the real values are written locally at provision time and must never be committed.

@@ -377,6 +377,23 @@ D1: Edit scope, troubleshooting entries).
   precedence/auth_domain/trailing-dot tests. Suite now: 1074 tests / 38 files; coverage
   per-gate below.
 
+**Field fix 2026-08-01** (R2 custom-domain attach 400 → `zoneId`, error surfacing): a real
+`npm run setup` failed at step 10 with "Failed to connect R2 custom domain: 400" because the
+attach body sent `zone_id` while the official API schema
+(`/api/resources/r2/subresources/buckets/subresources/domains/subresources/custom/methods/
+create/`) requires `zoneId` (camelCase); `domain` and `enabled` were already correct
+(`enabled` optional, defaults true). Fixed test-first in `setup.mjs` (`src/*` untouched, no
+real Cloudflare calls — the live failure was reproduced with mocked responses): (1) the body
+now posts `zoneId`; (2) the non-409 failure path now uses `describeApiError`, so the console
+shows `Failed to connect R2 custom domain (HTTP 400): [9999] …` instead of a bare status (the
+old one-line message made the bug undiagnosable); 409-already-connected idempotency
+unchanged. New tests in `test/setup-provisioning.test.ts` capture the actual request body and
+pin its shape — `zoneId` equals the resolved covering-zone id, NO `zone_id` key (fails on the
+old code), `domain` + `enabled: true` — and assert the error path carries status AND the
+`errors[]` body (`[9999] something`). Verified facts recorded in ADR 0029 (assumption now
+confirmed against the live API + official schema) and spec §13 step 9. Suite now: 1076 tests
+/ 38 files; coverage 99.69/97.26/97.83/99.91 (threshold 85/85/80/85); bundle unchanged.
+
 **S21 — GitHub Actions + quickstart** — manual-dispatch `deploy.yml` using repo secrets
 (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `ADMIN_EMAILS`) running `npm ci` +
 setup (§13); YAML parses; README documents Node prerequisite (Linux + Windows 10/11) and

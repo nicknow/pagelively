@@ -722,18 +722,24 @@ export async function runSetup(options, deps) {
   }
 
   // --- 10. Connect R2 bucket to CDN domain -------------------------------
+  // Body fields verified against the official API schema
+  // (developers.cloudflare.com/api/resources/r2/subresources/buckets/
+  // subresources/domains/subresources/custom/methods/create/): `zoneId`
+  // (camelCase, REQUIRED — sending `zone_id` 400s) and `domain` are required;
+  // `enabled` is optional and defaults to true. A 409 means the domain is
+  // already connected (idempotent re-run), so it is not an error.
   log("Connecting R2 bucket to CDN domain...");
   const customDomainRes = await api(
     "POST",
     `/accounts/${accountId}/r2/buckets/${bucketName}/domains/custom`,
     {
       domain: cdnDomain,
-      zone_id: cdnZoneId,
+      zoneId: cdnZoneId,
       enabled: true,
     },
   );
   if (!customDomainRes.ok && customDomainRes.status !== 409) {
-    throw new Error(`Failed to connect R2 custom domain: ${customDomainRes.status}`);
+    throw new Error(await describeApiError(customDomainRes, "Failed to connect R2 custom domain"));
   }
   if (customDomainRes.status === 409) {
     log("R2 custom domain already connected; skipping create.");

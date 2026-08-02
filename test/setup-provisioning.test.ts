@@ -21,6 +21,11 @@ import {
 //     `/zones?name=` is never called with a blank name.
 //   - R2 error 10042 (R2 not enabled) and D1 error 10000 (missing D1
 //     permission) get actionable messages.
+//   - The R2 custom-domain attach body must match the official schema:
+//     `zoneId` (camelCase, REQUIRED) — the code previously sent `zone_id`,
+//     which the API rejects with HTTP 400. Tests pin the exact request body
+//     (zoneId present, zone_id absent, domain + enabled) and the error path
+//     (describeApiError surfaces the status AND the errors[] body).
 // All Cloudflare calls are mocked; nothing here touches the real API.
 
 interface ApiResponse {
@@ -730,5 +735,55 @@ describe("runSetup R2 / D1 error surfacing", () => {
     ).rejects.toThrow(
       "The Cloudflare API token is missing the D1 permission. Add Account → D1: Edit (see docs/operations/README.md 'API token scopes'), then re-run.",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runSetup: R2 custom-domain attach — request body shape + error surfacing
+// ---------------------------------------------------------------------------
+
+describe("runSetup R2 custom-domain attach", () => {
+  it("posts zoneId (camelCase, official schema) with domain and enabled in the request body", async () => {
+    // Resolve distinct covering zones so the assertion proves the CDN zone id
+    // is what lands in the body (not the Worker zone, not the account id).
+    const zones = {
+      "pages.example.com": { id: BASE_IDS.workerZoneId, name: "pages.example.com" },
+      "cdn.pages.example.com": { id: BASE_IDS.cdnZoneId, name: "cdn.pages.example.com" },
+    };
+    const deps = makeDeps(makeRunResponder(BASE_IDS, { zones }));
+    await runSetup(baseOptions({ accessTeamDomain: "team.cloudflareaccess.com" }), deps);
+
+    const customDomainCall = deps.api.mock.calls.find(
+      (c) => c[0] === "POST" && String(c[1]).includes("/domains/custom"),
+    );
+    expect(customDomainCall).toBeTruthy();
+    const body = customDomainCall?.[2] as Record<string, unknown> | undefined;
+    expect(body).toBeDefined();
+
+    // Regression pin: the API schema documents `zoneId` (required); the old
+    // code sent `zone_id` and the API rejected the call with HTTP 400.
+    expect(body!.zoneId).toBe(BASE_IDS.cdnZoneId);
+    expect(body!).not.toHaveProperty("zone_id");
+
+    // The rest of the call is unchanged and documented: `domain` is required,
+    // `enabled` is optional (defaults true) and sent explicitly.
+    expect(body!.domain).toBe("cdn.pages.example.com");
+    expect(body!.enabled).toBe(true);
+  });
+
+  it("surfaces the status AND the errors[] body when the attach fails non-409", async () => {
+    const deps = makeDeps(
+      overrideApi(
+        makeRunResponder(BASE_IDS),
+        (m, p) => m === "POST" && p.includes("/domains/custom"),
+        async () => err(400, [{ code: 9999, message: "something" }]),
+      ),
+    );
+    // The failure path uses describeApiError: "… (HTTP 400): [9999] something".
+    // The old code only printed the status ("…: 400"), which made the
+    // zone_id/zoneId bug undiagnosable from the console.
+    await expect(
+      runSetup(baseOptions({ accessTeamDomain: "team.cloudflareaccess.com" }), deps),
+    ).rejects.toThrow("Failed to connect R2 custom domain (HTTP 400): [9999] something");
   });
 });
