@@ -1,10 +1,10 @@
 # Operator smoke-test checklist
 
-**Status:** living document — started during S06 validation; completed in S22.
-
-This checklist covers the infrastructure seams that cannot be unit-tested locally (R2 CDN
-public serving, live Cloudflare Access, custom domains, real cache HITs). The build team
-never fakes these in code; the human operator verifies them against the real deployment.
+Run this checklist against your real deployment after `npm run setup` (or any time you want to
+confirm a live instance is fully working). It covers the infrastructure seams that can't be
+unit-tested locally — R2 CDN public serving, live Cloudflare Access, custom domains, and real
+edge-cache hits — none of which are faked in the automated test suite; they're verified here
+against the real deployment instead.
 
 ## S06 — Content-type mapping (added during validation)
 
@@ -211,7 +211,19 @@ The setup script is unit-tested with mocks, but these human-run checks verify th
       `SETUP_ACCESS_TEAM_DOMAIN=yourteam.cloudflareaccess.com` — it proceeds without prompting.
       Omit the env var (and the org scope) and the run fails with an error naming
       `SETUP_ACCESS_TEAM_DOMAIN`.
-- [ ] **OAuth fallback path (ADR 0033):** with `CLOUDFLARE_API_TOKEN` unset, run `npm run setup` interactively; after `wrangler login` opens the browser and you authorize, the script proceeds past "Failed to list Access apps" and completes. Verify the logged-in token file exists: `ls ~/.config/.wrangler/config/default.toml` (Linux), `~/Library/Preferences/.wrangler/config/default.toml` (macOS), or `%APPDATA%\xdg.config\.wrangler\config\default.toml` (Windows) and that `oauth_token = "..."` is present.
+- [ ] **OAuth-only path fails at Access, as expected (confirmed live, see
+      `docs/operations/README.md` "Token vs interactive auth"):** with `CLOUDFLARE_API_TOKEN`
+      unset, run `npm run setup` interactively; after `wrangler login` opens the browser and you
+      authorize, the run fails when it lists/creates Access apps — Wrangler's OAuth login has no
+      Access/Zero Trust scope, so this is expected, not a bug to chase. This item exists as a
+      regression check: confirm the failure still happens and still points at
+      `CLOUDFLARE_API_TOKEN` as the fix, rather than resurfacing as a confusing raw HTTP error.
+      (You can still confirm `wrangler login` itself completed: the plaintext token file should
+      exist at `~/.config/.wrangler/config/default.toml` on Linux,
+      `~/Library/Preferences/.wrangler/config/default.toml` on macOS, or
+      `%APPDATA%\xdg.config\.wrangler\config\default.toml` on Windows, containing
+      `oauth_token = "..."`.) Then set `CLOUDFLARE_API_TOKEN` and re-run to actually complete
+      provisioning.
 - [ ] **Keyring fail-fast (ADR 0033):** after `wrangler login --use-keyring`, re-run `npm run setup` with no `CLOUDFLARE_API_TOKEN`; it must fail immediately with the "Found an encrypted wrangler OAuth credential… re-run `wrangler login --no-use-keyring`" message (never a confusing HTTP 400). Then run `wrangler login --no-use-keyring` and confirm setup succeeds.
 - [ ] `wrangler.toml` contains the real `database_id`, `bucket_name`, `ASSET_BASE_URL`, `ACCESS_AUD`, `ACCESS_TEAM_DOMAIN`, and an uncommented `[[kv_namespaces]]` block if KV was created.
 - [ ] `wrangler.toml` contains a `[[routes]]` block with `pattern = "pages.example.com"` and `custom_domain = true`.

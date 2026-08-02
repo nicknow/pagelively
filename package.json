@@ -4,6 +4,24 @@
   "private": true,
   "description": "Single-user, Cloudflare-hosted static content publisher (Worker + R2 + D1 + Cloudflare Access). Spec: docs/product-spec.md",
   "type": "module",
+  "license": "MIT",
+  "author": "Nicolas Nowinski",
+  "homepage": "https://github.com/nicknow/pagelively#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nicknow/pagelively.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nicknow/pagelively/issues"
+  },
+  "keywords": [
+    "cloudflare",
+    "cloudflare-workers",
+    "static-site",
+    "publishing",
+    "markdown",
+    "self-hosted"
+  ],
   "engines": {
     "node": ">=22"
   },
