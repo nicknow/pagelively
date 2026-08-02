@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseFileUpdateForm, parsePublishForm } from "../src/form-parser";
+import { parseFileUpdateForm, parsePublishForm, parsePublishJson } from "../src/form-parser";
 
 // S17 — form-parser direct unit tests (covers uncovered branches in src/form-parser.ts).
 
@@ -286,5 +286,165 @@ describe("parseFileUpdateForm", () => {
     form.append("manifest", JSON.stringify({ slug: "ignored" }));
     const result = await parseFileUpdateForm(makeFileUpdateRequest(form));
     expect(result).toEqual([]);
+  });
+});
+
+describe("parsePublishJson", () => {
+  function makeJsonRequest(body: Record<string, unknown>): Request {
+    return new Request("https://pages.example.com/api/pages", {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  it("parses HTML paste into a synthetic file", async () => {
+    const result = await parsePublishJson(
+      makeJsonRequest({ content: "<h1>Hi</h1>", format: "html" }),
+    );
+    expect(result.manifest).toEqual({});
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0].path).toBe("pasted.html");
+    expect(result.files[0].contentType).toBe("text/html; charset=utf-8");
+    expect(new TextDecoder().decode(result.files[0].content)).toBe("<h1>Hi</h1>");
+    expect(result.files[0].size).toBe(new TextEncoder().encode("<h1>Hi</h1>").length);
+  });
+
+  it("parses Markdown paste into a synthetic file", async () => {
+    const result = await parsePublishJson(makeJsonRequest({ content: "# Hi", format: "markdown" }));
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0].path).toBe("pasted.md");
+    expect(result.files[0].contentType).toBe("text/markdown");
+    expect(new TextDecoder().decode(result.files[0].content)).toBe("# Hi");
+  });
+
+  it("carries manifest fields through", async () => {
+    const result = await parsePublishJson(
+      makeJsonRequest({
+        content: "# Hi",
+        format: "markdown",
+        slug: "my-page",
+        title: "My Page",
+        visibility: "unlisted",
+        showSource: true,
+      }),
+    );
+    expect(result.manifest).toEqual({
+      slug: "my-page",
+      title: "My Page",
+      visibility: "unlisted",
+      showSource: true,
+    });
+  });
+
+  it("ignores unknown fields in the JSON body", async () => {
+    const result = await parsePublishJson(
+      makeJsonRequest({ content: "# Hi", format: "markdown", unknown: "ignored" }),
+    );
+    expect(result.manifest).toEqual({});
+    expect(result.files).toHaveLength(1);
+  });
+
+  it("throws invalid_json when the body is not valid JSON", async () => {
+    const request = new Request("https://pages.example.com/api/pages", {
+      method: "POST",
+      body: "not-json",
+      headers: { "Content-Type": "application/json" },
+    });
+    await expect(parsePublishJson(request)).rejects.toMatchObject({
+      code: "invalid_json",
+      status: 400,
+    });
+  });
+
+  it("throws invalid_json when the body is not an object", async () => {
+    const request = new Request("https://pages.example.com/api/pages", {
+      method: "POST",
+      body: JSON.stringify(["bad"]),
+      headers: { "Content-Type": "application/json" },
+    });
+    await expect(parsePublishJson(request)).rejects.toMatchObject({
+      code: "invalid_json",
+      status: 400,
+    });
+  });
+
+  it("throws invalid_content when content is missing", async () => {
+    const request = makeJsonRequest({ format: "html" });
+    await expect(parsePublishJson(request)).rejects.toMatchObject({
+      code: "invalid_content",
+      status: 400,
+    });
+  });
+
+  it("throws invalid_content when content is empty", async () => {
+    const request = makeJsonRequest({ content: "", format: "html" });
+    await expect(parsePublishJson(request)).rejects.toMatchObject({
+      code: "invalid_content",
+      status: 400,
+    });
+  });
+
+  it("throws invalid_content when content is not a string", async () => {
+    const request = makeJsonRequest({ content: 123, format: "html" });
+    await expect(parsePublishJson(request)).rejects.toMatchObject({
+      code: "invalid_content",
+      status: 400,
+    });
+  });
+
+  it("throws invalid_content when content is whitespace-only", async () => {
+    const request = makeJsonRequest({ content: "   \n\t  ", format: "html" });
+    await expect(parsePublishJson(request)).rejects.toMatchObject({
+      code: "invalid_content",
+      status: 400,
+    });
+  });
+
+  it("throws invalid_format when format is missing", async () => {
+    const request = makeJsonRequest({ content: "# Hi" });
+    await expect(parsePublishJson(request)).rejects.toMatchObject({
+      code: "invalid_format",
+      status: 400,
+    });
+  });
+
+  it("throws invalid_format when format is not html or markdown", async () => {
+    const request = makeJsonRequest({ content: "# Hi", format: "txt" });
+    await expect(parsePublishJson(request)).rejects.toMatchObject({
+      code: "invalid_format",
+      status: 400,
+    });
+  });
+
+  it("throws invalid_format when format is not a string", async () => {
+    const request = makeJsonRequest({ content: "# Hi", format: 1 });
+    await expect(parsePublishJson(request)).rejects.toMatchObject({
+      code: "invalid_format",
+      status: 400,
+    });
+  });
+
+  it("throws content_too_large when content exceeds 1 MB", async () => {
+    const request = makeJsonRequest({ content: "x".repeat(1_000_001), format: "html" });
+    await expect(parsePublishJson(request)).rejects.toMatchObject({
+      code: "content_too_large",
+      status: 413,
+    });
+  });
+
+  it("does not throw when content is exactly 1 MB", async () => {
+    const request = makeJsonRequest({ content: "x".repeat(1_000_000), format: "html" });
+    const result = await parsePublishJson(request);
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0].size).toBe(1_000_000);
+  });
+
+  it("strips a leading UTF-8 BOM from markdown content", async () => {
+    const result = await parsePublishJson(
+      makeJsonRequest({ content: "\uFEFF# Title", format: "markdown" }),
+    );
+    const text = new TextDecoder().decode(result.files[0].content);
+    expect(text).toBe("# Title");
   });
 });

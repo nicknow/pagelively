@@ -30,6 +30,9 @@ import { mimeTypeFor } from "./content-type";
 /** ~95 MB guard before buffering a multipart body (Cloudflare free/pro limit is ~100 MB). */
 const MAX_BODY_SIZE = 95 * 1024 * 1024;
 
+/** 1 MB guard for pasted text content. */
+const MAX_PASTE_LENGTH = 1_000_000;
+
 const UTF8_BOM = new Uint8Array([0xef, 0xbb, 0xbf]);
 
 function isMarkdownPath(path: string): boolean {
@@ -97,6 +100,68 @@ function parseManifestField(raw: string): ParsedPublishForm["manifest"] {
     }
     throw new AppError("invalid_manifest", 400, "Manifest is not valid JSON.");
   }
+}
+
+export async function parsePublishJson(request: Request): Promise<ParsedPublishForm> {
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new AppError("invalid_json", 400, "Request body must be valid JSON.", detail);
+  }
+
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new AppError("invalid_json", 400, "Request body must be a JSON object.");
+  }
+
+  if (typeof body.content !== "string" || body.content.trim() === "") {
+    throw new AppError("invalid_content", 400, "content must be a non-empty string.");
+  }
+
+  const content = body.content as string;
+  const bytes = new TextEncoder().encode(content);
+  if (bytes.length > MAX_PASTE_LENGTH) {
+    throw new AppError("content_too_large", 413, "content exceeds the 1 MB paste limit.");
+  }
+
+  const format = body.format;
+  if (format !== "html" && format !== "markdown") {
+    throw new AppError("invalid_format", 400, "format must be 'html' or 'markdown'.");
+  }
+
+  const path = format === "html" ? "pasted.html" : "pasted.md";
+  const contentType = mimeTypeFor(path);
+  let contentBuffer = bytes.buffer as ArrayBuffer;
+  if (isMarkdownPath(path)) {
+    contentBuffer = stripLeadingBom(bytes);
+  }
+
+  const manifest: ParsedPublishForm["manifest"] = {};
+  if ("slug" in body && typeof body.slug === "string") {
+    manifest.slug = body.slug;
+  }
+  if ("title" in body && typeof body.title === "string") {
+    manifest.title = body.title;
+  }
+  if ("showSource" in body && typeof body.showSource === "boolean") {
+    manifest.showSource = body.showSource;
+  }
+  if ("visibility" in body && typeof body.visibility === "string") {
+    manifest.visibility = body.visibility as "public" | "unlisted";
+  }
+
+  const files: ParsedPublishForm["files"] = [
+    {
+      path,
+      name: path,
+      content: contentBuffer,
+      size: contentBuffer.byteLength,
+      contentType,
+    },
+  ];
+
+  return { manifest, files };
 }
 
 export async function parsePublishForm(request: Request): Promise<ParsedPublishForm> {

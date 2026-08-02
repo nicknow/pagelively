@@ -79,9 +79,10 @@ Get a single page and its files.
 
 ### `POST /api/pages`
 
-Upload and publish a page. The request body must be `multipart/form-data`.
+Upload and publish a page. The endpoint accepts **either** `multipart/form-data` (file upload) or
+`application/json` (pasted content) and feeds both into the same create pipeline.
 
-**Multipart fields:**
+**Multipart body:**
 
 - `manifest` (optional, JSON string): `{ slug?, title?, showSource?, entry?, visibility? }`
   - `slug`: optional friendly URL name. If omitted, derived from the entry filename.
@@ -92,6 +93,27 @@ Upload and publish a page. The request body must be `multipart/form-data`.
   - `visibility`: `"public"` (default) or `"unlisted"`.
 - `file:<path>` (one per file): the binary content. The part name is the canonical relative
   path (e.g., `file:images/pic.png`). The browser filename is ignored except for diagnostics.
+
+**JSON body (paste, OQ-17/T4, ADR 0038):**
+
+```json
+{
+  "content": "# Hello\n\nWorld",
+  "format": "markdown",
+  "slug": "hello",
+  "title": "Hello",
+  "visibility": "public",
+  "showSource": true
+}
+```
+
+- `content` (required string): the pasted text. Must be non-empty after trimming.
+- `format` (required `"html"` | `"markdown"`): the content type. `html` is stored as `index.html`;
+  `markdown` is rendered through the existing Markdown pipeline to `source.md` + `index.html`.
+- `slug`, `title`, `visibility`, `showSource`: same semantics as the multipart manifest.
+  - The multipart `entry` field is not accepted because pasted content is always a single
+    document.
+- Unknown JSON fields are ignored (forward-compatible).
 
 **Page kind detection:**
 
@@ -120,7 +142,7 @@ purged on success.
 
 **Error responses:**
 
-- `400` `{ error: "no_files" }` — no file parts were uploaded.
+- `400` `{ error: "no_files" }` — no file parts were uploaded (multipart path).
 - `400` `{ error: "ambiguous_entry" }` — multiple entry candidates and no `manifest.entry`.
 - `400` `{ error: "invalid_entry" }` — `manifest.entry` does not match an uploaded file.
 - `400` `{ error: "invalid_slug" }` — reserved name (rejected intact or after cleaning),
@@ -129,10 +151,16 @@ purged on success.
 - `400` `{ error: "title_too_long" }` — title exceeds 256 characters.
 - `400` `{ error: "path_traversal" }` — a path contains `../`, starts with `/`, or uses `\`.
 - `400` `{ error: "invalid_filename" }` — a filename contains `%`.
-- `400` `{ error: "invalid_manifest" }` — manifest is missing or invalid JSON.
-- `400` `{ error: "invalid_form_data" }` — body is not valid multipart form data.
+- `400` `{ error: "invalid_manifest" }` — manifest is missing or invalid JSON (multipart path).
+- `400` `{ error: "invalid_form_data" }` — body is not valid multipart form data (multipart path).
+- `400` `{ error: "invalid_json" }` — body is not valid JSON or not a JSON object (JSON path).
+- `400` `{ error: "invalid_content" }` — `content` is missing, not a string, or empty/whitespace-only
+  (JSON path).
+- `400` `{ error: "invalid_format" }` — `format` is missing or not `"html"`/`"markdown"` (JSON path).
 - `409` `{ error: "slug_conflict" }` — a user-provided slug is already taken.
-- `413` `{ error: "request_too_large" }` — `Content-Length` exceeds the ~95 MB guard.
+- `413` `{ error: "request_too_large" }` — `Content-Length` exceeds the ~95 MB guard (multipart path).
+- `413` `{ error: "content_too_large" }` — `content` exceeds the 1 MB paste guard (JSON path);
+  nothing is stored.
 - `500` `{ error: "db_write_failed" }` — D1 write failed after R2 writes; R2 objects are rolled
   back best-effort.
 - `403` `{ error: "Forbidden" }` — missing or invalid `Cf-Access-Jwt-Assertion`.

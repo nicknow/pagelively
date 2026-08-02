@@ -180,11 +180,16 @@ export async function handleAdminDashboard(
 
 function uploadContent(): string {
   return `<div class="card">
-    <h2>Upload a page</h2>
-    <p class="hint">Choose one or more files, or upload a folder to preserve its relative paths.</p>
+    <h2 class="inline">Upload a page</h2>
+    <div class="toolbar" style="padding: 0; margin: 1rem 0;">
+      <button type="button" class="button" id="tab-upload">Upload files</button>
+      <button type="button" class="button secondary" id="tab-paste">Paste content</button>
+    </div>
+    <div class="error" id="upload-error" role="alert"></div>
+
     <!-- Multipart convention: manifest JSON field + file:<path> file parts -->
     <form id="upload-form" action="/api/pages" method="POST" enctype="multipart/form-data">
-      <div class="error" id="upload-error" role="alert"></div>
+      <p class="hint">Choose one or more files, or upload a folder to preserve its relative paths.</p>
       <!-- Two pickers: webkitdirectory on the same input as multiple forces
            directory-only selection, so loose files live on #files (multiple-only)
            and folder upload (relative paths, spec §10) is a separate opt-in input.
@@ -229,16 +234,77 @@ function uploadContent(): string {
         <a class="button secondary" href="/admin">Cancel</a>
       </div>
     </form>
+
+    <form id="paste-form" class="hidden" action="/api/pages">
+      <p class="hint">Paste HTML or Markdown content. It will be published as a single page.</p>
+      <label>
+        Content
+        <textarea name="content" id="paste-content" rows="12" placeholder="Paste HTML or Markdown here"></textarea>
+      </label>
+      <label>
+        Format
+        <div class="radio-group">
+          <label><input type="radio" name="paste-format" value="html"> HTML</label>
+          <label><input type="radio" name="paste-format" value="markdown" checked> Markdown</label>
+        </div>
+      </label>
+      <label>
+        Slug <span class="hint">(optional)</span>
+        <input type="text" name="paste-slug" id="paste-slug" placeholder="my-page">
+      </label>
+      <label>
+        Title <span class="hint">(optional)</span>
+        <input type="text" name="paste-title" id="paste-title" placeholder="My Page">
+      </label>
+      <label>
+        Visibility
+        <div class="radio-group">
+          <label><input type="radio" name="paste-visibility" value="public" checked> Public</label>
+          <label><input type="radio" name="paste-visibility" value="unlisted"> Unlisted</label>
+        </div>
+      </label>
+      <label>
+        <input type="checkbox" name="paste-show-source" id="paste-show-source" value="true">
+        Show source link (for Markdown pages)
+      </label>
+      <div class="toolbar">
+        <button type="submit" id="publish-paste">Publish</button>
+        <a class="button secondary" href="/admin">Cancel</a>
+      </div>
+    </form>
   </div>
   <script>
     const form = document.getElementById('upload-form');
+    const pasteForm = document.getElementById('paste-form');
     const filesInput = document.getElementById('files');
     const folderInput = document.getElementById('folder');
     const manifestInput = document.getElementById('manifest');
     const entryField = document.getElementById('entry-field');
     const entrySelect = document.getElementById('entry');
     const errorBox = document.getElementById('upload-error');
+    const pasteContent = document.getElementById('paste-content');
+    const tabUpload = document.getElementById('tab-upload');
+    const tabPaste = document.getElementById('tab-paste');
     const documentExts = ['.html', '.htm', '.md', '.markdown'];
+
+    function showTab(tab) {
+      if (tab === 'upload') {
+        form.classList.remove('hidden');
+        pasteForm.classList.add('hidden');
+        tabUpload.classList.remove('secondary');
+        tabPaste.classList.add('secondary');
+      } else {
+        form.classList.add('hidden');
+        pasteForm.classList.remove('hidden');
+        tabUpload.classList.add('secondary');
+        tabPaste.classList.remove('secondary');
+      }
+      errorBox.style.display = 'none';
+      errorBox.textContent = '';
+    }
+
+    tabUpload.addEventListener('click', () => showTab('upload'));
+    tabPaste.addEventListener('click', () => showTab('paste'));
 
     function selectedFiles() {
       return Array.from(filesInput.files || []).concat(Array.from(folderInput.files || []));
@@ -298,8 +364,14 @@ function uploadContent(): string {
       errorBox.style.display = 'none';
       errorBox.textContent = '';
       const files = selectedFiles();
-      if (files.length === 0) {
-        errorBox.textContent = 'Choose at least one file or folder.';
+      const pasted = pasteContent.value.trim();
+      if (files.length === 0 && pasted === '') {
+        errorBox.textContent = 'Provide either files or paste content.';
+        errorBox.style.display = 'block';
+        return;
+      }
+      if (files.length > 0 && pasted !== '') {
+        errorBox.textContent = 'Provide either files or paste content, not both.';
         errorBox.style.display = 'block';
         return;
       }
@@ -313,6 +385,44 @@ function uploadContent(): string {
       } else {
         const body = await res.json().catch(() => ({ error: 'Upload failed' }));
         errorBox.textContent = body.message || body.error || 'Upload failed';
+        errorBox.style.display = 'block';
+      }
+    });
+
+    pasteForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorBox.style.display = 'none';
+      errorBox.textContent = '';
+      const files = selectedFiles();
+      if (files.length === 0 && pasteContent.value.trim() === '') {
+        errorBox.textContent = 'Provide either files or paste content.';
+        errorBox.style.display = 'block';
+        return;
+      }
+      if (files.length > 0 && pasteContent.value.trim() !== '') {
+        errorBox.textContent = 'Provide either files or paste content, not both.';
+        errorBox.style.display = 'block';
+        return;
+      }
+      const pasteFormat = pasteForm.querySelector('input[name="paste-format"]:checked').value;
+      const payload = {
+        content: pasteContent.value,
+        format: pasteFormat,
+        slug: document.getElementById('paste-slug').value || undefined,
+        title: document.getElementById('paste-title').value || undefined,
+        visibility: pasteForm.querySelector('input[name="paste-visibility"]:checked').value,
+        showSource: document.getElementById('paste-show-source').checked,
+      };
+      const res = await fetch('/api/pages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        window.location.href = '/admin';
+      } else {
+        const body = await res.json().catch(() => ({ error: 'Publish failed' }));
+        errorBox.textContent = body.message || body.error || 'Publish failed';
         errorBox.style.display = 'block';
       }
     });

@@ -377,6 +377,58 @@ describe("index.ts — admin UI", () => {
     expect(text).not.toContain("No pages yet");
   });
 
+  it("upload page has a Paste content tab with textarea, format radios, and publish button", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("Paste content");
+    expect(text).toContain('id="paste-content"');
+    expect(text).toContain('name="content"');
+    expect(text).toContain('type="radio"');
+    expect(text).toContain('name="paste-format"');
+    expect(text).toContain('value="html"');
+    expect(text).toContain('value="markdown"');
+    expect(text).toContain('id="publish-paste"');
+    expect(text).toContain('action="/api/pages"');
+  });
+
+  it("upload page defaults paste format to Markdown", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    const text = await res.text();
+    const markdownRadio =
+      text.match(/<input[^>]*\bname="paste-format"[^>]*\bvalue="markdown"[^>]*>/)?.[0] ?? "";
+    expect(markdownRadio).toContain("checked");
+    const htmlRadio =
+      text.match(/<input[^>]*\bname="paste-format"[^>]*\bvalue="html"[^>]*>/)?.[0] ?? "";
+    expect(htmlRadio).not.toContain("checked");
+  });
+
+  it("paste form posts JSON to /api/pages", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    const text = await res.text();
+    expect(text).toContain("'Content-Type': 'application/json'");
+    expect(text).toContain("JSON.stringify(");
+    expect(text).toContain("content: pasteContent.value");
+    expect(text).toContain("format: pasteFormat");
+    expect(text).toContain("method: 'POST'");
+    expect(text).toContain("/api/pages");
+  });
+
+  it("paste form surfaces errors in the same #upload-error box", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    const text = await res.text();
+    expect(text).toContain('id="upload-error"');
+    expect(text).toContain("body.message || body.error || 'Publish failed'");
+  });
+
+  it("upload page enforces that either files or paste content is provided, not both", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    const text = await res.text();
+    expect(text).toContain("Provide either files or paste content");
+    expect(text).toContain("files.length === 0 && pasteContent.value.trim() === ''");
+    expect(text).toContain("files.length > 0 && pasteContent.value.trim() !== ''");
+  });
+
   it("upload form contains the inline entry-picker script logic", async () => {
     const res = await fetchAdmin("/admin/upload", await validToken());
     const text = await res.text();
@@ -391,8 +443,8 @@ describe("index.ts — admin UI", () => {
     expect(text).toContain("getElementById('files')");
     expect(text).toContain("getElementById('folder')");
     expect(text).toContain("concat(Array.from(folderInput.files || []))");
-    // Empty-union guard message is regression-pinned.
-    expect(text).toContain("Choose at least one file or folder.");
+    // Empty-union guard message is regression-pinned (now unified with paste).
+    expect(text).toContain("Provide either files or paste content.");
   });
 
   it("dashboard displays the verified email from the Access token", async () => {

@@ -21,7 +21,12 @@ import { cleanSlug, slugify, validateSlug } from "./slug";
 import { renderMarkdown } from "./markdown";
 import { mimeTypeFor, isImageContentType, CHARSET_HTML } from "./content-type";
 import { buildR2Key, nextRev } from "./rev";
-import { parsePublishForm, parseFileUpdateForm, type ParsedPublishForm } from "./form-parser";
+import {
+  parsePublishForm,
+  parsePublishJson,
+  parseFileUpdateForm,
+  type ParsedPublishForm,
+} from "./form-parser";
 import type { PagesRepository, NewPage, PageRecord } from "./pages-repository";
 import type { FilesRepository, NewFile } from "./files-repository";
 import type { CacheService } from "./cache-service";
@@ -305,7 +310,10 @@ export async function handleCreatePage(
 ): Promise<Response> {
   const { pagesRepository, filesRepository, objectStore, cacheService, config } = deps;
 
-  const { manifest, files } = await parsePublishForm(request);
+  const contentType = request.headers.get("content-type") ?? "";
+  const { manifest, files } = contentType.startsWith("application/json")
+    ? await parsePublishJson(request)
+    : await parsePublishForm(request);
   if (files.length === 0) {
     throw new AppError("no_files", 400, "No files were uploaded.");
   }

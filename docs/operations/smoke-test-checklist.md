@@ -351,6 +351,21 @@ them and that the dashboard surface exists to watch them.
 - [ ] Publishing purges the page's cache tag (`page-{id}`); the entry URL returns fresh content.
 - [ ] A D1 write failure after R2 writes does not leave orphaned `pages/{id}/` objects in R2
       (best-effort rollback).
+- [ ] `POST /api/pages` with `Content-Type: application/json` and
+      `{ content: "<h1>Hi</h1>", format: "html" }` creates an `html` page, stores one
+      `index.html` file, and serves it at the slug (OQ-17/T4).
+- [ ] `POST /api/pages` with `Content-Type: application/json` and
+      `{ content: "# Hi", format: "markdown", showSource: true }` creates a `markdown` page,
+      renders `index.html` with a `source.md` link, and stores the raw `source.md` (OQ-17/T4).
+- [ ] JSON paste supports the same manifest fields as multipart: `slug`, `title`, `visibility`, and
+      `showSource`; invalid/missing `content`, missing/invalid `format`, and content > 1 MB return
+      `400`/`413` with codes `invalid_json`, `invalid_content`, `invalid_format`, or
+      `content_too_large` (OQ-17/T4).
+- [ ] The `/admin/upload` page has a **Paste content** tab with a textarea, HTML/Markdown format
+      radio (Markdown default), and a Publish button; it posts JSON to `/api/pages` and shows
+      API errors in the same error box as the file upload form.
+- [ ] The UI prevents a mixed submission: when both files are selected and paste content is
+      entered, the active Publish/Upload button surfaces an error instead of submitting.
 
 ## S18 — Edit & delete API
 
