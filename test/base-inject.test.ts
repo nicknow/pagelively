@@ -6,7 +6,7 @@ import { injectBase } from "../src/base-inject";
 // `<base href="{escaped, normalized href}">` — a void element, no self-closing slash
 // (planner AC: "output is well-formed (<base href="…">)").
 
-const HREF = "https://cdn.pages.acme.com/pages/abc123/4/";
+const HREF = "https://cdn.pages.acme.com/pages/abc123/4/index.html";
 const BASE_TAG = `<base href="${HREF}">`;
 
 /** Well-formed `<base>` tags in a document (for "exactly one base" assertions). */
@@ -100,41 +100,60 @@ describe("injectBase — happy path: first element inside <head> (S04 AC 1)", ()
 });
 
 // ---------------------------------------------------------------------------
-// Href normalization (S04 AC 2): trailing slash guaranteed; query/fragment
-// stripped defensively. (ASSET_BASE_URL validation itself belongs to config.ts.)
+// Href normalization (S04 AC 2): preserve the caller's path; strip query and
+// fragment defensively; empty href normalizes to "/". (ASSET_BASE_URL validation
+// belongs to config.ts; entry-serve.ts composes the file-style href.)
 // ---------------------------------------------------------------------------
 
 describe("injectBase — href normalization (S04 AC 2)", () => {
-  it("appends a trailing slash when the href has none", () => {
-    expect(injectBase("<head></head>", "https://cdn.example.com/pages/abc/3")).toBe(
-      `<head><base href="https://cdn.example.com/pages/abc/3/"></head>`,
+  it("preserves a file-style entry href", () => {
+    expect(injectBase("<head></head>", "https://cdn.example.com/pages/abc/3/index.html")).toBe(
+      `<head><base href="https://cdn.example.com/pages/abc/3/index.html"></head>`,
     );
   });
 
-  it("keeps an href that already ends with a slash unchanged", () => {
+  it("preserves a trailing slash when present (folder-style href)", () => {
     expect(injectBase("<head></head>", "https://cdn.example.com/pages/abc/3/")).toBe(
       `<head><base href="https://cdn.example.com/pages/abc/3/"></head>`,
     );
   });
 
-  it("strips a query string (…/3/?token=t → …/3/)", () => {
+  it("does not add a trailing slash when one is absent", () => {
+    expect(injectBase("<head></head>", "https://cdn.example.com/pages/abc/3")).toBe(
+      `<head><base href="https://cdn.example.com/pages/abc/3"></head>`,
+    );
+  });
+
+  it("strips a query string from a file-style href", () => {
+    expect(
+      injectBase("<head></head>", "https://cdn.example.com/pages/abc/3/index.html?token=t"),
+    ).toBe(`<head><base href="https://cdn.example.com/pages/abc/3/index.html"></head>`);
+  });
+
+  it("strips a query string from a folder-style href", () => {
     expect(injectBase("<head></head>", "https://cdn.example.com/pages/abc/3/?token=t")).toBe(
       `<head><base href="https://cdn.example.com/pages/abc/3/"></head>`,
     );
   });
 
-  it("strips a fragment (…/3/#top → …/3/)", () => {
+  it("strips a fragment from a file-style href", () => {
+    expect(injectBase("<head></head>", "https://cdn.example.com/pages/abc/3/index.html#top")).toBe(
+      `<head><base href="https://cdn.example.com/pages/abc/3/index.html"></head>`,
+    );
+  });
+
+  it("strips a fragment from a folder-style href", () => {
     expect(injectBase("<head></head>", "https://cdn.example.com/pages/abc/3/#top")).toBe(
       `<head><base href="https://cdn.example.com/pages/abc/3/"></head>`,
     );
   });
 
-  it("strips both query and fragment, truncating at the first of '?'/'#'", () => {
-    expect(injectBase("<head></head>", "https://cdn.example.com/pages/abc/3/?a=b#c")).toBe(
-      `<head><base href="https://cdn.example.com/pages/abc/3/"></head>`,
-    );
-    expect(injectBase("<head></head>", "https://cdn.example.com/pages/abc/3/#f?q")).toBe(
-      `<head><base href="https://cdn.example.com/pages/abc/3/"></head>`,
+  it("strips query and fragment together, truncating at the first of '?'/'#'", () => {
+    expect(
+      injectBase("<head></head>", "https://cdn.example.com/pages/abc/3/index.html?a=b#c"),
+    ).toBe(`<head><base href="https://cdn.example.com/pages/abc/3/index.html"></head>`);
+    expect(injectBase("<head></head>", "https://cdn.example.com/pages/abc/3/index.html#f?q")).toBe(
+      `<head><base href="https://cdn.example.com/pages/abc/3/index.html"></head>`,
     );
   });
 
@@ -142,19 +161,19 @@ describe("injectBase — href normalization (S04 AC 2)", () => {
     expect(injectBase("<head></head>", "/")).toBe(`<head><base href="/"></head>`);
   });
 
-  it("normalizes an empty href to '/' (mechanical ends-with-slash rule)", () => {
+  it("normalizes an empty href to '/'", () => {
     expect(injectBase("<head></head>", "")).toBe(`<head><base href="/"></head>`);
   });
 
-  it("leaves a placeholder CDN base unchanged (planner AC)", () => {
+  it("leaves a placeholder CDN base unchanged", () => {
     expect(injectBase("<head></head>", "https://cdn.example.com")).toBe(
-      `<head><base href="https://cdn.example.com/"></head>`,
+      `<head><base href="https://cdn.example.com"></head>`,
     );
   });
 
-  it("does not trim or encode the value (no URL munging beyond slash/query rules)", () => {
+  it("does not trim or encode the value (no URL munging beyond query/fragment stripping)", () => {
     // Spaces are legal in URLs (when percent-encoded by the author); this
-    // function only guarantees the HTML-attribute + trailing-slash contract.
+    // function only guarantees the HTML-attribute + query/fragment contract.
     expect(injectBase("<head></head>", "https://x.test/a b/")).toBe(
       `<head><base href="https://x.test/a b/"></head>`,
     );
@@ -306,22 +325,20 @@ describe("injectBase — existing base replaced (S04 AC 4)", () => {
 
 describe("injectBase — href escaping (S04 AC 5)", () => {
   it("escapes double quotes so the value cannot break out of the attribute", () => {
-    // The trailing-slash normalization (AC 2) runs before escaping, so the
-    // appended "/" lands after the value, before the closing quote.
     const result = injectBase("<head></head>", 'https://x/" onload="alert(1)');
-    expect(result).toBe('<head><base href="https://x/&quot; onload=&quot;alert(1)/"></head>');
-    expectExactlyOneBase(result, '<base href="https://x/&quot; onload=&quot;alert(1)/">');
+    expect(result).toBe('<head><base href="https://x/&quot; onload=&quot;alert(1)"></head>');
+    expectExactlyOneBase(result, '<base href="https://x/&quot; onload=&quot;alert(1)">');
   });
 
   it("escapes & < > ' and &-first (no double-escape)", () => {
     const result = injectBase("<head></head>", "a&b<c>d'e");
-    expect(result).toBe('<head><base href="a&amp;b&lt;c&gt;d&#39;e/"></head>');
+    expect(result).toBe('<head><base href="a&amp;b&lt;c&gt;d&#39;e"></head>');
   });
 
   it("escapes the value when the attack needs < to inject markup", () => {
     const result = injectBase("<head></head>", "https://x/<img src=x onerror=alert(1)>");
-    expect(result).toBe('<head><base href="https://x/&lt;img src=x onerror=alert(1)&gt;/"></head>');
-    expectExactlyOneBase(result, '<base href="https://x/&lt;img src=x onerror=alert(1)&gt;/">');
+    expect(result).toBe('<head><base href="https://x/&lt;img src=x onerror=alert(1)&gt;"></head>');
+    expectExactlyOneBase(result, '<base href="https://x/&lt;img src=x onerror=alert(1)&gt;">');
   });
 });
 
@@ -479,14 +496,15 @@ describe("injectBase — never throws on malformed/adversarial input (S04 AC 6)"
   });
 
   it("never throws for non-string baseHref input and still emits a normalized href", () => {
-    // String() explicit coercion: String(null) = "null" → "null/" (slash
-    // appended); String(Symbol) succeeds too — only toString-throwing values
-    // fall back to "" (→ "/"), covered below via the evil object.
-    expect(injectBase("<head></head>", null as never)).toBe(`<head><base href="null/"></head>`);
+    // String() explicit coercion: String(null) = "null", String(undefined) =
+    // "undefined", String(42) = "42" — all are preserved as-is; only
+    // toString-throwing values fall back to "" (→ "/"), covered below via the
+    // evil object.
+    expect(injectBase("<head></head>", null as never)).toBe(`<head><base href="null"></head>`);
     expect(injectBase("<head></head>", undefined as never)).toBe(
-      `<head><base href="undefined/"></head>`,
+      `<head><base href="undefined"></head>`,
     );
-    expect(injectBase("<head></head>", 42 as never)).toBe(`<head><base href="42/"></head>`);
+    expect(injectBase("<head></head>", 42 as never)).toBe(`<head><base href="42"></head>`);
   });
 
   it("coerces a Symbol html argument via String() (explicit coercion does not throw)", () => {
@@ -649,12 +667,12 @@ describe("injectBase — validator probes: replacement and escaping", () => {
   it("replaces an existing base with a DIFFERENT normalized href (replace, not merge)", () => {
     expect(
       injectBase('<head><base href="https://old.example.com/"></head>', "https://new.example.com"),
-    ).toBe(`<head><base href="https://new.example.com/"></head>`);
+    ).toBe(`<head><base href="https://new.example.com"></head>`);
   });
 
   it("escapes a spaced href without breaking the attribute (no trimming, ADR 0013 d6)", () => {
     expect(injectBase("<head></head>", ' https://x.test/ "a" ')).toBe(
-      `<head><base href=" https://x.test/ &quot;a&quot; /"></head>`,
+      `<head><base href=" https://x.test/ &quot;a&quot; "></head>`,
     );
   });
 

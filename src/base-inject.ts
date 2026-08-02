@@ -26,9 +26,11 @@
  *   removed before injection (case-insensitive), so exactly one active base
  *   remains (S04 AC 4).
  * - The href is HTML-attribute-escaped (S04 AC 5) and normalized: any query
- *   string or fragment is stripped and a trailing `/` is guaranteed (S04 AC 2;
- *   `ASSET_BASE_URL` validation itself belongs to config.ts). The caller
- *   composes the full CDN href `{ASSET_BASE_URL}/pages/{id}/{rev}/`.
+ *   string or fragment is stripped (S04 AC 2; `ASSET_BASE_URL` validation
+ *   itself belongs to config.ts). The caller composes the full file-style CDN
+ *   href `{ASSET_BASE_URL}/pages/{id}/{rev}/{entry_path}` and the caller's
+ *   path is preserved as-is, including any trailing `/`. An empty href
+ *   normalizes to `/`.
  */
 
 import { escapeHtml } from "./utils";
@@ -104,7 +106,7 @@ function toSafeString(value: unknown): string {
 /**
  * Defensive href normalization (S04 AC 2): truncate at the FIRST of `?`/`#`
  * (whichever comes first — a `#` inside a query still starts the fragment),
- * then guarantee a trailing `/` (an empty href normalizes to `/`). No URL
+ * then preserve the caller's path as-is. Empty href normalizes to `/`. No URL
  * encoding and no trimming: config validation of `ASSET_BASE_URL` is
  * config.ts's concern, not this function's.
  */
@@ -118,7 +120,7 @@ function normalizeHref(href: string): string {
     end = fragment;
   }
   const stripped = href.slice(0, end);
-  return stripped.endsWith("/") ? stripped : stripped + "/";
+  return stripped === "" ? "/" : stripped;
 }
 
 // ---------------------------------------------------------------------------

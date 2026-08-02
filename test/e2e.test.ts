@@ -199,7 +199,7 @@ describe("S22 — full local end-to-end journey", () => {
     expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
     const text = await res.text();
     expect(text).toContain(HOME_MARKER);
-    expect(text).toContain(`<base href="https://cdn.example.com/pages/${homeId}/1/">`);
+    expect(text).toContain(`<base href="https://cdn.example.com/pages/${homeId}/1/index.html">`);
   });
 
   it("step 5: GET /home (no trailing slash) 301s to /home/", async () => {
@@ -214,13 +214,15 @@ describe("S22 — full local end-to-end journey", () => {
     expect(slugRes.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
     const slugText = await slugRes.text();
     expect(slugText).toContain(HOME_MARKER);
-    expect(slugText).toContain(`<base href="https://cdn.example.com/pages/${homeId}/1/">`);
+    expect(slugText).toContain(
+      `<base href="https://cdn.example.com/pages/${homeId}/1/index.html">`,
+    );
 
     const idRes = await fetchPublic(`/p/${homeId}/`);
     expect(idRes.status).toBe(200);
     const idText = await idRes.text();
     expect(idText).toContain(HOME_MARKER);
-    expect(idText).toContain(`<base href="https://cdn.example.com/pages/${homeId}/1/">`);
+    expect(idText).toContain(`<base href="https://cdn.example.com/pages/${homeId}/1/index.html">`);
 
     // Assets are served by the R2 CDN host, not by the Worker (spec §6); the
     // emulated equivalent is the object existing under the page's rev folder
@@ -291,7 +293,9 @@ describe("S22 — full local end-to-end journey", () => {
     expect(serve.status).toBe(200);
     const text = await serve.text();
     expect(text).toContain(BUNDLE_MARKER);
-    expect(text).toContain(`<base href="https://cdn.example.com/pages/${bundleId}/1/">`);
+    expect(text).toContain(
+      `<base href="https://cdn.example.com/pages/${bundleId}/1/site/index.html">`,
+    );
   });
 
   it("step 8: publish a markdown page with show_source; the rendered entry serves, the raw source lives on the CDN path", async () => {
@@ -329,7 +333,7 @@ describe("S22 — full local end-to-end journey", () => {
     expect(serve.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
     const text = await serve.text();
     expect(text).toContain(`<h1>${MD_MARKER}</h1>`);
-    expect(text).toContain(`<base href="https://cdn.example.com/pages/${mdId}/1/">`);
+    expect(text).toContain(`<base href="https://cdn.example.com/pages/${mdId}/1/index.html">`);
     expect(text).toContain('<p class="source-link"><a href="source.md">View source</a></p>');
 
     // No raw-source route exists on the Worker (spec §6 — assets bypass the
@@ -395,7 +399,9 @@ describe("S22 — full local end-to-end journey", () => {
     const text = await serve.text();
     expect(text).toContain(V2_MARKER);
     expect(text).not.toContain(BUNDLE_MARKER);
-    expect(text).toContain(`<base href="https://cdn.example.com/pages/${bundleId}/2/">`);
+    expect(text).toContain(
+      `<base href="https://cdn.example.com/pages/${bundleId}/2/site/index.html">`,
+    );
     const rev2Obj = await env.BUCKET.get(`pages/${bundleId}/2/site/index.html`);
     expect(rev2Obj).not.toBeNull();
     expect(await new Response(rev2Obj!.body).text()).toContain(V2_MARKER);
@@ -431,7 +437,9 @@ describe("S22 — full local end-to-end journey", () => {
     expect(serve.status).toBe(200);
     const text = await serve.text();
     expect(text).toContain(V2_MARKER);
-    expect(text).toContain(`<base href="https://cdn.example.com/pages/${bundleId}/3/">`);
+    expect(text).toContain(
+      `<base href="https://cdn.example.com/pages/${bundleId}/3/site/index.html">`,
+    );
   });
 
   it("step 13: PATCH edits the home page's slug; the new slug serves, the old 404s clean, the id serves, rev is unchanged", async () => {
@@ -456,7 +464,7 @@ describe("S22 — full local end-to-end journey", () => {
     expect(newSlug.status).toBe(200);
     const newText = await newSlug.text();
     expect(newText).toContain(HOME_MARKER);
-    expect(newText).toContain(`<base href="https://cdn.example.com/pages/${homeId}/1/">`);
+    expect(newText).toContain(`<base href="https://cdn.example.com/pages/${homeId}/1/index.html">`);
 
     // The old slug is gone: a clean 404 with no-store, and no rename redirect
     // exists (slug.test.ts / redirects.test.ts semantics — there is no

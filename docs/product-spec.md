@@ -162,15 +162,16 @@ endpoints**. Sign‑out uses Access's own `/cdn-cgi/access/logout`.
 Requirement: when an HTML or Markdown file references images (or css/js), those references
 must still resolve after publishing.
 
-**Mechanism: a `<base>` tag points every relative reference at the page's folder on the CDN
-host.** All files of a page live under one R2 prefix (`pages/{id}/{rev}/…`) served by the CDN
+**Mechanism: a `<base>` tag points every relative reference at the page's entry file on the
+CDN host.** All files of a page live under one R2 prefix (`pages/{id}/{rev}/…`) served by the CDN
 host. When the Worker returns the entry document, it injects:
 
 ```html
-<base href="https://cdn.pages.acme.com/pages/{id}/{rev}/">
+<base href="https://cdn.pages.acme.com/pages/{id}/{rev}/index.html">
 ```
 
-So a **relative** reference like `images/pic.png` or `./pic.png` resolves to
+So a **relative** reference like `images/pic.png` resolves against the directory containing
+`index.html` to
 `https://cdn.pages.acme.com/pages/{id}/{rev}/images/pic.png` — served straight from R2 by the
 CDN, bypassing the Worker. Because the base carries the per‑publish `{rev}`, updates never serve
 stale assets (see caching, §11).

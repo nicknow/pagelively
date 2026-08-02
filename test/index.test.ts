@@ -163,7 +163,7 @@ describe("index.ts — public entry pipeline", () => {
     expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
     const text = await res.text();
     expect(text).toContain("<h1>Home</h1>");
-    expect(text).toContain('<base href="https://cdn.example.com/pages/home000001/1/">');
+    expect(text).toContain('<base href="https://cdn.example.com/pages/home000001/1/index.html">');
   });
 
   it("GET /hello redirects to /hello/", async () => {
@@ -186,7 +186,7 @@ describe("index.ts — public entry pipeline", () => {
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).toContain("<h1>Hello</h1>");
-    expect(text).toContain('<base href="https://cdn.example.com/pages/page000001/1/">');
+    expect(text).toContain('<base href="https://cdn.example.com/pages/page000001/1/index.html">');
   });
 
   it("GET /p/{id}/ serves the same page by id", async () => {
@@ -203,7 +203,7 @@ describe("index.ts — public entry pipeline", () => {
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).toContain("<h1>Hello</h1>");
-    expect(text).toContain('<base href="https://cdn.example.com/pages/page000001/1/">');
+    expect(text).toContain('<base href="https://cdn.example.com/pages/page000001/1/index.html">');
   });
 
   it("GET /p/{id} redirects to /p/{id}/", async () => {
@@ -252,7 +252,7 @@ describe("index.ts — public entry pipeline", () => {
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).toContain("<h1>Notes</h1>");
-    expect(text).toContain('<base href="https://cdn.example.com/pages/page000003/1/">');
+    expect(text).toContain('<base href="https://cdn.example.com/pages/page000003/1/index.html">');
   });
 
   it("unknown slug returns a clean 404", async () => {

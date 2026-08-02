@@ -8,7 +8,7 @@
  *
  * Normalization rules:
  * - `assetBaseUrl` strips any trailing slash so the base href builder always
- *   concatenates exactly one `/` between the host and `/pages/{id}/{rev}/`.
+ *   concatenates exactly one `/` between the host and `/pages/{id}/{rev}/{entry_path}`.
  * - `homeMode` is trimmed and lowercased; only the exact value `"page"`
  *   selects home-page mode — everything else is treated as `"404"` (fail-safe).
  * - `homePageSlug` is trimmed; empty/whitespace-only is stored as `null`.
