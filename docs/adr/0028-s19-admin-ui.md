@@ -102,6 +102,23 @@ All admin UI responses use the `cacheService.headersFor("admin")` helper, which 
   HTML string generation and the index.ts dispatch. The operator checklist covers the
   end-to-end upload/edit/delete flows.
 
+## T3 modernization (OQ-18, ADR 0039)
+
+The buildless design was later modernized (T3) without changing the architecture above. The
+overhaul added:
+
+- A CSS custom-property design system (light theme, responsive, accessible focus states, no inline
+  styles outside the `<style>` block).
+- A cleaner dashboard with kind/visibility badges, a prominent Upload CTA, and a friendlier
+  empty state.
+- Distinct tabs for the upload page's **Upload files** and **Paste content** modes.
+- Toast notifications for API errors from delete handlers (replacing the remaining `alert()`
+  calls while keeping `confirm()` for destructive actions).
+- Inline slug preview below the slug inputs on the upload and edit forms.
+- A visible **Protected** badge for entry files in the edit page file list.
+
+No new runtime dependencies were added, and the build remains under the Workers free-tier limit.
+
 ## Cross-references
 
 - Spec: §5 (URL scheme), §9 (auth), §10 (admin UI & upload flows), §12 (config), §15 (bundle size).

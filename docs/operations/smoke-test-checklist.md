@@ -412,14 +412,20 @@ end-to-end flows behind Cloudflare Access:
       and `Content-Type: text/html; charset=utf-8`.
 - [ ] The dashboard shows the product name "Pagelively" and the verified email address from the
       Access JWT.
-- [ ] The dashboard lists existing pages (id, title, slug, kind, created_at, visibility) with
-      working View, Edit, and Delete links.
-- [ ] When no pages exist, the dashboard shows an "Upload your first page" CTA that links to
-      `/admin/upload`.
-- [ ] `GET /admin/upload` returns a form with a `multiple`-only files input (`#files`), a
-      separate folder input (`#folder`, `webkitdirectory`), slug,
-      title, visibility radios, show-source checkbox, and an entry picker that appears when the
-      entry is ambiguous.
+- [ ] The dashboard lists existing pages with kind badges (`html`, `markdown`, `image`, `bundle`) and
+      visibility badges (`public`, `unlisted`), plus working View, Edit, and Delete links.
+- [ ] When no pages exist, the dashboard shows a friendly empty state and an "Upload your first page"
+      CTA that links to `/admin/upload`.
+- [ ] The layout is responsive: on a narrow viewport, the dashboard table becomes readable stacked
+      cards and form controls remain usable.
+- [ ] `GET /admin/upload` returns a form with two distinct tabs: **Upload files** and
+      **Paste content**. The active tab is visually highlighted and the shared error box is hidden
+      when switching tabs.
+- [ ] The upload tab has a `multiple`-only files input (`#files`), a separate folder input
+      (`#folder`, `webkitdirectory`), slug, title, visibility radios, show-source checkbox, and an
+      entry picker that appears when the entry is ambiguous.
+- [ ] Typing a slug in the upload or edit form shows a live preview (e.g., `URL: /my-page/`) below
+      the slug input.
 - [ ] Uploading a single `.html` file creates a page; the browser is redirected back to `/admin`.
 - [ ] Uploading a single `.md` file creates a Markdown page; the show-source checkbox toggles the
       `source.md` link in the rendered page.
@@ -429,8 +435,17 @@ end-to-end flows behind Cloudflare Access:
       succeeds (validates the files + folder union end-to-end in a real browser).
 - [ ] Uploading multiple entry candidates without selecting the entry shows an inline error from
       the API (`ambiguous_entry`).
+- [ ] The paste tab has a textarea, HTML/Markdown format radios (Markdown default), the same
+      slug/title/visibility/show-source fields, and a Publish button that posts JSON to `/api/pages`.
+- [ ] API errors from the upload/paste forms and the edit metadata/add-files forms are shown in a
+      styled error box (not a browser `alert`).
 - [ ] `GET /admin/edit/:id` pre-fills slug, title, visibility, and show-source, lists the current
       files, and allows deleting individual files (with confirmation) or updating metadata.
+- [ ] In the edit page file list, entry files (`index.html` and `source.md` for Markdown pages, the
+      image file for image pages) display a **Protected** badge and have no per-file Delete button;
+      non-entry files still show a Delete button.
+- [ ] API errors from delete actions (file delete, page delete, dashboard page delete) are shown as
+      a non-blocking toast notification. Destructive actions still use a browser `confirm()` prompt.
 - [ ] Replacing a Markdown entry file or toggling show-source re-renders the page and the change is
       visible at the slug/id URL after a short cache-propagation window.
 - [ ] The Delete page button removes the page and all its files from R2 and D1; the slug/id URLs

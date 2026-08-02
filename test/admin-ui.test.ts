@@ -187,7 +187,7 @@ describe("index.ts — admin UI", () => {
     const folderTag = text.match(/<input[^>]*\bid="folder"[^>]*>/)?.[0] ?? "";
     expect(folderTag).toContain("multiple");
     expect(folderTag).toContain("webkitdirectory");
-    expect(text).toContain("or upload a folder (preserves relative paths)");
+    expect(text).toContain("Preserves relative paths");
     expect(text).toContain("slug");
     expect(text).toContain("title");
     expect(text).toContain("public");
@@ -254,7 +254,7 @@ describe("index.ts — admin UI", () => {
     expect(text).toContain("data.message || data.error || 'Update failed'");
   });
 
-  it("edit page delete handlers show the public message, not the code (data.message || data.error) — T1/OQ-15", async () => {
+  it("edit page delete handlers use showToast instead of alert for API errors — T1/OQ-15", async () => {
     const db = env.DB;
     const pageId = "page000005";
     await insertPage(db, { id: pageId, slug: "del", title: "Del", kind: "html" });
@@ -268,11 +268,13 @@ describe("index.ts — admin UI", () => {
     const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
     expect(res.status).toBe(200);
     const text = await res.text();
-    // Both alert handlers — delete-file and delete-page — must prefer the public
-    // message over the raw error code (F1: delete-page showed data.error only).
-    const deleteAlerts =
-      text.split("alert(data.message || data.error || 'Delete failed')").length - 1;
-    expect(deleteAlerts).toBe(2);
+    // Delete-file and delete-page handlers both use the shared toast helper and
+    // keep the public message precedence (data.message || data.error || ...).
+    expect(text).toContain("function showToast(");
+    expect(text).toContain("showToast(data.message || data.error || 'Delete failed', 'error');");
+    expect(text).toContain("confirm('Delete this file?')");
+    expect(text).toContain("confirm('Delete this page and all its files? This cannot be undone.')");
+    expect(text).not.toContain("alert(");
   });
 
   it("edit page splits add-files into a multiple-only picker and a separate folder picker", async () => {
@@ -543,6 +545,197 @@ describe("index.ts — admin UI", () => {
         "Rendered page files are protected — use Delete page above to remove the page.",
       );
       expect(text).toContain(`data-delete="/api/pages/${c.pageId}"`);
+      expect(text).toContain("Protected");
+      for (const path of c.protectedPaths) {
+        const row =
+          text.match(new RegExp(`<li[^>]*>.*?${path.replace(/\./g, "\\.")}.*?</li>`, "s"))?.[0] ??
+          "";
+        expect(row).toContain("Protected");
+      }
     }
+  });
+
+  it("T3: layout includes a toast container for non-blocking notifications", async () => {
+    const res = await fetchAdmin("/admin", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('id="toast-container"');
+    expect(text).toContain('role="status"');
+    expect(text).toContain("function showToast(");
+  });
+
+  it("T3: dashboard delete handler uses showToast instead of alert for API errors", async () => {
+    const res = await fetchAdmin("/admin", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("showToast(body.message || body.error || 'Delete failed', 'error');");
+    expect(text).toContain("confirm('Delete this page and all its files? This cannot be undone.')");
+    expect(text).not.toContain("alert(");
+  });
+
+  it("T3: upload and edit pages include slug previews below the slug input", async () => {
+    const uploadRes = await fetchAdmin("/admin/upload", await validToken());
+    const uploadText = await uploadRes.text();
+    expect(uploadText).toContain('id="slug-preview"');
+    expect(uploadText).toContain('id="slug"');
+    expect(uploadText).toContain('id="paste-slug-preview"');
+    expect(uploadText).toContain('id="paste-slug"');
+    expect(uploadText).toContain("function updateSlugPreview(");
+
+    const db = env.DB;
+    const pageId = "page0000slug";
+    await insertPage(db, { id: pageId, slug: "my-page", title: "My Page", kind: "html" });
+    const editRes = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    const editText = await editRes.text();
+    expect(editText).toContain('id="edit-slug-preview"');
+    expect(editText).toContain('id="edit-slug"');
+    expect(editText).toContain("function updateSlugPreview(");
+  });
+
+  it("T3: CSS uses design tokens and has no inline style attributes", async () => {
+    const res = await fetchAdmin("/admin", await validToken());
+    const text = await res.text();
+    expect(text).toMatch(/:root\s*\{/);
+    expect(text).toMatch(/--color-bg:/);
+    expect(text).toMatch(/--color-primary:/);
+    expect(text).toMatch(/--color-surface:/);
+    expect(text).toMatch(/@media\s*\(max-width:/);
+    expect(text).not.toContain("style=");
+  });
+
+  it("T3: upload page has visually distinct tabs with ARIA attributes", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    const text = await res.text();
+    expect(text).toContain('data-tab="upload"');
+    expect(text).toContain('data-tab="paste"');
+    expect(text).toContain('role="tab"');
+    expect(text).toContain("Upload files");
+    expect(text).toContain("Paste content");
+  });
+
+  it("T3: dashboard shows kind and visibility badges", async () => {
+    const db = env.DB;
+    await insertPage(db, {
+      id: "page0000html",
+      slug: "hello",
+      title: "Hello",
+      kind: "html",
+      visibility: "public",
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    });
+    await insertPage(db, {
+      id: "page0000md",
+      slug: "world",
+      title: "World",
+      kind: "markdown",
+      visibility: "unlisted",
+      created_at: "2026-01-02T00:00:00.000Z",
+      updated_at: "2026-01-02T00:00:00.000Z",
+    });
+
+    const res = await fetchAdmin("/admin", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toMatch(/class="[^"]*badge kind[^"]*"/);
+    expect(text).toMatch(/class="[^"]*badge visibility[^"]*"/);
+    expect(text).toContain("kind-html");
+    expect(text).toContain("kind-markdown");
+    expect(text).toContain("visibility-public");
+    expect(text).toContain("visibility-unlisted");
+  });
+
+  it("T3: dashboard empty state is friendly and includes the Upload CTA", async () => {
+    const res = await fetchAdmin("/admin", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("No pages yet");
+    expect(text).toContain("Upload your first page");
+    expect(text).toContain('href="/admin/upload"');
+  });
+
+  it("T3: edit page surfaces a protected badge for entry files and a delete button for assets", async () => {
+    const db = env.DB;
+    const pageId = "page0000prot";
+    await insertPage(db, {
+      id: pageId,
+      slug: "md-prot",
+      title: "MD Prot",
+      kind: "markdown",
+      entry_path: "index.html",
+      raw_md_path: "source.md",
+    });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "index.html",
+      r2_key: `pages/${pageId}/1/index.html`,
+      content_type: "text/html; charset=utf-8",
+      size: 100,
+    });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "source.md",
+      r2_key: `pages/${pageId}/1/source.md`,
+      content_type: "text/markdown",
+      size: 10,
+    });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "style.css",
+      r2_key: `pages/${pageId}/1/style.css`,
+      content_type: "text/css",
+      size: 100,
+    });
+
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("Protected");
+    const indexRow = text.match(/<li[^>]*>.*?index\.html.*?<\/li>/s)?.[0] ?? "";
+    expect(indexRow).toContain("Protected");
+    expect(indexRow).not.toContain("data-delete-file");
+    const sourceRow = text.match(/<li[^>]*>.*?source\.md.*?<\/li>/s)?.[0] ?? "";
+    expect(sourceRow).toContain("Protected");
+    expect(sourceRow).not.toContain("data-delete-file");
+    const cssRow = text.match(/<li[^>]*>.*?style\.css.*?<\/li>/s)?.[0] ?? "";
+    expect(cssRow).toContain("data-delete-file");
+  });
+
+  it("T3: upload page keeps all existing form fields and shared error box", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('id="files"');
+    expect(text).toContain('id="folder"');
+    expect(text).toContain('id="paste-content"');
+    expect(text).toContain('name="content"');
+    expect(text).toContain('name="paste-format"');
+    expect(text).toContain('id="upload-error"');
+    expect(text).toContain("multipart/form-data");
+    expect(text).toContain('action="/api/pages"');
+    expect(text).toContain('id="title"');
+    expect(text).toContain('id="show_source"');
+    expect(text).toContain("Provide either files or paste content");
+  });
+
+  it("T3: shared script helpers are defined before inline page scripts call them", async () => {
+    const uploadRes = await fetchAdmin("/admin/upload", await validToken());
+    const uploadText = await uploadRes.text();
+    const helperDef = uploadText.indexOf("function initSlugPreview(");
+    const uploadCall = uploadText.indexOf("initSlugPreview('slug'");
+    expect(helperDef).toBeGreaterThan(-1);
+    expect(uploadCall).toBeGreaterThan(-1);
+    expect(helperDef).toBeLessThan(uploadCall);
+
+    const db = env.DB;
+    const pageId = "page0000order";
+    await insertPage(db, { id: pageId, slug: "order", title: "Order", kind: "html" });
+    const editRes = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    const editText = await editRes.text();
+    const editHelperDef = editText.indexOf("function initSlugPreview(");
+    const editCall = editText.indexOf("initSlugPreview('edit-slug'");
+    expect(editHelperDef).toBeGreaterThan(-1);
+    expect(editCall).toBeGreaterThan(-1);
+    expect(editHelperDef).toBeLessThan(editCall);
   });
 });

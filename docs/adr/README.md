@@ -45,6 +45,7 @@ memory.
 | 0035 | [setup.mjs provisioning — team domain, covering zone, R2/D1 error mapping](0035-setup-provisioning-team-domain-zone.md) | Accepted                         |
 | 0036 | [OQ-15 — slug auto-clean and actionable error messages (T1)](0036-oq15-slug-cleaning-and-error-messages.md)             | Accepted                         |
 | 0038 | [OQ-17 — paste content API shape (T4)](0038-paste-content-api.md)                                                       | Accepted                         |
+| 0039 | [T3 admin UI modernization — buildless overhaul](0039-t3-admin-ui-modernization.md)                                     | Accepted                         |
 
 > **Numbering note:** ADR numbers are assigned sequentially, but some numbers are intentionally
 > unused. 0034 was reserved for an OAuth fail-fast slice that was deferred; 0037 was reserved for

@@ -42,6 +42,594 @@ function pageTitle(config: AppConfig): string {
   return `${config.siteName} — Admin`;
 }
 
+const DESIGN_SYSTEM_CSS = `
+:root {
+  --color-bg: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-raised: #f1f5f9;
+  --color-text: #0f172a;
+  --color-text-muted: #64748b;
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-bg: #eff6ff;
+  --color-danger: #dc2626;
+  --color-danger-hover: #b91c1c;
+  --color-danger-bg: #fef2f2;
+  --color-success: #16a34a;
+  --color-warning: #ca8a04;
+  --color-border: #e2e8f0;
+  --color-focus: #3b82f6;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --max-width: 1100px;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-sans);
+  margin: 0;
+  padding: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline-offset: 2px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+header {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-4) var(--space-4);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-inner,
+.container {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 var(--space-4);
+}
+
+header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+header .identity {
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+main {
+  padding: var(--space-8) 0;
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-6);
+  margin-bottom: var(--space-6);
+}
+
+.card > header,
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-5);
+}
+
+.card > header h2,
+.section-header h2,
+.section-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.25;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.button-primary {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+
+.button-primary:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+.button-secondary {
+  background: var(--color-surface);
+  color: var(--color-primary);
+  border-color: var(--color-border);
+}
+
+.button-secondary:hover {
+  background: var(--color-primary-bg);
+  border-color: var(--color-primary);
+}
+
+.button-danger {
+  background: var(--color-danger);
+  color: #fff;
+  border-color: var(--color-danger);
+}
+
+.button-danger:hover {
+  background: var(--color-danger-hover);
+  border-color: var(--color-danger-hover);
+}
+
+.button-small {
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.875rem;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-3);
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.kind-html { background: #dbeafe; color: #1e40af; }
+.kind-markdown { background: #dcfce7; color: #166534; }
+.kind-image { background: #f3e8ff; color: #6b21a8; }
+.kind-bundle { background: #ffedd5; color: #9a3412; }
+
+.visibility-public { background: #dcfce7; color: #166534; }
+.visibility-unlisted { background: #f1f5f9; color: #475569; }
+
+.protected {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.empty {
+  text-align: center;
+  padding: var(--space-10) var(--space-6);
+  color: var(--color-text-muted);
+}
+
+.empty p {
+  margin: 0 0 var(--space-4);
+  font-size: 1.125rem;
+}
+
+.empty .hint {
+  margin-bottom: var(--space-6);
+}
+
+.table-wrapper {
+  overflow-x: auto;
+  margin: 0 calc(var(--space-6) * -1);
+  padding: 0 var(--space-6);
+}
+
+.page-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+.page-table th {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-muted);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.page-table td {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.page-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.page-table td .title {
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.form-group {
+  margin-bottom: var(--space-5);
+}
+
+.field-label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: var(--space-2);
+  color: var(--color-text);
+}
+
+.hint {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  font-weight: 400;
+  margin-top: var(--space-1);
+}
+
+input[type="text"],
+input[type="file"],
+select,
+textarea {
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="text"]:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-bg);
+  outline: none;
+}
+
+input[type="file"] {
+  padding: var(--space-2);
+}
+
+.radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  align-items: center;
+}
+
+.radio-group label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  font-weight: 400;
+}
+
+.checkbox-label input {
+  width: auto;
+}
+
+.slug-preview {
+  display: block;
+  margin-top: var(--space-2);
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  min-height: 1.25rem;
+}
+
+.error-box {
+  display: none;
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.error-box.visible {
+  display: block;
+}
+
+.tab-bar {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: var(--space-6);
+}
+
+.tab {
+  padding: var(--space-3) var(--space-5);
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.tab:hover {
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+}
+
+.tab.active {
+  color: var(--color-primary);
+  background: var(--color-primary-bg);
+  border-bottom-color: var(--color-primary);
+}
+
+.tab-pane {
+  display: none;
+}
+
+.tab-pane.active {
+  display: block;
+}
+
+.file-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-3);
+  background: var(--color-surface);
+  flex-wrap: wrap;
+}
+
+.file-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.file-path {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  color: var(--color-text);
+  word-break: break-all;
+}
+
+.file-hint {
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  margin-bottom: var(--space-5);
+}
+
+.toast-container {
+  position: fixed;
+  top: var(--space-4);
+  right: var(--space-4);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 360px;
+  width: calc(100% - var(--space-8));
+}
+
+.toast {
+  background: var(--color-surface);
+  border-left: 4px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-4) var(--space-5);
+  transform: translateX(120%);
+  opacity: 0;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  pointer-events: auto;
+  word-break: break-word;
+}
+
+.toast.show {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.toast-error { border-left-color: var(--color-danger); }
+.toast-success { border-left-color: var(--color-success); }
+
+@media (max-width: 640px) {
+  .header-inner,
+  .container {
+    padding: 0 var(--space-3);
+  }
+
+  .card {
+    padding: var(--space-5) var(--space-4);
+    border-radius: var(--radius-md);
+  }
+
+  .page-table thead {
+    display: none;
+  }
+
+  .page-table tbody,
+  .page-table tr,
+  .page-table td {
+    display: block;
+  }
+
+  .page-table tr {
+    margin-bottom: var(--space-4);
+    padding: var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+  }
+
+  .page-table td {
+    border: none;
+    padding: var(--space-2) 0;
+  }
+
+  .page-table td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .page-table td.title-cell::before {
+    display: none;
+  }
+
+  .page-table td.actions-cell {
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-border);
+    margin-top: var(--space-3);
+  }
+
+  .actions-cell .actions {
+    width: 100%;
+  }
+
+  .actions-cell .actions .button {
+    flex: 1 1 auto;
+  }
+
+  .tab-bar {
+    overflow-x: auto;
+  }
+
+  .radio-group {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+  }
+}
+`;
+
+const SHARED_JS = `<script>
+  function showToast(message, type) {
+    type = type || 'error';
+    var container = document.getElementById('toast-container');
+    if (!container || !message) return;
+    var toast = document.createElement('div');
+    toast.className = 'toast toast-' + type;
+    toast.setAttribute('role', 'status');
+    toast.setAttribute('aria-live', 'polite');
+    toast.textContent = message;
+    container.appendChild(toast);
+    requestAnimationFrame(function() { toast.classList.add('show'); });
+    setTimeout(function() {
+      toast.classList.remove('show');
+      setTimeout(function() { toast.remove(); }, 300);
+    }, 5000);
+  }
+
+  function updateSlugPreview(input, preview) {
+    var raw = input.value || '';
+    var cleaned = raw.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+    if (preview) {
+      preview.textContent = cleaned ? 'URL: /' + cleaned + '/' : '';
+    }
+  }
+
+  function initSlugPreview(inputId, previewId) {
+    var input = document.getElementById(inputId);
+    var preview = document.getElementById(previewId);
+    if (!input || !preview) return;
+    updateSlugPreview(input, preview);
+    input.addEventListener('input', function() { updateSlugPreview(input, preview); });
+  }
+</script>`;
+
 function layout(config: AppConfig, verifiedIdentity: VerifiedIdentity, content: string): string {
   const email = escapeHtml(verifiedIdentity.email ?? "unknown");
   return `<!doctype html>
@@ -51,46 +639,22 @@ function layout(config: AppConfig, verifiedIdentity: VerifiedIdentity, content: 
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(pageTitle(config))}</title>
   <style>
-    :root { --bg: #f8f9fa; --panel: #fff; --text: #212529; --muted: #6c757d; --accent: #0d6efd; --danger: #dc3545; --border: #dee2e6; }
-    * { box-sizing: border-box; }
-    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 0; background: var(--bg); color: var(--text); line-height: 1.5; }
-    header { background: var(--panel); border-bottom: 1px solid var(--border); padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between; }
-    header h1 { margin: 0; font-size: 1.25rem; }
-    header .identity { color: var(--muted); font-size: 0.875rem; }
-    main { max-width: 960px; margin: 2rem auto; padding: 0 1.5rem; }
-    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1.5rem; }
-    h2 { margin-top: 0; }
-    .toolbar { display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
-    button, .button { display: inline-flex; align-items: center; justify-content: center; padding: 0.5rem 1rem; border-radius: 0.375rem; border: 1px solid var(--accent); background: var(--accent); color: #fff; text-decoration: none; font-size: 0.9375rem; cursor: pointer; }
-    .button.secondary { background: var(--panel); color: var(--accent); }
-    .button.danger { background: var(--danger); border-color: var(--danger); }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { text-align: left; padding: 0.75rem; border-bottom: 1px solid var(--border); }
-    th { font-weight: 600; color: var(--muted); font-size: 0.875rem; }
-    .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-    .actions a { font-size: 0.875rem; }
-    .empty { color: var(--muted); text-align: center; padding: 2rem; }
-    .empty .button { margin-top: 1rem; }
-    form { display: flex; flex-direction: column; gap: 1rem; }
-    label { display: flex; flex-direction: column; gap: 0.25rem; font-weight: 500; }
-    input[type="text"], input[type="file"], select, textarea { padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.375rem; font-size: 0.9375rem; }
-    .hint { color: var(--muted); font-size: 0.875rem; font-weight: 400; }
-    .radio-group { display: flex; gap: 1rem; align-items: center; }
-    .radio-group label { flex-direction: row; align-items: center; font-weight: 400; }
-    .error { color: var(--danger); background: #fff5f5; border: 1px solid #f5c6cb; padding: 0.75rem; border-radius: 0.375rem; display: none; }
-    .file-list { list-style: none; padding: 0; margin: 0; }
-    .file-list li { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
-    .hidden { display: none; }
-    .inline { display: inline; }
+${DESIGN_SYSTEM_CSS}
   </style>
+  ${SHARED_JS}
 </head>
 <body>
+  <div id="toast-container" class="toast-container" role="status" aria-live="polite"></div>
   <header>
-    <h1>${escapeHtml(config.siteName)}</h1>
-    <span class="identity">${email}</span>
+    <div class="header-inner">
+      <h1>${escapeHtml(config.siteName)}</h1>
+      <span class="identity">${email}</span>
+    </div>
   </header>
   <main>
-    ${content}
+    <div class="container">
+      ${content}
+    </div>
   </main>
 </body>
 </html>`;
@@ -104,17 +668,17 @@ function dashboardContent(config: AppConfig, pages: PageRecord[], requestUrl: UR
       const editUrl = `/admin/edit/${page.id}`;
       const deleteUrl = `/api/pages/${page.id}`;
       return `<tr>
-        <td>${escapeHtml(page.title)}</td>
-        <td>${escapeHtml(page.slug ?? "—")}</td>
-        <td><code>${escapeHtml(page.id)}</code></td>
-        <td>${escapeHtml(page.kind)}</td>
-        <td>${escapeHtml(page.created_at)}</td>
-        <td>${escapeHtml(page.visibility)}</td>
-        <td>
+        <td class="title-cell">
+          <div class="title">${escapeHtml(page.title)}</div>
+        </td>
+        <td data-label="Kind"><span class="badge kind-${escapeHtml(page.kind)}">${escapeHtml(page.kind)}</span></td>
+        <td data-label="Visibility"><span class="badge visibility-${escapeHtml(page.visibility)}">${escapeHtml(page.visibility)}</span></td>
+        <td data-label="Created">${escapeHtml(page.created_at)}</td>
+        <td class="actions-cell" data-label="Actions">
           <div class="actions">
-            <a class="button secondary" href="${escapeHtml(viewUrl)}">View</a>
-            <a class="button secondary" href="${escapeHtml(editUrl)}">Edit</a>
-            <button class="button danger" type="button" data-delete="${escapeHtml(deleteUrl)}">Delete</button>
+            <a class="button button-secondary button-small" href="${escapeHtml(viewUrl)}">View</a>
+            <a class="button button-secondary button-small" href="${escapeHtml(editUrl)}">Edit</a>
+            <button class="button button-danger button-small" type="button" data-delete="${escapeHtml(deleteUrl)}">Delete</button>
           </div>
         </td>
       </tr>`;
@@ -123,42 +687,43 @@ function dashboardContent(config: AppConfig, pages: PageRecord[], requestUrl: UR
 
   const table =
     pages.length === 0
-      ? `<div class="card empty">
+      ? `<div class="empty">
         <p>No pages yet.</p>
-        <a class="button" href="${escapeHtml(uploadUrl)}">Upload your first page</a>
+        <p class="hint">Create your first page to get started.</p>
+        <a class="button button-primary" href="${escapeHtml(uploadUrl)}">Upload your first page</a>
       </div>`
-      : `<table>
-        <thead>
-          <tr>
-            <th>Title</th>
-            <th>Slug</th>
-            <th>ID</th>
-            <th>Kind</th>
-            <th>Created</th>
-            <th>Visibility</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>`;
+      : `<div class="table-wrapper">
+        <table class="page-table">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Kind</th>
+              <th>Visibility</th>
+              <th>Created</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
 
   return `<div class="card">
-    <div class="toolbar">
-      <h2 class="inline">Pages</h2>
-      <a class="button" href="${escapeHtml(uploadUrl)}">Upload</a>
-    </div>
+    <header>
+      <h2>Pages</h2>
+      <a class="button button-primary" href="${escapeHtml(uploadUrl)}">Upload</a>
+    </header>
     ${table}
   </div>
   <script>
-    document.querySelectorAll('[data-delete]').forEach(btn => {
-      btn.addEventListener('click', async () => {
+    document.querySelectorAll('[data-delete]').forEach(function(btn) {
+      btn.addEventListener('click', async function() {
         if (!confirm('Delete this page and all its files? This cannot be undone.')) return;
         const res = await fetch(btn.dataset.delete, { method: 'DELETE' });
         if (res.ok) {
           window.location.reload();
         } else {
-          const body = await res.json().catch(() => ({ error: 'Delete failed' }));
-          alert(body.message || body.error || 'Delete failed');
+          const body = await res.json().catch(function() { return { error: 'Delete failed' }; });
+          showToast(body.message || body.error || 'Delete failed', 'error');
         }
       });
     });
@@ -180,252 +745,264 @@ export async function handleAdminDashboard(
 
 function uploadContent(): string {
   return `<div class="card">
-    <h2 class="inline">Upload a page</h2>
-    <div class="toolbar" style="padding: 0; margin: 1rem 0;">
-      <button type="button" class="button" id="tab-upload">Upload files</button>
-      <button type="button" class="button secondary" id="tab-paste">Paste content</button>
+    <header>
+      <h2>Upload a page</h2>
+    </header>
+    <div class="error-box" id="upload-error" role="alert"></div>
+    <div class="tab-bar" role="tablist">
+      <button type="button" class="tab active" role="tab" data-tab="upload" aria-selected="true">Upload files</button>
+      <button type="button" class="tab" role="tab" data-tab="paste" aria-selected="false">Paste content</button>
     </div>
-    <div class="error" id="upload-error" role="alert"></div>
 
-    <!-- Multipart convention: manifest JSON field + file:<path> file parts -->
-    <form id="upload-form" action="/api/pages" method="POST" enctype="multipart/form-data">
-      <p class="hint">Choose one or more files, or upload a folder to preserve its relative paths.</p>
-      <!-- Two pickers: webkitdirectory on the same input as multiple forces
-           directory-only selection, so loose files live on #files (multiple-only)
-           and folder upload (relative paths, spec §10) is a separate opt-in input.
-           The JS unifies both via webkitRelativePath || name. -->
-      <label>
-        Files
-        <input type="file" name="files" id="files" multiple>
-      </label>
-      <label>
-        or upload a folder (preserves relative paths)
-        <input type="file" name="folder" id="folder" multiple webkitdirectory>
-      </label>
-      <label>
-        Slug <span class="hint">(optional)</span>
-        <input type="text" name="slug" id="slug" placeholder="my-page">
-      </label>
-      <label>
-        Title <span class="hint">(optional; defaults to filename)</span>
-        <input type="text" name="title" id="title" placeholder="My Page">
-      </label>
-      <label>
-        Visibility
-        <div class="radio-group">
-          <label><input type="radio" name="visibility" value="public" checked> Public</label>
-          <label><input type="radio" name="visibility" value="unlisted"> Unlisted</label>
+    <div id="upload-pane" class="tab-pane active" role="tabpanel">
+      <!-- Multipart convention: manifest JSON field + file:<path> file parts -->
+      <form id="upload-form" action="/api/pages" method="POST" enctype="multipart/form-data">
+        <div class="form-group">
+          <label class="field-label" for="files">Files</label>
+          <input type="file" name="files" id="files" multiple>
+          <span class="hint">Choose one or more loose files.</span>
         </div>
-      </label>
-      <label>
-        <input type="checkbox" name="show_source" id="show_source" value="true">
-        Show source link (for Markdown pages)
-      </label>
-      <div id="entry-field" class="hidden">
-        <label>
-          Entry file
-          <select name="entry" id="entry"></select>
-          <span class="hint">Which file is the page entry?</span>
-        </label>
-      </div>
-      <input type="hidden" name="manifest" id="manifest">
-      <div class="toolbar">
-        <button type="submit">Upload</button>
-        <a class="button secondary" href="/admin">Cancel</a>
-      </div>
-    </form>
+        <div class="form-group">
+          <label class="field-label" for="folder">Folder upload</label>
+          <input type="file" name="folder" id="folder" multiple webkitdirectory>
+          <span class="hint">Preserves relative paths inside the selected folder.</span>
+        </div>
+        <div class="form-group">
+          <label class="field-label" for="slug">Slug <span class="hint">(optional)</span></label>
+          <input type="text" name="slug" id="slug" placeholder="my-page">
+          <span class="slug-preview" id="slug-preview"></span>
+        </div>
+        <div class="form-group">
+          <label class="field-label" for="title">Title <span class="hint">(optional; defaults to filename)</span></label>
+          <input type="text" name="title" id="title" placeholder="My Page">
+        </div>
+        <div class="form-group">
+          <span class="field-label">Visibility</span>
+          <div class="radio-group">
+            <label><input type="radio" name="visibility" value="public" checked> Public</label>
+            <label><input type="radio" name="visibility" value="unlisted"> Unlisted</label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" name="show_source" id="show_source" value="true">
+            Show source link (for Markdown pages)
+          </label>
+        </div>
+        <div id="entry-field" class="hidden">
+          <div class="form-group">
+            <label class="field-label" for="entry">Entry file</label>
+            <select name="entry" id="entry"></select>
+            <span class="hint">Which file is the page entry?</span>
+          </div>
+        </div>
+        <input type="hidden" name="manifest" id="manifest">
+        <div class="toolbar">
+          <button type="submit" class="button button-primary">Upload</button>
+          <a class="button button-secondary" href="/admin">Cancel</a>
+        </div>
+      </form>
+    </div>
 
-    <form id="paste-form" class="hidden" action="/api/pages">
-      <p class="hint">Paste HTML or Markdown content. It will be published as a single page.</p>
-      <label>
-        Content
-        <textarea name="content" id="paste-content" rows="12" placeholder="Paste HTML or Markdown here"></textarea>
-      </label>
-      <label>
-        Format
-        <div class="radio-group">
-          <label><input type="radio" name="paste-format" value="html"> HTML</label>
-          <label><input type="radio" name="paste-format" value="markdown" checked> Markdown</label>
+    <div id="paste-pane" class="tab-pane" role="tabpanel">
+      <form id="paste-form" action="/api/pages">
+        <div class="form-group">
+          <label class="field-label" for="paste-content">Content</label>
+          <textarea name="content" id="paste-content" rows="12" placeholder="Paste HTML or Markdown here"></textarea>
+          <span class="hint">Paste HTML or Markdown content. It will be published as a single page.</span>
         </div>
-      </label>
-      <label>
-        Slug <span class="hint">(optional)</span>
-        <input type="text" name="paste-slug" id="paste-slug" placeholder="my-page">
-      </label>
-      <label>
-        Title <span class="hint">(optional)</span>
-        <input type="text" name="paste-title" id="paste-title" placeholder="My Page">
-      </label>
-      <label>
-        Visibility
-        <div class="radio-group">
-          <label><input type="radio" name="paste-visibility" value="public" checked> Public</label>
-          <label><input type="radio" name="paste-visibility" value="unlisted"> Unlisted</label>
+        <div class="form-group">
+          <span class="field-label">Format</span>
+          <div class="radio-group">
+            <label><input type="radio" name="paste-format" value="html"> HTML</label>
+            <label><input type="radio" name="paste-format" value="markdown" checked> Markdown</label>
+          </div>
         </div>
-      </label>
-      <label>
-        <input type="checkbox" name="paste-show-source" id="paste-show-source" value="true">
-        Show source link (for Markdown pages)
-      </label>
-      <div class="toolbar">
-        <button type="submit" id="publish-paste">Publish</button>
-        <a class="button secondary" href="/admin">Cancel</a>
-      </div>
-    </form>
+        <div class="form-group">
+          <label class="field-label" for="paste-slug">Slug <span class="hint">(optional)</span></label>
+          <input type="text" name="paste-slug" id="paste-slug" placeholder="my-page">
+          <span class="slug-preview" id="paste-slug-preview"></span>
+        </div>
+        <div class="form-group">
+          <label class="field-label" for="paste-title">Title <span class="hint">(optional)</span></label>
+          <input type="text" name="paste-title" id="paste-title" placeholder="My Page">
+        </div>
+        <div class="form-group">
+          <span class="field-label">Visibility</span>
+          <div class="radio-group">
+            <label><input type="radio" name="paste-visibility" value="public" checked> Public</label>
+            <label><input type="radio" name="paste-visibility" value="unlisted"> Unlisted</label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" name="paste-show-source" id="paste-show-source" value="true">
+            Show source link (for Markdown pages)
+          </label>
+        </div>
+        <div class="toolbar">
+          <button type="submit" id="publish-paste" class="button button-primary">Publish</button>
+          <a class="button button-secondary" href="/admin">Cancel</a>
+        </div>
+      </form>
+    </div>
   </div>
   <script>
-    const form = document.getElementById('upload-form');
-    const pasteForm = document.getElementById('paste-form');
-    const filesInput = document.getElementById('files');
-    const folderInput = document.getElementById('folder');
-    const manifestInput = document.getElementById('manifest');
-    const entryField = document.getElementById('entry-field');
-    const entrySelect = document.getElementById('entry');
-    const errorBox = document.getElementById('upload-error');
-    const pasteContent = document.getElementById('paste-content');
-    const tabUpload = document.getElementById('tab-upload');
-    const tabPaste = document.getElementById('tab-paste');
-    const documentExts = ['.html', '.htm', '.md', '.markdown'];
+    (function() {
+      const form = document.getElementById('upload-form');
+      const pasteForm = document.getElementById('paste-form');
+      const filesInput = document.getElementById('files');
+      const folderInput = document.getElementById('folder');
+      const manifestInput = document.getElementById('manifest');
+      const entryField = document.getElementById('entry-field');
+      const entrySelect = document.getElementById('entry');
+      const errorBox = document.getElementById('upload-error');
+      const pasteContent = document.getElementById('paste-content');
+      const tabs = document.querySelectorAll('[data-tab]');
+      const panes = { upload: document.getElementById('upload-pane'), paste: document.getElementById('paste-pane') };
+      const documentExts = ['.html', '.htm', '.md', '.markdown'];
 
-    function showTab(tab) {
-      if (tab === 'upload') {
-        form.classList.remove('hidden');
-        pasteForm.classList.add('hidden');
-        tabUpload.classList.remove('secondary');
-        tabPaste.classList.add('secondary');
-      } else {
-        form.classList.add('hidden');
-        pasteForm.classList.remove('hidden');
-        tabUpload.classList.add('secondary');
-        tabPaste.classList.remove('secondary');
+      initSlugPreview('slug', 'slug-preview');
+      initSlugPreview('paste-slug', 'paste-slug-preview');
+
+      function showTab(tab) {
+        tabs.forEach(function(t) {
+          const active = t.dataset.tab === tab;
+          t.classList.toggle('active', active);
+          t.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+        Object.keys(panes).forEach(function(k) {
+          panes[k].classList.toggle('active', k === tab);
+        });
+        errorBox.classList.remove('visible');
+        errorBox.textContent = '';
       }
-      errorBox.style.display = 'none';
-      errorBox.textContent = '';
-    }
 
-    tabUpload.addEventListener('click', () => showTab('upload'));
-    tabPaste.addEventListener('click', () => showTab('paste'));
-
-    function selectedFiles() {
-      return Array.from(filesInput.files || []).concat(Array.from(folderInput.files || []));
-    }
-
-    function isDocument(name) {
-      const lower = name.toLowerCase();
-      return documentExts.some(ext => lower.endsWith(ext));
-    }
-
-    function isImage(name) {
-      const lower = name.toLowerCase();
-      return /\\.(png|jpg|jpeg|gif|webp|svg|avif)$/.test(lower);
-    }
-
-    function buildManifest() {
-      const files = selectedFiles();
-      const relative = f => f.webkitRelativePath || f.name;
-      const manifest = {
-        slug: document.getElementById('slug').value || undefined,
-        title: document.getElementById('title').value || undefined,
-        showSource: document.getElementById('show_source').checked,
-        visibility: form.querySelector('input[name="visibility"]:checked').value,
-        entry: entryField.classList.contains('hidden') ? undefined : entrySelect.value,
-      };
-      return JSON.stringify(manifest);
-    }
-
-    function updateEntryPicker() {
-      const files = selectedFiles();
-      const relative = f => f.webkitRelativePath || f.name;
-      const docs = files.filter(f => isDocument(relative(f))).map(relative);
-      const images = files.filter(f => isImage(relative(f))).map(relative);
-      const all = docs.length + images.length;
-      if (docs.length === 1 && files.length === 1) {
-        entryField.classList.add('hidden');
-        entrySelect.innerHTML = '';
-        return;
-      }
-      if (all === 1) {
-        entryField.classList.add('hidden');
-        entrySelect.innerHTML = '';
-        return;
-      }
-      entryField.classList.remove('hidden');
-      entrySelect.innerHTML = docs.concat(images).map(p => \`<option value="\${p}">\${p}</option>\`).join('');
-      if (entrySelect.value === '' && docs.length > 0) {
-        entrySelect.value = docs[0];
-      }
-    }
-
-    filesInput.addEventListener('change', updateEntryPicker);
-    folderInput.addEventListener('change', updateEntryPicker);
-
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      errorBox.style.display = 'none';
-      errorBox.textContent = '';
-      const files = selectedFiles();
-      const pasted = pasteContent.value.trim();
-      if (files.length === 0 && pasted === '') {
-        errorBox.textContent = 'Provide either files or paste content.';
-        errorBox.style.display = 'block';
-        return;
-      }
-      if (files.length > 0 && pasted !== '') {
-        errorBox.textContent = 'Provide either files or paste content, not both.';
-        errorBox.style.display = 'block';
-        return;
-      }
-      const formData = new FormData();
-      const relative = f => f.webkitRelativePath || f.name;
-      files.forEach(f => formData.append('file:' + relative(f), f, relative(f)));
-      formData.append('manifest', buildManifest());
-      const res = await fetch('/api/pages', { method: 'POST', body: formData });
-      if (res.ok) {
-        window.location.href = '/admin';
-      } else {
-        const body = await res.json().catch(() => ({ error: 'Upload failed' }));
-        errorBox.textContent = body.message || body.error || 'Upload failed';
-        errorBox.style.display = 'block';
-      }
-    });
-
-    pasteForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      errorBox.style.display = 'none';
-      errorBox.textContent = '';
-      const files = selectedFiles();
-      if (files.length === 0 && pasteContent.value.trim() === '') {
-        errorBox.textContent = 'Provide either files or paste content.';
-        errorBox.style.display = 'block';
-        return;
-      }
-      if (files.length > 0 && pasteContent.value.trim() !== '') {
-        errorBox.textContent = 'Provide either files or paste content, not both.';
-        errorBox.style.display = 'block';
-        return;
-      }
-      const pasteFormat = pasteForm.querySelector('input[name="paste-format"]:checked').value;
-      const payload = {
-        content: pasteContent.value,
-        format: pasteFormat,
-        slug: document.getElementById('paste-slug').value || undefined,
-        title: document.getElementById('paste-title').value || undefined,
-        visibility: pasteForm.querySelector('input[name="paste-visibility"]:checked').value,
-        showSource: document.getElementById('paste-show-source').checked,
-      };
-      const res = await fetch('/api/pages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+      tabs.forEach(function(t) {
+        t.addEventListener('click', function() { showTab(t.dataset.tab); });
       });
-      if (res.ok) {
-        window.location.href = '/admin';
-      } else {
-        const body = await res.json().catch(() => ({ error: 'Publish failed' }));
-        errorBox.textContent = body.message || body.error || 'Publish failed';
-        errorBox.style.display = 'block';
+
+      function selectedFiles() {
+        return Array.from(filesInput.files || []).concat(Array.from(folderInput.files || []));
       }
-    });
+
+      function isDocument(name) {
+        const lower = name.toLowerCase();
+        return documentExts.some(ext => lower.endsWith(ext));
+      }
+
+      function isImage(name) {
+        const lower = name.toLowerCase();
+        return /\\.(png|jpg|jpeg|gif|webp|svg|avif)$/.test(lower);
+      }
+
+      function buildManifest() {
+        const files = selectedFiles();
+        const relative = f => f.webkitRelativePath || f.name;
+        const manifest = {
+          slug: document.getElementById('slug').value || undefined,
+          title: document.getElementById('title').value || undefined,
+          showSource: document.getElementById('show_source').checked,
+          visibility: form.querySelector('input[name="visibility"]:checked').value,
+          entry: entryField.classList.contains('hidden') ? undefined : entrySelect.value,
+        };
+        return JSON.stringify(manifest);
+      }
+
+      function updateEntryPicker() {
+        const files = selectedFiles();
+        const relative = f => f.webkitRelativePath || f.name;
+        const docs = files.filter(f => isDocument(relative(f))).map(relative);
+        const images = files.filter(f => isImage(relative(f))).map(relative);
+        const all = docs.length + images.length;
+        if (docs.length === 1 && files.length === 1) {
+          entryField.classList.add('hidden');
+          entrySelect.innerHTML = '';
+          return;
+        }
+        if (all === 1) {
+          entryField.classList.add('hidden');
+          entrySelect.innerHTML = '';
+          return;
+        }
+        entryField.classList.remove('hidden');
+        entrySelect.innerHTML = docs.concat(images).map(p => \`<option value="\${p}">\${p}</option>\`).join('');
+        if (entrySelect.value === '' && docs.length > 0) {
+          entrySelect.value = docs[0];
+        }
+      }
+
+      filesInput.addEventListener('change', updateEntryPicker);
+      folderInput.addEventListener('change', updateEntryPicker);
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        errorBox.classList.remove('visible');
+        errorBox.textContent = '';
+        const files = selectedFiles();
+        const pasted = pasteContent.value.trim();
+        if (files.length === 0 && pasted === '') {
+          errorBox.textContent = 'Provide either files or paste content.';
+          errorBox.classList.add('visible');
+          return;
+        }
+        if (files.length > 0 && pasted !== '') {
+          errorBox.textContent = 'Provide either files or paste content, not both.';
+          errorBox.classList.add('visible');
+          return;
+        }
+        const formData = new FormData();
+        const relative = f => f.webkitRelativePath || f.name;
+        files.forEach(f => formData.append('file:' + relative(f), f, relative(f)));
+        formData.append('manifest', buildManifest());
+        const res = await fetch('/api/pages', { method: 'POST', body: formData });
+        if (res.ok) {
+          window.location.href = '/admin';
+        } else {
+          const body = await res.json().catch(() => ({ error: 'Upload failed' }));
+          errorBox.textContent = body.message || body.error || 'Upload failed';
+          errorBox.classList.add('visible');
+        }
+      });
+
+      pasteForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        errorBox.classList.remove('visible');
+        errorBox.textContent = '';
+        const files = selectedFiles();
+        if (files.length === 0 && pasteContent.value.trim() === '') {
+          errorBox.textContent = 'Provide either files or paste content.';
+          errorBox.classList.add('visible');
+          return;
+        }
+        if (files.length > 0 && pasteContent.value.trim() !== '') {
+          errorBox.textContent = 'Provide either files or paste content, not both.';
+          errorBox.classList.add('visible');
+          return;
+        }
+        const pasteFormat = pasteForm.querySelector('input[name="paste-format"]:checked').value;
+        const payload = {
+          content: pasteContent.value,
+          format: pasteFormat,
+          slug: document.getElementById('paste-slug').value || undefined,
+          title: document.getElementById('paste-title').value || undefined,
+          visibility: pasteForm.querySelector('input[name="paste-visibility"]:checked').value,
+          showSource: document.getElementById('paste-show-source').checked,
+        };
+        const res = await fetch('/api/pages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          window.location.href = '/admin';
+        } else {
+          const body = await res.json().catch(() => ({ error: 'Publish failed' }));
+          errorBox.textContent = body.message || body.error || 'Publish failed';
+          errorBox.classList.add('visible');
+        }
+      });
+    })();
   </script>`;
 }
 
@@ -457,17 +1034,21 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
   const filesApiUrl = `/api/pages/${page.id}/files`;
   const protectedHint =
     files.length > 0
-      ? '<p class="hint">Rendered page files are protected — use Delete page above to remove the page.</p>'
+      ? '<p class="file-hint">Rendered page files are protected — use Delete page above to remove the page.</p>'
       : "";
 
   const fileRows = files
     .map((file) => {
       const deleteUrl = `/api/pages/${page.id}/files/${encodeURIComponent(file.path)}`;
-      const deleteButton = isProtectedEntryPath(page, file.path)
+      const isProtected = isProtectedEntryPath(page, file.path);
+      const deleteButton = isProtected
         ? ""
-        : `<button class="button danger" type="button" data-delete-file="${escapeHtml(deleteUrl)}">Delete</button>`;
-      return `<li>
-        <code>${escapeHtml(file.path)}</code>
+        : `<button class="button button-danger button-small" type="button" data-delete-file="${escapeHtml(deleteUrl)}">Delete</button>`;
+      return `<li class="file-row">
+        <div class="file-meta">
+          <code class="file-path">${escapeHtml(file.path)}</code>
+          ${isProtected ? '<span class="badge protected">Protected</span>' : ""}
+        </div>
         ${deleteButton}
       </li>`;
     })
@@ -480,138 +1061,153 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
   const showSourceChecked = page.show_source === 1 ? "checked" : "";
 
   return `<div class="card">
-    <div class="toolbar">
-      <h2 class="inline">Edit ${escapeHtml(page.title)}</h2>
-      <button class="button danger" type="button" id="delete-page" data-delete="${escapeHtml(pageApiUrl)}">Delete page</button>
-    </div>
+    <header>
+      <h2>Edit ${escapeHtml(page.title)} <span class="badge kind-${escapeHtml(page.kind)}">${escapeHtml(page.kind)}</span> <span class="badge visibility-${escapeHtml(page.visibility)}">${escapeHtml(page.visibility)}</span></h2>
+      <button class="button button-danger" type="button" id="delete-page" data-delete="${escapeHtml(pageApiUrl)}">Delete page</button>
+    </header>
     <form id="edit-form" data-api="${escapeHtml(pageApiUrl)}">
-      <div class="error" id="edit-error" role="alert"></div>
-      <label>
-        Slug
-        <input type="text" name="slug" value="${slugValue}" placeholder="my-page">
-      </label>
-      <label>
-        Title
-        <input type="text" name="title" value="${titleValue}">
-      </label>
-      <label>
-        Visibility
+      <div class="error-box" id="edit-error" role="alert"></div>
+      <div class="form-group">
+        <label class="field-label" for="edit-slug">Slug</label>
+        <input type="text" name="slug" id="edit-slug" value="${slugValue}" placeholder="my-page">
+        <span class="slug-preview" id="edit-slug-preview"></span>
+      </div>
+      <div class="form-group">
+        <label class="field-label" for="title">Title</label>
+        <input type="text" name="title" id="title" value="${titleValue}">
+      </div>
+      <div class="form-group">
+        <span class="field-label">Visibility</span>
         <div class="radio-group">
           <label><input type="radio" name="visibility" value="public" ${publicChecked}> Public</label>
           <label><input type="radio" name="visibility" value="unlisted" ${unlistedChecked}> Unlisted</label>
         </div>
-      </label>
-      <label>
-        <input type="checkbox" name="showSource" value="true" ${showSourceChecked}>
-        Show source link
-      </label>
+      </div>
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" name="showSource" value="true" ${showSourceChecked}>
+          Show source link
+        </label>
+      </div>
       <div class="toolbar">
-        <button type="submit">Update metadata</button>
-        <a class="button secondary" href="${escapeHtml(backUrl)}">Back</a>
+        <button type="submit" class="button button-primary">Update metadata</button>
+        <a class="button button-secondary" href="${escapeHtml(backUrl)}">Back</a>
       </div>
     </form>
   </div>
 
   <div class="card">
-    <h3>Files</h3>
+    <header>
+      <h3>Files</h3>
+    </header>
     ${protectedHint}
-    ${files.length === 0 ? '<p class="hint">No files.</p>' : `<ul class="file-list">${fileRows}</ul>`}
-    <h4>Add / replace files</h4>
+    ${files.length === 0 ? '<p class="file-hint">No files.</p>' : `<ul class="file-list">${fileRows}</ul>`}
+  </div>
+
+  <div class="card">
+    <header>
+      <h3>Add / replace files</h3>
+    </header>
     <form id="add-files-form" data-api="${escapeHtml(filesApiUrl)}">
-      <div class="error" id="add-files-error" role="alert"></div>
-      <!-- Two pickers: #add-files is multiple-only (webkitdirectory on the same
-           input as multiple forces directory-only selection); folder upload is a
-           separate opt-in webkitdirectory input. The JS unifies both via
-           webkitRelativePath || name. -->
-      <label>
-        Files
+      <div class="error-box" id="add-files-error" role="alert"></div>
+      <div class="form-group">
+        <label class="field-label" for="add-files">Files</label>
         <input type="file" name="files" id="add-files" multiple>
-      </label>
-      <label>
-        or a folder
+        <span class="hint">Choose one or more loose files.</span>
+      </div>
+      <div class="form-group">
+        <label class="field-label" for="add-folder">Folder upload</label>
         <input type="file" name="folder" id="add-folder" multiple webkitdirectory>
-      </label>
-      <button type="submit">Upload files</button>
+        <span class="hint">Preserves relative paths inside the selected folder.</span>
+      </div>
+      <div class="toolbar">
+        <button type="submit" class="button button-primary">Upload files</button>
+      </div>
     </form>
   </div>
 
   <script>
-    const editForm = document.getElementById('edit-form');
-    const editError = document.getElementById('edit-error');
-    editForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      editError.style.display = 'none';
-      const formData = new FormData(editForm);
-      const body = {};
-      const slug = formData.get('slug');
-      if (slug !== '') body.slug = slug;
-      const title = formData.get('title');
-      if (title !== '') body.title = title;
-      body.visibility = formData.get('visibility');
-      body.showSource = formData.has('showSource');
-      const res = await fetch(editForm.dataset.api, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (res.ok) {
-        window.location.reload();
-      } else {
-        const data = await res.json().catch(() => ({ error: 'Update failed' }));
-        editError.textContent = data.message || data.error || 'Update failed';
-        editError.style.display = 'block';
-      }
-    });
+    (function() {
+      initSlugPreview('edit-slug', 'edit-slug-preview');
 
-    document.querySelectorAll('[data-delete-file]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        if (!confirm('Delete this file?')) return;
-        const res = await fetch(btn.dataset.deleteFile, { method: 'DELETE' });
+      const editForm = document.getElementById('edit-form');
+      const editError = document.getElementById('edit-error');
+      editForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        editError.classList.remove('visible');
+        const formData = new FormData(editForm);
+        const body = {};
+        const slug = formData.get('slug');
+        if (slug !== '') body.slug = slug;
+        const title = formData.get('title');
+        if (title !== '') body.title = title;
+        body.visibility = formData.get('visibility');
+        body.showSource = formData.has('showSource');
+        const res = await fetch(editForm.dataset.api, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
         if (res.ok) {
           window.location.reload();
         } else {
-          const data = await res.json().catch(() => ({ error: 'Delete failed' }));
-          alert(data.message || data.error || 'Delete failed');
+          const data = await res.json().catch(() => ({ error: 'Update failed' }));
+          editError.textContent = data.message || data.error || 'Update failed';
+          editError.classList.add('visible');
         }
       });
-    });
 
-    const addFilesForm = document.getElementById('add-files-form');
-    const addFilesError = document.getElementById('add-files-error');
-    const addFilesInput = document.getElementById('add-files');
-    const addFolderInput = document.getElementById('add-folder');
-    addFilesForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      addFilesError.style.display = 'none';
-      const files = Array.from(addFilesInput.files || []).concat(Array.from(addFolderInput.files || []));
-      if (files.length === 0) {
-        addFilesError.textContent = 'Choose at least one file or folder.';
-        addFilesError.style.display = 'block';
-        return;
-      }
-      const formData = new FormData();
-      const relative = f => f.webkitRelativePath || f.name;
-      files.forEach(f => formData.append('file:' + relative(f), f, relative(f)));
-      const res = await fetch(addFilesForm.dataset.api, { method: 'POST', body: formData });
-      if (res.ok) {
-        window.location.reload();
-      } else {
-        const data = await res.json().catch(() => ({ error: 'Upload failed' }));
-        addFilesError.textContent = data.message || data.error || 'Upload failed';
-        addFilesError.style.display = 'block';
-      }
-    });
+      document.querySelectorAll('[data-delete-file]').forEach(function(btn) {
+        btn.addEventListener('click', async function() {
+          if (!confirm('Delete this file?')) return;
+          const res = await fetch(btn.dataset.deleteFile, { method: 'DELETE' });
+          if (res.ok) {
+            window.location.reload();
+          } else {
+            const data = await res.json().catch(function() { return { error: 'Delete failed' }; });
+            showToast(data.message || data.error || 'Delete failed', 'error');
+          }
+        });
+      });
 
-    document.getElementById('delete-page').addEventListener('click', async () => {
-      if (!confirm('Delete this page and all its files? This cannot be undone.')) return;
-      const res = await fetch(document.getElementById('delete-page').dataset.delete, { method: 'DELETE' });
-      if (res.ok) {
-        window.location.href = '${escapeHtml(backUrl)}';
-      } else {
-        const data = await res.json().catch(() => ({ error: 'Delete failed' }));
-        alert(data.message || data.error || 'Delete failed');
-      }
-    });
+      const addFilesForm = document.getElementById('add-files-form');
+      const addFilesError = document.getElementById('add-files-error');
+      const addFilesInput = document.getElementById('add-files');
+      const addFolderInput = document.getElementById('add-folder');
+      addFilesForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        addFilesError.classList.remove('visible');
+        const files = Array.from(addFilesInput.files || []).concat(Array.from(addFolderInput.files || []));
+        if (files.length === 0) {
+          addFilesError.textContent = 'Choose at least one file or folder.';
+          addFilesError.classList.add('visible');
+          return;
+        }
+        const formData = new FormData();
+        const relative = f => f.webkitRelativePath || f.name;
+        files.forEach(f => formData.append('file:' + relative(f), f, relative(f)));
+        const res = await fetch(addFilesForm.dataset.api, { method: 'POST', body: formData });
+        if (res.ok) {
+          window.location.reload();
+        } else {
+          const data = await res.json().catch(() => ({ error: 'Upload failed' }));
+          addFilesError.textContent = data.message || data.error || 'Upload failed';
+          addFilesError.classList.add('visible');
+        }
+      });
+
+      document.getElementById('delete-page').addEventListener('click', async function() {
+        if (!confirm('Delete this page and all its files? This cannot be undone.')) return;
+        const deletePage = document.getElementById('delete-page');
+        const res = await fetch(deletePage.dataset.delete, { method: 'DELETE' });
+        if (res.ok) {
+          window.location.href = '${escapeHtml(backUrl)}';
+        } else {
+          const data = await res.json().catch(function() { return { error: 'Delete failed' }; });
+          showToast(data.message || data.error || 'Delete failed', 'error');
+        }
+      });
+    })();
   </script>`;
 }
 
