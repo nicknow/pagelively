@@ -277,7 +277,7 @@ describe("index.ts — public entry pipeline", () => {
       const res = await fetchIndex(path);
       expect(res.status).toBe(403);
       expect(res.headers.get("Cache-Control")).toBe("no-store");
-      expect(await res.json()).toEqual({ error: "Forbidden" });
+      expect(await res.json()).toEqual({ error: "Forbidden", message: "Forbidden" });
     }
   });
 
@@ -323,7 +323,7 @@ describe("index.ts — public entry pipeline", () => {
     const res = await fetchApi("/api/pages/bad.id", token);
     expect(res.status).toBe(400);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "invalid_id" });
+    expect(await res.json()).toEqual({ error: "invalid_id", message: "Invalid page id." });
   });
 
   it("GET /api/pages/:id with an unknown id returns 404 JSON", async () => {
@@ -331,7 +331,7 @@ describe("index.ts — public entry pipeline", () => {
     const res = await fetchApi("/api/pages/Unknown000", token);
     expect(res.status).toBe(404);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "not_found" });
+    expect(await res.json()).toEqual({ error: "not_found", message: "Page not found." });
   });
 
   it("maps AppError from the repository to a generic JSON 500 with no-store", async () => {
@@ -346,7 +346,7 @@ describe("index.ts — public entry pipeline", () => {
     expect(res.status).toBe(500);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
     const body = await res.json();
-    expect(body).toEqual({ error: "db_read_failed" });
+    expect(body).toEqual({ error: "db_read_failed", message: "Database read failed." });
     expect(body).not.toHaveProperty("stack");
   });
 
@@ -358,7 +358,7 @@ describe("index.ts — public entry pipeline", () => {
     expect(res.headers.get("Cache-Control")).toBe("no-store");
     expect(res.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
     const body = await res.json();
-    expect(body).toEqual({ error: "internal_error" });
+    expect(body).toEqual({ error: "internal_error", message: "Internal error." });
     expect(body).not.toHaveProperty("stack");
   });
 
@@ -366,14 +366,17 @@ describe("index.ts — public entry pipeline", () => {
     const res = await fetchIndex("/p/bad.id/");
     expect(res.status).toBe(400);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "invalid_id" });
+    expect(await res.json()).toEqual({ error: "invalid_id", message: "Invalid page id." });
   });
 
   it("invalid slug format returns a typed 400 error with no-store", async () => {
     const res = await fetchIndex("/hello world/");
     expect(res.status).toBe(400);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "invalid_slug" });
+    expect(await res.json()).toEqual({
+      error: "invalid_slug",
+      message: "Slug may only contain lowercase letters, digits, `-`, and `_`.",
+    });
   });
 
   it("trailing slash redirect preserves query string and hash", async () => {
@@ -411,7 +414,7 @@ describe("index.ts — public entry pipeline", () => {
       expect(res.status).toBe(403);
       expect(res.headers.get("Cache-Control")).toBe("no-store");
       expect(res.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
-      expect(await res.json()).toEqual({ error: "Forbidden" });
+      expect(await res.json()).toEqual({ error: "Forbidden", message: "Forbidden" });
     }
   });
 
@@ -421,7 +424,7 @@ describe("index.ts — public entry pipeline", () => {
     expect(res.status).toBe(404);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
     expect(res.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
-    expect(await res.json()).toEqual({ error: "not_found" });
+    expect(await res.json()).toEqual({ error: "not_found", message: "Not Found" });
   });
 
   it("error responses include charset=utf-8 on the JSON content type", async () => {

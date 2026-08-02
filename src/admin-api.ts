@@ -17,7 +17,7 @@
 
 import { AppError } from "./errors";
 import { validateId, generateId } from "./ids";
-import { slugify, validateSlug } from "./slug";
+import { cleanSlug, slugify, validateSlug } from "./slug";
 import { renderMarkdown } from "./markdown";
 import { mimeTypeFor, isImageContentType, CHARSET_HTML } from "./content-type";
 import { buildR2Key, nextRev } from "./rev";
@@ -87,7 +87,7 @@ function textFromBuffer(buffer: ArrayBuffer): string {
 function validateManifest(
   manifest: ParsedPublishForm["manifest"],
   files: ParsedPublishForm["files"],
-): void {
+): { slug?: string } {
   if (
     manifest.visibility !== undefined &&
     manifest.visibility !== "public" &&
@@ -102,10 +102,20 @@ function validateManifest(
       `Title must be at most ${MAX_TITLE_LENGTH} characters.`,
     );
   }
-  if (manifest.slug !== undefined && manifest.slug !== "") {
-    const result = validateSlug(manifest.slug);
-    if (!result.ok) {
-      throw result.error;
+  // A user-supplied slug is cleaned first (OQ-15/T1, ADR 0036): surrounding
+  // whitespace and case are normalized, then the cleaned value is validated.
+  // Empty/whitespace-only input is treated as "not provided" (the title is
+  // slugified instead). The cleaned slug is returned so it is stored and
+  // echoed back in the 201 response.
+  let cleanedSlug: string | undefined;
+  if (manifest.slug !== undefined) {
+    const trimmed = manifest.slug.trim();
+    if (trimmed !== "") {
+      const result = cleanSlug(trimmed);
+      if (!result.ok) {
+        throw result.error;
+      }
+      cleanedSlug = result.slug;
     }
   }
   if (manifest.entry !== undefined) {
@@ -118,6 +128,7 @@ function validateManifest(
       );
     }
   }
+  return cleanedSlug === undefined ? {} : { slug: cleanedSlug };
 }
 
 function determineKindAndEntry(
@@ -300,7 +311,7 @@ export async function handleCreatePage(
   }
 
   const { kind, entry } = determineKindAndEntry(files, manifest.entry);
-  validateManifest(manifest, files);
+  const { slug: cleanedSlug } = validateManifest(manifest, files);
 
   const id = generateId();
   const now = new Date().toISOString();
@@ -318,7 +329,7 @@ export async function handleCreatePage(
     );
   }
 
-  const slug = await resolveSlug(manifest.slug, title, pagesRepository, id);
+  const slug = await resolveSlug(cleanedSlug, title, pagesRepository, id);
   const showSource = manifest.showSource === true ? 1 : 0;
 
   const r2Files = buildR2Files(files, kind, entry, config.allowRawHtmlInMd, showSource === 1);
@@ -583,14 +594,24 @@ export async function handlePatchPage(
   const patch = validatePatchBody(body);
 
   if (typeof patch.slug === "string" && patch.slug !== page.slug) {
-    const validation = validateSlug(patch.slug);
-    if (!validation.ok) {
-      throw validation.error;
+    // Clean the user-entered slug first (OQ-15/T1, ADR 0036): trim, normalize,
+    // and reject reserved/empty results with an actionable message. The cleaned
+    // value is what gets stored and echoed in the 200 response.
+    const cleaned = cleanSlug(patch.slug);
+    if (!cleaned.ok) {
+      throw cleaned.error;
     }
-    const taken = await pagesRepository.slugTaken(patch.slug, id);
-    if (taken) {
-      throw new AppError("slug_conflict", 409, `Slug "${patch.slug}" is already taken.`);
+    if (cleaned.slug !== page.slug) {
+      const validation = validateSlug(cleaned.slug);
+      if (!validation.ok) {
+        throw validation.error;
+      }
+      const taken = await pagesRepository.slugTaken(cleaned.slug, id);
+      if (taken) {
+        throw new AppError("slug_conflict", 409, `Slug "${cleaned.slug}" is already taken.`);
+      }
     }
+    patch.slug = cleaned.slug;
   }
 
   const newShowSource = patch.show_source ?? page.show_source;

@@ -4,6 +4,12 @@ The admin API is protected by Cloudflare Access at the edge and independently
 verifies the `Cf-Access-Jwt-Assertion` token in the Worker (S16). All responses
 are `Cache-Control: no-store`.
 
+Error responses are JSON `{ "error": "<code>", "message": "<human-readable hint>" }`
+(OQ-15/T1, ADR 0036): `error` is the stable snake_case code for programmatic
+handling; `message` is a safe, actionable human string that the admin UI shows
+verbatim (`message || error` fallback). Internal details and stack traces are
+never included.
+
 ## Endpoints
 
 ### `GET /api/pages`
@@ -97,6 +103,15 @@ Upload and publish a page. The request body must be `multipart/form-data`.
 - A bundle whose entry is Markdown is rendered like a Markdown page but `kind` stays `bundle`
   (OQ-05).
 
+**Slug handling (OQ-15/T1, ADR 0036):** a user-supplied `manifest.slug` is cleaned before
+validation and storage: surrounding whitespace and case are normalized (`"  My Post "` →
+`my-post`), runs of non-slug characters collapse to `-`, and the result is truncated to 64
+characters. Reserved names are rejected with `400 invalid_slug` — exact names like
+`favicon.ico`/`robots.txt` are rejected intact (never renamed by dot mangling), and decorations
+of reserved names (`" Admin! "` → `admin`) are rejected after cleaning. Empty or whitespace-only
+slugs are treated as "not provided" and auto-generated from the title. The cleaned slug is stored
+and echoed in the `201` response.
+
 **Response:** `201 Created`
 `Content-Type: application/json; charset=utf-8`
 
@@ -108,7 +123,8 @@ purged on success.
 - `400` `{ error: "no_files" }` — no file parts were uploaded.
 - `400` `{ error: "ambiguous_entry" }` — multiple entry candidates and no `manifest.entry`.
 - `400` `{ error: "invalid_entry" }` — `manifest.entry` does not match an uploaded file.
-- `400` `{ error: "invalid_slug" }` — reserved word or invalid slug characters.
+- `400` `{ error: "invalid_slug" }` — reserved name (rejected intact or after cleaning),
+  non-empty slug that cleans to nothing, or invalid slug characters.
 - `400` `{ error: "invalid_visibility" }` — visibility is not `public` or `unlisted`.
 - `400` `{ error: "title_too_long" }` — title exceeds 256 characters.
 - `400` `{ error: "path_traversal" }` — a path contains `../`, starts with `/`, or uses `\`.
@@ -141,13 +157,18 @@ characters (same limit as publish). Metadata edits do **not** bump `rev` (ADR 00
 Markdown pages, toggling `showSource` re-renders the stored `index.html` at the current rev and
 purges the cache.
 
+**Slug handling:** the same cleaning as publish applies (OQ-15/T1, ADR 0036) — `"  New Slug "`
+is stored and echoed as `new-slug`. `slug: null` clears the slug; a whitespace-only string is
+rejected with `400 invalid_slug` and leaves the stored slug untouched.
+
 **Response:** `200 OK` with the same page + `files` shape as `GET /api/pages/:id`.
 
 **Error responses:**
 
 - `400` `{ error: "invalid_id" }` — id format is invalid.
 - `400` `{ error: "invalid_json" }` — body is not valid JSON.
-- `400` `{ error: "invalid_slug" }` — reserved word or invalid slug characters.
+- `400` `{ error: "invalid_slug" }` — slug not a string/null, reserved name (rejected intact or
+  after cleaning), empty/whitespace-only, or invalid slug characters.
 - `400` `{ error: "invalid_title" }` — title is not a string.
 - `400` `{ error: "title_too_long" }` — title exceeds 256 characters.
 - `400` `{ error: "invalid_visibility" }` — visibility is not `public`/`unlisted`.

@@ -40,11 +40,18 @@ describe("toErrorResponse", () => {
     expect(res.headers.get("Cache-Control")).toBe("no-store");
   });
 
+  it("sends the public message alongside the error code (T1 / OQ-15)", async () => {
+    const err = new AppError("db_read_failed", 500, "Database read failed.");
+    const res = toErrorResponse(err, new Headers());
+    const body = await res.json();
+    expect(body).toEqual({ error: "db_read_failed", message: "Database read failed." });
+  });
+
   it("does not leak the internal detail or stack", async () => {
     const err = new AppError("db_read_failed", 500, "Database read failed.", { cause: "secret" });
     const res = toErrorResponse(err, new Headers());
     const body = await res.json();
-    expect(body).toEqual({ error: "db_read_failed" });
+    expect(body).toEqual({ error: "db_read_failed", message: "Database read failed." });
     expect(body).not.toHaveProperty("detail");
     expect(body).not.toHaveProperty("stack");
   });

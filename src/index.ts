@@ -167,7 +167,10 @@ export default {
         return toErrorResponse(error, headers);
       }
       headers.set("Content-Type", "application/json; charset=utf-8");
-      return Response.json({ error: "internal_error" }, { status: 500, headers });
+      return Response.json(
+        { error: "internal_error", message: "Internal error." },
+        { status: 500, headers },
+      );
     }
   },
 } satisfies ExportedHandler<Env>;

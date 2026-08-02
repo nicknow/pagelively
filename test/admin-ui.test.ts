@@ -113,7 +113,7 @@ describe("index.ts — admin UI", () => {
     const res = await fetchAdmin("/admin");
     expect(res.status).toBe(403);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "Forbidden" });
+    expect(await res.json()).toEqual({ error: "Forbidden", message: "Forbidden" });
   });
 
   it("GET /admin with a valid token returns the dashboard HTML", async () => {
@@ -237,6 +237,44 @@ describe("index.ts — admin UI", () => {
     expect(text).toContain("/api/pages/page000003/files");
   });
 
+  it("upload form displays the API message verbatim (body.message || body.error) — T1/OQ-15", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("body.message || body.error || 'Upload failed'");
+  });
+
+  it("edit form displays the API message verbatim (data.message || data.error) — T1/OQ-15", async () => {
+    const db = env.DB;
+    const pageId = "page000004";
+    await insertPage(db, { id: pageId, slug: "msg", title: "Msg", kind: "html" });
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("data.message || data.error || 'Update failed'");
+  });
+
+  it("edit page delete handlers show the public message, not the code (data.message || data.error) — T1/OQ-15", async () => {
+    const db = env.DB;
+    const pageId = "page000005";
+    await insertPage(db, { id: pageId, slug: "del", title: "Del", kind: "html" });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "index.html",
+      r2_key: "pages/page000005/1/index.html",
+      content_type: "text/html; charset=utf-8",
+      size: 100,
+    });
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // Both alert handlers — delete-file and delete-page — must prefer the public
+    // message over the raw error code (F1: delete-page showed data.error only).
+    const deleteAlerts =
+      text.split("alert(data.message || data.error || 'Delete failed')").length - 1;
+    expect(deleteAlerts).toBe(2);
+  });
+
   it("edit page splits add-files into a multiple-only picker and a separate folder picker", async () => {
     const db = env.DB;
     const pageId = "page000006";
@@ -283,7 +321,7 @@ describe("index.ts — admin UI", () => {
     const res = await fetchAdmin("/admin/edit/bad.id", await validToken());
     expect(res.status).toBe(400);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "invalid_id" });
+    expect(await res.json()).toEqual({ error: "invalid_id", message: "Invalid page id." });
   });
 
   it("GET /admin/edit/:id/ with trailing slash returns the edit form", async () => {

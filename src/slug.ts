@@ -49,12 +49,22 @@ function stripExtension(name: string): string {
   return name.replace(/\.([a-zA-Z]+)$/, "");
 }
 
-export function slugify(input: string): SlugifyResult {
-  const slug = stripExtension(input)
+/**
+ * The shared collapse chain (ADR 0007 decision 1 steps 2-4): lowercase, collapse
+ * runs of non-alphabet characters to a single `-`, canonicalize dash runs, and
+ * trim edge dashes. Used by both `slugify` (after extension stripping) and
+ * `cleanSlug` (which never strips extensions).
+ */
+function normalizeSegment(input: string): string {
+  return input
     .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "-") // runs of junk → single "-"
-    .replace(/-+/g, "-") // canonicalize dash runs
-    .replace(/^-+|-+$/g, ""); // trim edge dashes
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+export function slugify(input: string): SlugifyResult {
+  const slug = normalizeSegment(stripExtension(input));
 
   if (slug === "") {
     return {
@@ -67,6 +77,17 @@ export function slugify(input: string): SlugifyResult {
 
 function invalidSlug(message: string): { ok: false; error: AppError } {
   return { ok: false, error: new AppError("invalid_slug", 400, message) };
+}
+
+/** Reserved-name rejection message (ADR 0007 decision 2), shared by the
+ * `_`-prefix rule and the exact whole-segment list. The list lookup and the
+ * echoed name are lowercased because `isReservedName` is case-insensitive
+ * (raw pre-checks in `cleanSlug` run before normalization). */
+function reservedNameMessage(name: string): string {
+  const lower = name.toLowerCase();
+  return RESERVED_NAMES.has(lower)
+    ? `"${lower}" is a reserved name and cannot be used as a slug.`
+    : "Slugs starting with `_` are reserved for internal names.";
 }
 
 /** API-boundary validation for user-supplied slugs (S02). Pure; never throws. */
@@ -84,13 +105,64 @@ export function validateSlug(slug: string): SlugValidationResult {
     // One predicate, two reserved rules (ADR 0007 decision 2): the exact
     // whole-segment list and the `_` prefix. The check below only refines the
     // user-facing message — the list itself stays single-source in reserved.ts.
-    const message = RESERVED_NAMES.has(slug)
-      ? `"${slug}" is a reserved name and cannot be used as a slug.`
-      : "Slugs starting with `_` are reserved for internal names.";
-    return invalidSlug(message);
+    return invalidSlug(reservedNameMessage(slug));
   }
   if (!SLUG_CHARSET.test(slug)) {
     return invalidSlug("Slug may only contain lowercase letters, digits, `-`, and `_`.");
   }
   return { ok: true };
+}
+
+/**
+ * Clean a user-entered slug before validation (OQ-15, T1, ADR 0036). Pure;
+ * never throws. The create and edit APIs run this on user-supplied slugs so
+ * stored slugs are canonical and the boundary rejects reserved names with
+ * actionable messages.
+ *
+ * Pipeline:
+ * 1. Trim surrounding whitespace; empty/whitespace-only input fails with an
+ *    actionable message (the API layer treats it as "not provided" on create).
+ * 2. Reserved pre-check on the raw input: exact reserved names (`favicon.ico`,
+ *    `robots.txt`, …) are rejected INTACT — before dot mangling could rename
+ *    them — and the `_` prefix rule applies here too.
+ * 3. Same collapse chain as `slugify` (lowercase, junk runs → `-`, dash
+ *    canonicalization, edge-dash trim), but WITHOUT extension stripping:
+ *    "my.md" → "my-md", never "my".
+ * 4. A non-empty input that cleans to nothing is a typed failure.
+ * 5. Truncate to the 64-char bound; a cut that lands on `-` strips the
+ *    trailing dash so the result stays canonical.
+ * 6. Reserved re-check on the cleaned result (" Admin! " → reserved "admin").
+ * 7. `validateSlug` as a final safety net (cannot fail after 3-6).
+ */
+export function cleanSlug(input: string): SlugifyResult {
+  const trimmed = input.trim();
+
+  if (trimmed === "") {
+    return invalidSlug("Slug cannot be empty.");
+  }
+
+  if (isReservedName(trimmed)) {
+    return invalidSlug(reservedNameMessage(trimmed));
+  }
+
+  let slug = normalizeSegment(trimmed);
+
+  if (slug === "") {
+    return invalidSlug("Name contains no characters that can form a slug.");
+  }
+
+  if (slug.length > MAX_SLUG_LENGTH) {
+    slug = slug.slice(0, MAX_SLUG_LENGTH).replace(/-+$/g, "");
+  }
+
+  if (isReservedName(slug)) {
+    return invalidSlug(reservedNameMessage(slug));
+  }
+
+  const validation = validateSlug(slug);
+  if (!validation.ok) {
+    return { ok: false, error: validation.error };
+  }
+
+  return { ok: true, slug };
 }

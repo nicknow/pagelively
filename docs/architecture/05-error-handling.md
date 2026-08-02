@@ -48,8 +48,13 @@ fetch(request) →
 
 - **Admin/API JSON** (all `/api/*` errors):
   ```json
-  { "error": { "code": "slug_taken", "message": "A page with slug 'notes' already exists." } }
+  { "error": "slug_conflict", "message": "Slug \"notes\" is already taken." }
   ```
+  `error` is the stable machine code (see taxonomy above). `message` is a safe,
+  actionable human-readable string chosen at the throw site (OQ-15/T1, ADR 0036):
+  the admin UI renders `message || error` verbatim, and the code never includes
+  internal detail or stack traces (safety rule 2). The field is additive — code
+  was `{ "error": "<code>" }` before T1; consumers must still key off `error`.
 - **Public HTML**: clean 404 page for Worker-host misses; a minimal generic error page for
   5xx. Both `no-store`.
 - **Redirects/entry**: success paths only; errors never carry cacheable headers (04).

@@ -155,7 +155,7 @@ describe("S22 — full local end-to-end journey", () => {
     const res = await fetchApi("/api/pages", "POST", form);
     expect(res.status).toBe(403);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "Forbidden" });
+    expect(await res.json()).toEqual({ error: "Forbidden", message: "Forbidden" });
   });
 
   it("step 3: publish the home page via the admin API (201 + body)", async () => {
@@ -530,7 +530,10 @@ describe("S22 — full local end-to-end journey", () => {
     const res = await fetchApi("/api/pages", "POST", form, await validToken());
     expect(res.status).toBe(400);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "invalid_slug" });
+    expect(await res.json()).toEqual({
+      error: "invalid_slug",
+      message: '"admin" is a reserved name and cannot be used as a slug.',
+    });
 
     // Zero orphan rows/objects: nothing was created by the rejected publish.
     const pagesAfter = await countRows("pages");

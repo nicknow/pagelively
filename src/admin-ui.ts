@@ -157,7 +157,7 @@ function dashboardContent(config: AppConfig, pages: PageRecord[], requestUrl: UR
           window.location.reload();
         } else {
           const body = await res.json().catch(() => ({ error: 'Delete failed' }));
-          alert(body.error || 'Delete failed');
+          alert(body.message || body.error || 'Delete failed');
         }
       });
     });
@@ -311,7 +311,7 @@ function uploadContent(): string {
         window.location.href = '/admin';
       } else {
         const body = await res.json().catch(() => ({ error: 'Upload failed' }));
-        errorBox.textContent = body.error || 'Upload failed';
+        errorBox.textContent = body.message || body.error || 'Upload failed';
         errorBox.style.display = 'block';
       }
     });
@@ -438,7 +438,7 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
         window.location.reload();
       } else {
         const data = await res.json().catch(() => ({ error: 'Update failed' }));
-        editError.textContent = data.error || 'Update failed';
+        editError.textContent = data.message || data.error || 'Update failed';
         editError.style.display = 'block';
       }
     });
@@ -451,7 +451,7 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
           window.location.reload();
         } else {
           const data = await res.json().catch(() => ({ error: 'Delete failed' }));
-          alert(data.error || 'Delete failed');
+          alert(data.message || data.error || 'Delete failed');
         }
       });
     });
@@ -477,7 +477,7 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
         window.location.reload();
       } else {
         const data = await res.json().catch(() => ({ error: 'Upload failed' }));
-        addFilesError.textContent = data.error || 'Upload failed';
+        addFilesError.textContent = data.message || data.error || 'Upload failed';
         addFilesError.style.display = 'block';
       }
     });
@@ -489,7 +489,7 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
         window.location.href = '${escapeHtml(backUrl)}';
       } else {
         const data = await res.json().catch(() => ({ error: 'Delete failed' }));
-        alert(data.error || 'Delete failed');
+        alert(data.message || data.error || 'Delete failed');
       }
     });
   </script>`;

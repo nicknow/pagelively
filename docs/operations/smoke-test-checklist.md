@@ -97,10 +97,12 @@ deployed Worker behaves the same way on the real edge:
       `Cache-Control: public, max-age=300, stale-while-revalidate=3600` and `Cache-Tag: page-{id}`.
 - [ ] Markdown pages serve the stored rendered HTML with the same base tag and `text/html; charset=utf-8`.
 - [ ] Unknown slugs, unknown ids, and unknown paths return the clean 404 page with `no-store`.
-- [ ] `/admin*` and `/api/*` without a valid Access token return `403` JSON `{ error: "Forbidden" }`
+- [ ] `/admin*` and `/api/*` without a valid Access token return `403` JSON
+      `{ error: "Forbidden", message: "Forbidden" }`
       with `no-store`; with a valid token `/admin` returns the dashboard HTML and `/api/*` returns
       the API responses (S16 + S19).
-- [ ] Internal failures (e.g., D1 unavailable) return `500` JSON `{ error: "db_read_failed" }`
+- [ ] Internal failures (e.g., D1 unavailable) return `500` JSON
+      `{ error: "db_read_failed", message: "Database read failed." }`
       with `no-store` and no stack trace or internal detail in the body.
 - [ ] A real browser load of an entry page resolves relative assets (`<img src="images/pic.png">`,
       `<link rel="stylesheet" href="style.css">`) through the injected base tag to the CDN host.
@@ -157,7 +159,7 @@ verifies the real end-to-end Access flow on the deployed Worker:
       header returns the admin dashboard HTML.
 - [ ] The verified email from the JWT is available to the admin/dashboard code (S19).
 - [ ] `GET /admin` and `GET /api/pages` **without** the `Cf-Access-Jwt-Assertion` header return
-      `403` JSON `{ error: "Forbidden" }` with `Cache-Control: no-store`.
+      `403` JSON `{ error: "Forbidden", message: "Forbidden" }` with `Cache-Control: no-store`.
 - [ ] A forged or tampered JWT (e.g., changed payload, invalid signature) returns `403` with the
       same generic error — the Worker never exposes the verification failure reason.
 - [ ] An expired Access token (older than the 60-second skew window) returns `403`.
@@ -174,7 +176,7 @@ The endpoints are unit-tested locally with the JWT gate; the operator verifies t
 live behavior behind Cloudflare Access:
 
 - [ ] `GET /api/pages` without a `Cf-Access-Jwt-Assertion` header returns `403`
-      JSON `{ error: "Forbidden" }` with `Cache-Control: no-store`.
+      JSON `{ error: "Forbidden", message: "Forbidden" }` with `Cache-Control: no-store`.
 - [ ] `GET /api/pages` with a valid Access token returns `200` JSON array with
       `Content-Type: application/json; charset=utf-8` and `Cache-Control: no-store`.
 - [ ] Each object in the list contains: `id`, `slug`, `title`, `kind`, `rev`,
@@ -182,10 +184,11 @@ live behavior behind Cloudflare Access:
       `updated_at`. The list does **not** contain a `files` property.
 - [ ] `GET /api/pages/{id}` with a valid token returns `200` JSON with the same
       page fields plus `files: FileRecord[]`.
-- [ ] `GET /api/pages/{id}` for an unknown id returns `404` JSON `{ error: "not_found" }`
+- [ ] `GET /api/pages/{id}` for an unknown id returns `404` JSON
+      `{ error: "not_found", message: "Page not found." }`
       with `no-store`.
 - [ ] `GET /api/pages/{id}` for an invalid id format (e.g., `bad.id`) returns `400`
-      JSON `{ error: "invalid_id" }` with `no-store`.
+      JSON `{ error: "invalid_id", message: "Invalid page id." }` with `no-store`.
 - [ ] `POST /api/pages` with a valid token returns `201` JSON `{ error: ... }` with `no-store`
       (the upload UI posts to this endpoint; S17).
 - [ ] `GET /admin` with a valid token returns the dashboard HTML; `GET /admin/dashboard` returns a
@@ -316,11 +319,13 @@ them and that the dashboard surface exists to watch them.
       (`https://pages.example.com/pages/{id}/{rev}/../…`, `/p/{id}/..`) return the clean
       404 page with `Cache-Control: no-store` (router classifies them `unknown`; S08).
 - [ ] Literal-`%` filenames never reach the bucket: `POST /api/pages` with a `%` filename
-      returns `400 { error: "invalid_filename" }` (S17) and no such key exists in R2 (the
+      returns `400 { error: "invalid_filename", message: "Percent signs are not allowed in filenames: \"<name>\"." }`
+      (S17) and no such key exists in R2 (the
       edge would percent-decode the path and the lookup would miss — unservable).
 - [ ] Reserved slugs are rejected end-to-end: `POST /api/pages` with slug `admin`, `api`,
       `assets`, `health`, `p`, `robots.txt`, `sitemap.xml`, `favicon.ico`, or a
-      `_`-prefixed name returns `400 { error: "invalid_slug" }` behind Access (the local
+      `_`-prefixed name returns `400 { error: "invalid_slug", message: "\"<name>\" is a reserved name and cannot be used as a slug." }`
+      behind Access (the local
       journey asserts the API path; the live check confirms the same response with the real
       token), and the upload UI surfaces the API error to the operator.
 
@@ -351,8 +356,10 @@ them and that the dashboard surface exists to watch them.
 
 - [ ] `PATCH /api/pages/{id}` with a valid token updates slug/title/visibility/show_source and
       returns `200` with the page + files. The `rev` does not change.
-- [ ] `PATCH /api/pages/{id}` with a taken slug returns `409` `{ error: "slug_conflict" }`.
-- [ ] `PATCH /api/pages/{id}` with a reserved slug returns `400` `{ error: "invalid_slug" }`.
+- [ ] `PATCH /api/pages/{id}` with a taken slug returns `409`
+      `{ error: "slug_conflict", message: "Slug \"<slug>\" is already taken." }`.
+- [ ] `PATCH /api/pages/{id}` with a reserved slug returns `400`
+      `{ error: "invalid_slug", message: "\"<name>\" is a reserved name and cannot be used as a slug." }`.
 - [ ] `PATCH /api/pages/{id}` toggling `showSource` on a Markdown page re-renders `index.html` at
       the same rev (the link to `source.md` appears/disappears) and purges the cache.
 - [ ] `POST /api/pages/{id}/files` with a valid token adds a new file, bumps `rev`, and copies
@@ -361,13 +368,16 @@ them and that the dashboard surface exists to watch them.
       `source.md` at the new rev.
 - [ ] `DELETE /api/pages/{id}/files/{path}` with a valid token removes a file, bumps `rev`, and
       copies remaining files to the new rev.
-- [ ] `DELETE /api/pages/{id}/files/index.html` returns `400` `{ error: "entry_not_deletable" }`
+- [ ] `DELETE /api/pages/{id}/files/index.html` returns `400`
+      `{ error: "entry_not_deletable", message: "The entry file cannot be deleted." }`
       for document pages.
-- [ ] `DELETE /api/pages/{id}/files/{image-filename}` returns `400` `{ error: "entry_not_deletable" }`
+- [ ] `DELETE /api/pages/{id}/files/{image-filename}` returns `400`
+      `{ error: "entry_not_deletable", message: "The entry file cannot be deleted." }`
       for image pages.
 - [ ] `DELETE /api/pages/{id}` returns `204`, removes the `pages` row and `files` rows, and
       deletes all objects under `pages/{id}/`.
-- [ ] All S18 endpoints return `403` `{ error: "Forbidden" }` without a valid token.
+- [ ] All S18 endpoints return `403` `{ error: "Forbidden", message: "Forbidden" }` without a
+      valid token.
 - [ ] A D1 write failure after R2 writes for file add/replace/delete removes the partial new-rev
       folder best-effort.
 

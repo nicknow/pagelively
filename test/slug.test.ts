@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { slugify } from "../src/slug";
+import { cleanSlug, slugify } from "../src/slug";
 
 // S01 AC 3 — slugify (spec §4, ADR 0007/0010). Empty result is a typed
 // failure (AppError-style, code invalid_slug, 400 at the API layer later);
@@ -137,5 +137,105 @@ describe("slugify — validator edge cases", () => {
       expect(result.error.code).toBe("invalid_slug");
       expect(result.error.status).toBe(400);
     }
+  });
+});
+
+// --- T1 / OQ-15 — cleanSlug: user-entered slug cleaning (ADR 0036) ---
+
+describe("cleanSlug", () => {
+  function expectClean(input: string, expected: string): void {
+    expect(cleanSlug(input)).toEqual(ok(expected));
+  }
+
+  function expectFailure(input: string, word: string): void {
+    const result = cleanSlug(input);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("invalid_slug");
+      expect(result.error.status).toBe(400);
+      expect(result.error.publicMessage.toLowerCase()).toContain(word);
+    }
+  }
+
+  it("trims surrounding whitespace and lowercases (AC 1: '  My Post  ' → 'my-post')", () => {
+    expectClean("  My Post  ", "my-post");
+  });
+
+  it("collapses junk runs, canonicalizes dashes, and trims edge dashes (AC 2)", () => {
+    expectClean("My - - Post!!", "my-post");
+  });
+
+  it("treats a dotted title as a separator, not an extension (AC 3)", () => {
+    expectClean("Chapter 1.5", "chapter-1-5");
+  });
+
+  it("does NOT strip extensions — 'my.md' → 'my-md' (AC 3, contrast slugify)", () => {
+    expectClean("my.md", "my-md");
+    // regression pin: slugify still strips the extension
+    expect(slugify("my.md")).toEqual(ok("my"));
+  });
+
+  it("rejects a raw `_`-prefixed name intact (AC 4)", () => {
+    expectFailure("_hidden", "internal");
+    expectFailure(" _draft ", "internal");
+  });
+
+  it("rejects an exact reserved name intact — 'favicon.ico' is never renamed (AC 5)", () => {
+    expectFailure("favicon.ico", "reserved name");
+    expectFailure("robots.txt", "reserved name");
+  });
+
+  it("rejects a reserved name that only appears after cleaning (AC 6: ' Admin! ' → 'admin')", () => {
+    expectFailure(" Admin! ", "reserved name");
+  });
+
+  it("fails for empty and whitespace-only input (AC 7)", () => {
+    expectFailure("", "empty");
+    expectFailure("   ", "empty");
+  });
+
+  it("fails with an actionable message when non-empty input cleans to nothing (AC 8)", () => {
+    const result = cleanSlug("!!!");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("invalid_slug");
+      expect(result.error.status).toBe(400);
+      expect(result.error.publicMessage).toBe("Name contains no characters that can form a slug.");
+    }
+  });
+
+  it("truncates to 64 characters (AC 9)", () => {
+    expectClean("a".repeat(65), "a".repeat(64));
+    expectClean("a".repeat(63), "a".repeat(63));
+    expectClean("a".repeat(64), "a".repeat(64));
+  });
+
+  it("strips a trailing dash when the 64-char cut lands on one (AC 9)", () => {
+    // "a"×63 + "-bc" cleans to 66 chars; slice(0,64) = "a"×63 + "-" → strip → "a"×63
+    expectClean("a".repeat(63) + "-bc", "a".repeat(63));
+  });
+
+  it("is idempotent — cleaning a cleaned slug is a no-op (AC 10)", () => {
+    for (const input of [
+      "  My Post  ",
+      "My - - Post!!",
+      "Chapter 1.5",
+      "my.md",
+      "a".repeat(65),
+      "a".repeat(63) + "-bc",
+    ]) {
+      const once = cleanSlug(input);
+      expect(once.ok).toBe(true);
+      if (once.ok) {
+        expect(cleanSlug(once.slug)).toEqual(ok(once.slug));
+      }
+    }
+  });
+
+  it("never throws and always returns a typed result (AC 11)", () => {
+    expect(() => cleanSlug("")).not.toThrow();
+    expect(() => cleanSlug("!!!")).not.toThrow();
+    expect(() => cleanSlug("日本語")).not.toThrow();
+    expect(() => cleanSlug("_hidden")).not.toThrow();
   });
 });

@@ -86,7 +86,7 @@ export async function serveEntry(
     }
 
     const headers = deps.cache.headersFor("error");
-    return new Response(JSON.stringify({ error: "internal_error" }), {
+    return new Response(JSON.stringify({ error: "internal_error", message: "Internal error." }), {
       status: 500,
       headers,
     });

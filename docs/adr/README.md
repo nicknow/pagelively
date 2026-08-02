@@ -43,6 +43,7 @@ memory.
 | 0032 | [S22 follow-up — journey extended to the acceptance criteria's full leg list](0032-s22-followup-journey-legs.md)        | Accepted                         |
 | 0033 | [setup.mjs OAuth fallback auth and API error surfacing](0033-setup-oauth-fallback-auth.md)                              | Accepted                         |
 | 0035 | [setup.mjs provisioning — team domain, covering zone, R2/D1 error mapping](0035-setup-provisioning-team-domain-zone.md) | Accepted                         |
+| 0036 | [OQ-15 — slug auto-clean and actionable error messages (T1)](0036-oq15-slug-cleaning-and-error-messages.md)             | Accepted                         |
 
 ## How to write an ADR
 

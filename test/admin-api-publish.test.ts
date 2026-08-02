@@ -408,7 +408,98 @@ describe("S17 — POST /api/pages (publish)", () => {
     const res = await fetchApi("/api/pages", "POST", form, token);
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "invalid_slug" });
+    expect(await res.json()).toEqual({
+      error: "invalid_slug",
+      message: '"admin" is a reserved name and cannot be used as a slug.',
+    });
+  });
+
+  it("cleans a user-entered slug, stores it, and serves the page at the cleaned slug (AC 12)", async () => {
+    const token = await validToken();
+    const form = new FormData();
+    appendManifest(form, { title: "My Post", slug: "  My Post " });
+    appendFile(form, "x.html", makeFile("x.html", "<h1>X</h1>", "text/html"));
+
+    const res = await fetchApi("/api/pages", "POST", form, token);
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.slug).toBe("my-post");
+
+    const row = await db
+      .prepare("SELECT slug FROM pages WHERE id = ?")
+      .bind(body.id as string)
+      .first<{ slug: string }>();
+    expect(row?.slug).toBe("my-post");
+
+    // the page is served at the cleaned slug
+    const pageRes = await worker.fetch(
+      new Request("https://pages.example.com/my-post/"),
+      env,
+      createExecutionContext(),
+    );
+    expect(pageRes.status).toBe(200);
+    expect(await pageRes.text()).toContain("<h1>X</h1>");
+  });
+
+  it("rejects a raw reserved slug intact with an actionable message and stores nothing (AC 13)", async () => {
+    const token = await validToken();
+    const before = await db.prepare("SELECT COUNT(*) AS n FROM pages").first<{ n: number }>();
+    const form = new FormData();
+    appendManifest(form, { slug: "favicon.ico" });
+    appendFile(form, "x.html", makeFile("x.html", "<h1>X</h1>", "text/html"));
+
+    const res = await fetchApi("/api/pages", "POST", form, token);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "invalid_slug",
+      message: '"favicon.ico" is a reserved name and cannot be used as a slug.',
+    });
+    const after = await db.prepare("SELECT COUNT(*) AS n FROM pages").first<{ n: number }>();
+    expect(after?.n).toBe(before?.n);
+    expect(await listKeys(bucket, "pages/")).toEqual([]);
+  });
+
+  it("rejects a case-variant of a reserved name (AC 13: ' ADMIN ')", async () => {
+    const token = await validToken();
+    const form = new FormData();
+    appendManifest(form, { slug: " ADMIN " });
+    appendFile(form, "x.html", makeFile("x.html", "<h1>X</h1>", "text/html"));
+
+    const res = await fetchApi("/api/pages", "POST", form, token);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "invalid_slug",
+      message: '"admin" is a reserved name and cannot be used as a slug.',
+    });
+  });
+
+  it("truncates an over-long user slug to 64 characters at the API", async () => {
+    const token = await validToken();
+    const form = new FormData();
+    appendManifest(form, { slug: "a".repeat(65) });
+    appendFile(form, "x.html", makeFile("x.html", "<h1>X</h1>", "text/html"));
+
+    const res = await fetchApi("/api/pages", "POST", form, token);
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.slug).toBe("a".repeat(64));
+  });
+
+  it("treats a whitespace-only slug as not provided and auto-generates from the title", async () => {
+    const token = await validToken();
+    const form = new FormData();
+    appendManifest(form, { title: "Whitespace Slug", slug: "   " });
+    appendFile(form, "x.html", makeFile("x.html", "<h1>X</h1>", "text/html"));
+
+    const res = await fetchApi("/api/pages", "POST", form, token);
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.slug).toBe("whitespace-slug");
   });
 
   it("rejects invalid file paths like ../", async () => {
@@ -420,7 +511,10 @@ describe("S17 — POST /api/pages (publish)", () => {
 
     expect(res.status).toBe(400);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "path_traversal" });
+    expect(await res.json()).toEqual({
+      error: "path_traversal",
+      message: 'Path traversal is not allowed: "../etc/passwd".',
+    });
   });
 
   it("rejects paths containing absolute leading slash", async () => {
@@ -431,7 +525,10 @@ describe("S17 — POST /api/pages (publish)", () => {
     const res = await fetchApi("/api/pages", "POST", form, token);
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "path_traversal" });
+    expect(await res.json()).toEqual({
+      error: "path_traversal",
+      message: 'Absolute file paths are not allowed: "/etc/passwd".',
+    });
   });
 
   it("rejects percent sign in filenames", async () => {
@@ -442,7 +539,10 @@ describe("S17 — POST /api/pages (publish)", () => {
     const res = await fetchApi("/api/pages", "POST", form, token);
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "invalid_filename" });
+    expect(await res.json()).toEqual({
+      error: "invalid_filename",
+      message: 'Percent signs are not allowed in filenames: "bad%file.html".',
+    });
   });
 
   it("strips leading UTF-8 BOM from markdown source before rendering", async () => {
@@ -470,7 +570,7 @@ describe("S17 — POST /api/pages (publish)", () => {
     const res = await fetchApi("/api/pages", "POST", form, token);
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "no_files" });
+    expect(await res.json()).toEqual({ error: "no_files", message: "No files were uploaded." });
   });
 
   it("returns 400 when entry is ambiguous and manifest.entry is missing", async () => {
@@ -482,7 +582,10 @@ describe("S17 — POST /api/pages (publish)", () => {
     const res = await fetchApi("/api/pages", "POST", form, token);
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "ambiguous_entry" });
+    expect(await res.json()).toEqual({
+      error: "ambiguous_entry",
+      message: "Entry is ambiguous. Provide manifest.entry.",
+    });
   });
 
   it("returns 413 when the Content-Length header exceeds ~95 MB", async () => {
@@ -499,7 +602,10 @@ describe("S17 — POST /api/pages (publish)", () => {
     );
 
     expect(res.status).toBe(413);
-    expect(await res.json()).toEqual({ error: "request_too_large" });
+    expect(await res.json()).toEqual({
+      error: "request_too_large",
+      message: "Request body exceeds the ~95 MB upload limit.",
+    });
   });
 
   it("returns 403 when unauthenticated", async () => {
@@ -509,7 +615,7 @@ describe("S17 — POST /api/pages (publish)", () => {
     const res = await fetchApi("/api/pages", "POST", form, undefined);
 
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "Forbidden" });
+    expect(await res.json()).toEqual({ error: "Forbidden", message: "Forbidden" });
   });
 
   it("rolls back R2 objects when D1 fails after writes", async () => {
@@ -535,7 +641,10 @@ describe("S17 — POST /api/pages (publish)", () => {
     );
 
     expect(res.status).toBe(500);
-    expect(await res.json()).toEqual({ error: "db_write_failed" });
+    expect(await res.json()).toEqual({
+      error: "db_write_failed",
+      message: "Database write failed.",
+    });
     const keys = await listKeys(bucket, "pages/");
     expect(keys).toEqual([]);
   });
@@ -551,7 +660,10 @@ describe("S17 — POST /api/pages (publish)", () => {
     const res = await fetchApi("/api/pages", "POST", form, token);
 
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "slug_conflict" });
+    expect(await res.json()).toEqual({
+      error: "slug_conflict",
+      message: 'Slug "custom" is already taken.',
+    });
   });
 
   it("returns 201 with a generated slug when user-provided slug is empty", async () => {
@@ -576,7 +688,10 @@ describe("S17 — POST /api/pages (publish)", () => {
     const res = await fetchApi("/api/pages", "POST", form, token);
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "invalid_visibility" });
+    expect(await res.json()).toEqual({
+      error: "invalid_visibility",
+      message: "Visibility must be 'public' or 'unlisted'.",
+    });
   });
 
   it("returns 400 for a title that is too long", async () => {
@@ -588,7 +703,10 @@ describe("S17 — POST /api/pages (publish)", () => {
     const res = await fetchApi("/api/pages", "POST", form, token);
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "title_too_long" });
+    expect(await res.json()).toEqual({
+      error: "title_too_long",
+      message: "Title must be at most 256 characters.",
+    });
   });
 
   it("returns 400 when the manifest entry does not match an uploaded file", async () => {
@@ -600,7 +718,10 @@ describe("S17 — POST /api/pages (publish)", () => {
     const res = await fetchApi("/api/pages", "POST", form, token);
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "invalid_entry" });
+    expect(await res.json()).toEqual({
+      error: "invalid_entry",
+      message: 'Manifest entry "missing.html" does not match any uploaded file.',
+    });
   });
 
   it("returns 400 when the auto-derived title from the filename exceeds 256 characters", async () => {
@@ -612,7 +733,10 @@ describe("S17 — POST /api/pages (publish)", () => {
     const res = await fetchApi("/api/pages", "POST", form, token);
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "title_too_long" });
+    expect(await res.json()).toEqual({
+      error: "title_too_long",
+      message: "Title must be at most 256 characters.",
+    });
   });
 
   it("renders a bundle whose manifest entry is a markdown file", async () => {

@@ -262,7 +262,7 @@ describe("S18 — edit & delete API", () => {
         { "Content-Type": "application/json" },
       );
       expect(res.status).toBe(404);
-      expect(await res.json()).toEqual({ error: "not_found" });
+      expect(await res.json()).toEqual({ error: "not_found", message: "Page not found." });
     });
 
     it("returns 400 for an invalid id", async () => {
@@ -275,7 +275,7 @@ describe("S18 — edit & delete API", () => {
         { "Content-Type": "application/json" },
       );
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "invalid_id" });
+      expect(await res.json()).toEqual({ error: "invalid_id", message: "Invalid page id." });
     });
 
     it("returns 409 when the slug is already taken by another page", async () => {
@@ -291,7 +291,10 @@ describe("S18 — edit & delete API", () => {
         { "Content-Type": "application/json" },
       );
       expect(res.status).toBe(409);
-      expect(await res.json()).toEqual({ error: "slug_conflict" });
+      expect(await res.json()).toEqual({
+        error: "slug_conflict",
+        message: 'Slug "taken" is already taken.',
+      });
     });
 
     it("returns 400 for a reserved slug", async () => {
@@ -306,7 +309,10 @@ describe("S18 — edit & delete API", () => {
         { "Content-Type": "application/json" },
       );
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "invalid_slug" });
+      expect(await res.json()).toEqual({
+        error: "invalid_slug",
+        message: '"admin" is a reserved name and cannot be used as a slug.',
+      });
     });
 
     it("allows reusing the same slug for the same page", async () => {
@@ -399,7 +405,10 @@ describe("S18 — edit & delete API", () => {
         { "Content-Type": "application/json" },
       );
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "invalid_visibility" });
+      expect(await res.json()).toEqual({
+        error: "invalid_visibility",
+        message: "Visibility must be 'public' or 'unlisted'.",
+      });
     });
 
     it("returns 400 for invalid JSON body", async () => {
@@ -425,7 +434,10 @@ describe("S18 — edit & delete API", () => {
         { "Content-Type": "application/json" },
       );
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "invalid_title" });
+      expect(await res.json()).toEqual({
+        error: "invalid_title",
+        message: "Title must be a string.",
+      });
     });
 
     it("returns 400 when title exceeds 256 characters", async () => {
@@ -440,7 +452,10 @@ describe("S18 — edit & delete API", () => {
         { "Content-Type": "application/json" },
       );
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "title_too_long" });
+      expect(await res.json()).toEqual({
+        error: "title_too_long",
+        message: "Title must be at most 256 characters.",
+      });
     });
 
     it("returns 400 when showSource is not a boolean", async () => {
@@ -455,7 +470,10 @@ describe("S18 — edit & delete API", () => {
         { "Content-Type": "application/json" },
       );
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "invalid_show_source" });
+      expect(await res.json()).toEqual({
+        error: "invalid_show_source",
+        message: "showSource must be a boolean.",
+      });
     });
 
     it("returns 400 when slug is not a string or null", async () => {
@@ -470,7 +488,10 @@ describe("S18 — edit & delete API", () => {
         { "Content-Type": "application/json" },
       );
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "invalid_slug" });
+      expect(await res.json()).toEqual({
+        error: "invalid_slug",
+        message: "Slug must be a string or null.",
+      });
     });
 
     it("returns 404 when source.md is missing for a showSource toggle", async () => {
@@ -491,7 +512,10 @@ describe("S18 — edit & delete API", () => {
         { "Content-Type": "application/json" },
       );
       expect(res.status).toBe(404);
-      expect(await res.json()).toEqual({ error: "entry_not_found" });
+      expect(await res.json()).toEqual({
+        error: "entry_not_found",
+        message: "Source file not found.",
+      });
     });
 
     it("returns 403 when unauthenticated", async () => {
@@ -499,7 +523,7 @@ describe("S18 — edit & delete API", () => {
       await insertPage(db, { id: pageId, slug: "x" });
       const res = await fetchApi(`/api/pages/${pageId}`, "PATCH", JSON.stringify({ title: "x" }));
       expect(res.status).toBe(403);
-      expect(await res.json()).toEqual({ error: "Forbidden" });
+      expect(await res.json()).toEqual({ error: "Forbidden", message: "Forbidden" });
     });
 
     it("returns 400 for an empty slug", async () => {
@@ -514,7 +538,96 @@ describe("S18 — edit & delete API", () => {
         { "Content-Type": "application/json" },
       );
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "invalid_slug" });
+      expect(await res.json()).toEqual({
+        error: "invalid_slug",
+        message: "Slug cannot be empty.",
+      });
+    });
+
+    it("cleans a user-entered slug, stores the cleaned value, and echoes it (AC 14)", async () => {
+      const pageId = "page0000cl";
+      await insertPage(db, { id: pageId, slug: "old", title: "Old", kind: "html" });
+      const token = await validToken();
+      const res = await fetchApi(
+        `/api/pages/${pageId}`,
+        "PATCH",
+        JSON.stringify({ slug: "  New Slug " }),
+        token,
+        { "Content-Type": "application/json" },
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.slug).toBe("new-slug");
+
+      const row = await db
+        .prepare("SELECT slug FROM pages WHERE id = ?")
+        .bind(pageId)
+        .first<{ slug: string }>();
+      expect(row?.slug).toBe("new-slug");
+    });
+
+    it("clears the slug when PATCHed with null (AC 14)", async () => {
+      const pageId = "page0000nu";
+      await insertPage(db, { id: pageId, slug: "old", title: "Old", kind: "html" });
+      const token = await validToken();
+      const res = await fetchApi(
+        `/api/pages/${pageId}`,
+        "PATCH",
+        JSON.stringify({ slug: null }),
+        token,
+        { "Content-Type": "application/json" },
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.slug).toBeNull();
+
+      const row = await db
+        .prepare("SELECT slug FROM pages WHERE id = ?")
+        .bind(pageId)
+        .first<{ slug: string | null }>();
+      expect(row?.slug).toBeNull();
+    });
+
+    it("rejects a whitespace-only slug with 400 and leaves the stored slug untouched (AC 14)", async () => {
+      const pageId = "page0000ws";
+      await insertPage(db, { id: pageId, slug: "old", title: "Old", kind: "html" });
+      const token = await validToken();
+      const res = await fetchApi(
+        `/api/pages/${pageId}`,
+        "PATCH",
+        JSON.stringify({ slug: "   " }),
+        token,
+        { "Content-Type": "application/json" },
+      );
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: "invalid_slug",
+        message: "Slug cannot be empty.",
+      });
+
+      const row = await db
+        .prepare("SELECT slug FROM pages WHERE id = ?")
+        .bind(pageId)
+        .first<{ slug: string }>();
+      expect(row?.slug).toBe("old");
+    });
+
+    it("treats a reserved name that only appears after cleaning as invalid (AC 14: ' Admin! ')", async () => {
+      const pageId = "page0000rd";
+      await insertPage(db, { id: pageId, slug: "old", kind: "html" });
+      const token = await validToken();
+      const res = await fetchApi(
+        `/api/pages/${pageId}`,
+        "PATCH",
+        JSON.stringify({ slug: " Admin! " }),
+        token,
+        { "Content-Type": "application/json" },
+      );
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: "invalid_slug",
+        message: '"admin" is a reserved name and cannot be used as a slug.',
+      });
     });
 
     it("returns 200 with an empty patch", async () => {
@@ -806,7 +919,10 @@ describe("S18 — edit & delete API", () => {
       const token = await validToken();
       const res = await fetchApi(`/api/pages/${pageId}/files`, "POST", form, token);
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "path_traversal" });
+      expect(await res.json()).toEqual({
+        error: "path_traversal",
+        message: 'Path traversal is not allowed: "../etc/passwd".',
+      });
     });
 
     it("returns 403 when unauthenticated", async () => {
@@ -816,7 +932,7 @@ describe("S18 — edit & delete API", () => {
       appendFile(form, "style.css", makeFile("style.css", "body{}", "text/css"));
       const res = await fetchApi(`/api/pages/${pageId}/files`, "POST", form);
       expect(res.status).toBe(403);
-      expect(await res.json()).toEqual({ error: "Forbidden" });
+      expect(await res.json()).toEqual({ error: "Forbidden", message: "Forbidden" });
     });
 
     it("returns 404 for a missing page", async () => {
@@ -825,7 +941,7 @@ describe("S18 — edit & delete API", () => {
       appendFile(form, "style.css", makeFile("style.css", "body{}", "text/css"));
       const res = await fetchApi("/api/pages/Missing000/files", "POST", form, token);
       expect(res.status).toBe(404);
-      expect(await res.json()).toEqual({ error: "not_found" });
+      expect(await res.json()).toEqual({ error: "not_found", message: "Page not found." });
     });
 
     it("returns 400 for an invalid id", async () => {
@@ -834,7 +950,7 @@ describe("S18 — edit & delete API", () => {
       appendFile(form, "style.css", makeFile("style.css", "body{}", "text/css"));
       const res = await fetchApi("/api/pages/bad.id/files", "POST", form, token);
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "invalid_id" });
+      expect(await res.json()).toEqual({ error: "invalid_id", message: "Invalid page id." });
     });
 
     it("returns 400 when no files are uploaded", async () => {
@@ -843,7 +959,7 @@ describe("S18 — edit & delete API", () => {
       const token = await validToken();
       const res = await fetchApi(`/api/pages/${pageId}/files`, "POST", new FormData(), token);
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "no_files" });
+      expect(await res.json()).toEqual({ error: "no_files", message: "No files were uploaded." });
     });
 
     it("returns 400 for malformed multipart form data", async () => {
@@ -858,7 +974,10 @@ describe("S18 — edit & delete API", () => {
         { "Content-Type": "multipart/form-data; boundary=boundary" },
       );
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "invalid_form_data" });
+      expect(await res.json()).toEqual({
+        error: "invalid_form_data",
+        message: "Could not parse multipart form data.",
+      });
     });
 
     it("returns 413 for an oversized request", async () => {
@@ -870,7 +989,10 @@ describe("S18 — edit & delete API", () => {
         "Content-Length": "99614721",
       });
       expect(res.status).toBe(413);
-      expect(await res.json()).toEqual({ error: "request_too_large" });
+      expect(await res.json()).toEqual({
+        error: "request_too_large",
+        message: "Request body exceeds the ~95 MB upload limit.",
+      });
     });
 
     it("skips files whose R2 object is missing when copying to a new rev", async () => {
@@ -1058,7 +1180,10 @@ describe("S18 — edit & delete API", () => {
       const token = await validToken();
       const res = await fetchApi(`/api/pages/${pageId}/files/index.html`, "DELETE", null, token);
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "entry_not_deletable" });
+      expect(await res.json()).toEqual({
+        error: "entry_not_deletable",
+        message: "The entry file cannot be deleted.",
+      });
     });
 
     it("rejects deletion of the image entry file", async () => {
@@ -1082,21 +1207,24 @@ describe("S18 — edit & delete API", () => {
       const token = await validToken();
       const res = await fetchApi(`/api/pages/${pageId}/files/photo.jpg`, "DELETE", null, token);
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "entry_not_deletable" });
+      expect(await res.json()).toEqual({
+        error: "entry_not_deletable",
+        message: "The entry file cannot be deleted.",
+      });
     });
 
     it("returns 404 for a missing page", async () => {
       const token = await validToken();
       const res = await fetchApi("/api/pages/Missing000/files/style.css", "DELETE", null, token);
       expect(res.status).toBe(404);
-      expect(await res.json()).toEqual({ error: "not_found" });
+      expect(await res.json()).toEqual({ error: "not_found", message: "Page not found." });
     });
 
     it("returns 400 for an invalid id", async () => {
       const token = await validToken();
       const res = await fetchApi("/api/pages/bad.id/files/style.css", "DELETE", null, token);
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "invalid_id" });
+      expect(await res.json()).toEqual({ error: "invalid_id", message: "Invalid page id." });
     });
 
     it("returns 404 when the file does not exist", async () => {
@@ -1121,7 +1249,7 @@ describe("S18 — edit & delete API", () => {
       const token = await validToken();
       const res = await fetchApi(`/api/pages/${pageId}/files/missing.css`, "DELETE", null, token);
       expect(res.status).toBe(404);
-      expect(await res.json()).toEqual({ error: "not_found" });
+      expect(await res.json()).toEqual({ error: "not_found", message: "File not found." });
     });
 
     it("returns 403 when unauthenticated", async () => {
@@ -1129,7 +1257,7 @@ describe("S18 — edit & delete API", () => {
       await insertPage(db, { id: pageId, slug: "x", kind: "html" });
       const res = await fetchApi(`/api/pages/${pageId}/files/style.css`, "DELETE", null);
       expect(res.status).toBe(403);
-      expect(await res.json()).toEqual({ error: "Forbidden" });
+      expect(await res.json()).toEqual({ error: "Forbidden", message: "Forbidden" });
     });
 
     it("rejects deletion of a nested bundle HTML entry", async () => {
@@ -1172,7 +1300,10 @@ describe("S18 — edit & delete API", () => {
         token,
       );
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "entry_not_deletable" });
+      expect(await res.json()).toEqual({
+        error: "entry_not_deletable",
+        message: "The entry file cannot be deleted.",
+      });
     });
 
     it("rejects deletion of the raw markdown source for a markdown page", async () => {
@@ -1211,7 +1342,10 @@ describe("S18 — edit & delete API", () => {
       const token = await validToken();
       const res = await fetchApi(`/api/pages/${pageId}/files/source.md`, "DELETE", null, token);
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "entry_not_deletable" });
+      expect(await res.json()).toEqual({
+        error: "entry_not_deletable",
+        message: "The entry file cannot be deleted.",
+      });
     });
 
     it("rejects deletion of a bundle markdown entry source", async () => {
@@ -1250,7 +1384,10 @@ describe("S18 — edit & delete API", () => {
       const token = await validToken();
       const res = await fetchApi(`/api/pages/${pageId}/files/source.md`, "DELETE", null, token);
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "entry_not_deletable" });
+      expect(await res.json()).toEqual({
+        error: "entry_not_deletable",
+        message: "The entry file cannot be deleted.",
+      });
     });
 
     it("deletes a file by URL-encoded path", async () => {
@@ -1320,14 +1457,14 @@ describe("S18 — edit & delete API", () => {
       const token = await validToken();
       const res = await fetchApi("/api/pages/Missing000", "DELETE", null, token);
       expect(res.status).toBe(404);
-      expect(await res.json()).toEqual({ error: "not_found" });
+      expect(await res.json()).toEqual({ error: "not_found", message: "Page not found." });
     });
 
     it("returns 400 for an invalid id", async () => {
       const token = await validToken();
       const res = await fetchApi("/api/pages/bad.id", "DELETE", null, token);
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "invalid_id" });
+      expect(await res.json()).toEqual({ error: "invalid_id", message: "Invalid page id." });
     });
 
     it("returns 403 when unauthenticated", async () => {
@@ -1335,7 +1472,7 @@ describe("S18 — edit & delete API", () => {
       await insertPage(db, { id: pageId, slug: "x" });
       const res = await fetchApi(`/api/pages/${pageId}`, "DELETE", null);
       expect(res.status).toBe(403);
-      expect(await res.json()).toEqual({ error: "Forbidden" });
+      expect(await res.json()).toEqual({ error: "Forbidden", message: "Forbidden" });
     });
   });
 

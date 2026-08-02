@@ -63,7 +63,7 @@ describe("index.ts — admin/api JWT gate", () => {
     expect(res.status).toBe(403);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
     expect(res.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
-    expect(await res.json()).toEqual({ error: "Forbidden" });
+    expect(await res.json()).toEqual({ error: "Forbidden", message: "Forbidden" });
   });
 
   it("GET /admin with a valid token returns the dashboard HTML", async () => {
@@ -79,7 +79,7 @@ describe("index.ts — admin/api JWT gate", () => {
     const res = await fetchAdmin("/api/pages");
     expect(res.status).toBe(403);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "Forbidden" });
+    expect(await res.json()).toEqual({ error: "Forbidden", message: "Forbidden" });
   });
 
   it("GET /api/pages with a valid token returns the page list JSON", async () => {
@@ -102,7 +102,10 @@ describe("index.ts — admin/api JWT gate", () => {
     );
     expect(res.status).toBe(400);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "invalid_form_data" });
+    expect(await res.json()).toEqual({
+      error: "invalid_form_data",
+      message: "Could not parse multipart form data.",
+    });
   });
 
   it("GET /admin/dashboard with a valid token returns a 404 for an unknown admin path", async () => {
@@ -122,7 +125,7 @@ describe("index.ts — admin/api JWT gate", () => {
     const res = await fetchAdmin("/admin", expiredToken);
     expect(res.status).toBe(403);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "Forbidden" });
+    expect(await res.json()).toEqual({ error: "Forbidden", message: "Forbidden" });
   });
 
   it("GET /admin with a tampered token returns 403 Forbidden", async () => {
@@ -135,7 +138,7 @@ describe("index.ts — admin/api JWT gate", () => {
     const res = await fetchAdmin("/admin", tampered);
     expect(res.status).toBe(403);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "Forbidden" });
+    expect(await res.json()).toEqual({ error: "Forbidden", message: "Forbidden" });
   });
 
   it("GET /api/pages with a forged token (unknown kid) returns 403 Forbidden", async () => {
@@ -144,7 +147,7 @@ describe("index.ts — admin/api JWT gate", () => {
     const res = await fetchAdmin("/api/pages", forgedToken);
     expect(res.status).toBe(403);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "Forbidden" });
+    expect(await res.json()).toEqual({ error: "Forbidden", message: "Forbidden" });
   });
 
   it("PATCH /api/pages returns 405 method_not_allowed", async () => {
@@ -158,7 +161,10 @@ describe("index.ts — admin/api JWT gate", () => {
     );
     expect(res.status).toBe(405);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "method_not_allowed" });
+    expect(await res.json()).toEqual({
+      error: "method_not_allowed",
+      message: "Method Not Allowed",
+    });
   });
 
   it("DELETE /api/pages returns 405 method_not_allowed", async () => {
@@ -172,7 +178,10 @@ describe("index.ts — admin/api JWT gate", () => {
     );
     expect(res.status).toBe(405);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "method_not_allowed" });
+    expect(await res.json()).toEqual({
+      error: "method_not_allowed",
+      message: "Method Not Allowed",
+    });
   });
 
   it("PUT /api/pages returns 405 method_not_allowed", async () => {
@@ -186,7 +195,10 @@ describe("index.ts — admin/api JWT gate", () => {
     );
     expect(res.status).toBe(405);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toEqual({ error: "method_not_allowed" });
+    expect(await res.json()).toEqual({
+      error: "method_not_allowed",
+      message: "Method Not Allowed",
+    });
   });
 
   it("public routes remain unauthenticated", async () => {
