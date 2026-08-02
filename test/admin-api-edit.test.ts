@@ -1281,6 +1281,210 @@ describe("S18 — edit & delete API", () => {
       expect(body.files).toHaveLength(1);
       expect((body.files as Array<{ path: string }>)[0].path).toBe("index.html");
     });
+
+    const DOCUMENT_PROTECTED_MESSAGE =
+      "The rendered page files (index.html and source.md) are part of the page and cannot be deleted individually. Delete the page to remove it.";
+
+    it("T2 AC1: rejects deleting source.md from a markdown page with an actionable message", async () => {
+      const pageId = "page0000mdsrc";
+      await insertPage(db, {
+        id: pageId,
+        slug: "notes",
+        kind: "markdown",
+        entry_path: "index.html",
+        raw_md_path: "source.md",
+      });
+      const objectStore = createObjectStore(bucket);
+      await objectStore.put(pageId, 1, "source.md", "# Hi", "text/markdown");
+      await objectStore.put(pageId, 1, "index.html", "<h1>Hi</h1>", "text/html; charset=utf-8");
+      await objectStore.put(pageId, 1, "style.css", "body{}", "text/css");
+      await insertFile(db, {
+        page_id: pageId,
+        path: "source.md",
+        r2_key: `pages/${pageId}/1/source.md`,
+        content_type: "text/markdown",
+        size: 10,
+      });
+      await insertFile(db, {
+        page_id: pageId,
+        path: "index.html",
+        r2_key: `pages/${pageId}/1/index.html`,
+        content_type: "text/html; charset=utf-8",
+        size: 100,
+      });
+      await insertFile(db, {
+        page_id: pageId,
+        path: "style.css",
+        r2_key: `pages/${pageId}/1/style.css`,
+        content_type: "text/css",
+        size: 10,
+      });
+
+      const token = await validToken();
+      const res = await fetchApi(`/api/pages/${pageId}/files/source.md`, "DELETE", null, token);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "entry_not_deletable" });
+
+      const req = new Request(`https://pages.example.com/api/pages/${pageId}/files/source.md`, {
+        method: "DELETE",
+      });
+      await expect(handleDeleteFile(req, ctx, makeAdminDeps(objectStore))).rejects.toMatchObject({
+        code: "entry_not_deletable",
+        status: 400,
+        message: DOCUMENT_PROTECTED_MESSAGE,
+      });
+    });
+
+    it("T2 AC2: rejects deleting index.html from a markdown page with an actionable message", async () => {
+      const pageId = "page0000mdhtml";
+      await insertPage(db, {
+        id: pageId,
+        slug: "notes",
+        kind: "markdown",
+        entry_path: "index.html",
+        raw_md_path: "source.md",
+      });
+      const objectStore = createObjectStore(bucket);
+      await objectStore.put(pageId, 1, "source.md", "# Hi", "text/markdown");
+      await objectStore.put(pageId, 1, "index.html", "<h1>Hi</h1>", "text/html; charset=utf-8");
+      await insertFile(db, {
+        page_id: pageId,
+        path: "source.md",
+        r2_key: `pages/${pageId}/1/source.md`,
+        content_type: "text/markdown",
+        size: 10,
+      });
+      await insertFile(db, {
+        page_id: pageId,
+        path: "index.html",
+        r2_key: `pages/${pageId}/1/index.html`,
+        content_type: "text/html; charset=utf-8",
+        size: 100,
+      });
+
+      const token = await validToken();
+      const res = await fetchApi(`/api/pages/${pageId}/files/index.html`, "DELETE", null, token);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "entry_not_deletable" });
+
+      const req = new Request(`https://pages.example.com/api/pages/${pageId}/files/index.html`, {
+        method: "DELETE",
+      });
+      await expect(handleDeleteFile(req, ctx, makeAdminDeps(objectStore))).rejects.toMatchObject({
+        code: "entry_not_deletable",
+        status: 400,
+        message: DOCUMENT_PROTECTED_MESSAGE,
+      });
+    });
+
+    it("T2 AC3: rejects deleting index.html from an html page with an actionable message", async () => {
+      const pageId = "page0000html";
+      await insertPage(db, { id: pageId, slug: "hello", kind: "html" });
+      const objectStore = createObjectStore(bucket);
+      await objectStore.put(pageId, 1, "index.html", "<h1>Hi</h1>", "text/html; charset=utf-8");
+      await insertFile(db, {
+        page_id: pageId,
+        path: "index.html",
+        r2_key: `pages/${pageId}/1/index.html`,
+        content_type: "text/html; charset=utf-8",
+        size: 100,
+      });
+
+      const token = await validToken();
+      const res = await fetchApi(`/api/pages/${pageId}/files/index.html`, "DELETE", null, token);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "entry_not_deletable" });
+
+      const req = new Request(`https://pages.example.com/api/pages/${pageId}/files/index.html`, {
+        method: "DELETE",
+      });
+      await expect(handleDeleteFile(req, ctx, makeAdminDeps(objectStore))).rejects.toMatchObject({
+        code: "entry_not_deletable",
+        status: 400,
+        message: DOCUMENT_PROTECTED_MESSAGE,
+      });
+    });
+
+    it("T2 AC4: rejects deleting the entry image from an image page with an actionable message", async () => {
+      const pageId = "page0000img";
+      await insertPage(db, {
+        id: pageId,
+        slug: "pic",
+        kind: "image",
+        entry_path: "photo.jpg",
+      });
+      const objectStore = createObjectStore(bucket);
+      await objectStore.put(pageId, 1, "photo.jpg", "JPEG", "image/jpeg");
+      await insertFile(db, {
+        page_id: pageId,
+        path: "photo.jpg",
+        r2_key: `pages/${pageId}/1/photo.jpg`,
+        content_type: "image/jpeg",
+        size: 10,
+      });
+
+      const imageMessage =
+        'The file "photo.jpg" is the page and cannot be deleted individually. Delete the page to remove it.';
+      const token = await validToken();
+      const res = await fetchApi(`/api/pages/${pageId}/files/photo.jpg`, "DELETE", null, token);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "entry_not_deletable" });
+
+      const req = new Request(`https://pages.example.com/api/pages/${pageId}/files/photo.jpg`, {
+        method: "DELETE",
+      });
+      await expect(handleDeleteFile(req, ctx, makeAdminDeps(objectStore))).rejects.toMatchObject({
+        code: "entry_not_deletable",
+        status: 400,
+        message: imageMessage,
+      });
+    });
+
+    it("T2 AC5: deletes a non-entry asset from a markdown page", async () => {
+      const pageId = "page0000mdasset";
+      await insertPage(db, {
+        id: pageId,
+        slug: "notes",
+        kind: "markdown",
+        entry_path: "index.html",
+        raw_md_path: "source.md",
+      });
+      const objectStore = createObjectStore(bucket);
+      await objectStore.put(pageId, 1, "source.md", "# Hi", "text/markdown");
+      await objectStore.put(pageId, 1, "index.html", "<h1>Hi</h1>", "text/html; charset=utf-8");
+      await objectStore.put(pageId, 1, "style.css", "body{}", "text/css");
+      await insertFile(db, {
+        page_id: pageId,
+        path: "source.md",
+        r2_key: `pages/${pageId}/1/source.md`,
+        content_type: "text/markdown",
+        size: 10,
+      });
+      await insertFile(db, {
+        page_id: pageId,
+        path: "index.html",
+        r2_key: `pages/${pageId}/1/index.html`,
+        content_type: "text/html; charset=utf-8",
+        size: 100,
+      });
+      await insertFile(db, {
+        page_id: pageId,
+        path: "style.css",
+        r2_key: `pages/${pageId}/1/style.css`,
+        content_type: "text/css",
+        size: 10,
+      });
+
+      const token = await validToken();
+      const res = await fetchApi(`/api/pages/${pageId}/files/style.css`, "DELETE", null, token);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.rev).toBe(2);
+      const paths = (body.files as Array<{ path: string }>).map((f) => f.path);
+      expect(paths).toContain("index.html");
+      expect(paths).toContain("source.md");
+      expect(paths).not.toContain("style.css");
+    });
   });
 
   describe("DELETE /api/pages/:id", () => {

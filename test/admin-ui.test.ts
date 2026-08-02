@@ -368,4 +368,91 @@ describe("index.ts — admin UI", () => {
     const text = await res.text();
     expect(text).toContain("operator@pagelively.test");
   });
+
+  it("T2 AC6/7: edit page hides Delete buttons for protected entry files and shows a hint", async () => {
+    const db = env.DB;
+    const cases: Array<{
+      pageId: string;
+      kind: string;
+      entryPath: string;
+      rawMdPath?: string | null;
+      protectedPaths: string[];
+      unprotectedPaths: string[];
+    }> = [
+      {
+        pageId: "page0000mdui",
+        kind: "markdown",
+        entryPath: "index.html",
+        rawMdPath: "source.md",
+        protectedPaths: ["index.html", "source.md"],
+        unprotectedPaths: ["style.css"],
+      },
+      {
+        pageId: "page0000htmlui",
+        kind: "html",
+        entryPath: "index.html",
+        protectedPaths: ["index.html"],
+        unprotectedPaths: ["script.js"],
+      },
+      {
+        pageId: "page0000imgui",
+        kind: "image",
+        entryPath: "photo.jpg",
+        protectedPaths: ["photo.jpg"],
+        unprotectedPaths: ["thumb.png"],
+      },
+    ];
+
+    for (const c of cases) {
+      await insertPage(db, {
+        id: c.pageId,
+        slug: `edit-${c.kind}`,
+        title: `${c.kind} edit`,
+        kind: c.kind,
+        entry_path: c.entryPath,
+        raw_md_path: c.rawMdPath ?? null,
+        visibility: "public",
+      });
+      const allPaths = [...c.protectedPaths, ...c.unprotectedPaths];
+      for (const path of allPaths) {
+        const contentType = path.endsWith(".css")
+          ? "text/css"
+          : path.endsWith(".js")
+            ? "application/javascript"
+            : path.endsWith(".jpg") || path.endsWith(".jpeg")
+              ? "image/jpeg"
+              : path.endsWith(".png")
+                ? "image/png"
+                : path.endsWith(".md")
+                  ? "text/markdown"
+                  : "text/html; charset=utf-8";
+        await insertFile(db, {
+          page_id: c.pageId,
+          path,
+          r2_key: `pages/${c.pageId}/1/${path}`,
+          content_type: contentType,
+          size: 100,
+        });
+      }
+
+      const res = await fetchAdmin(`/admin/edit/${c.pageId}`, await validToken());
+      expect(res.status).toBe(200);
+      const text = await res.text();
+
+      for (const path of c.protectedPaths) {
+        expect(text).not.toContain(
+          `data-delete-file="/api/pages/${c.pageId}/files/${encodeURIComponent(path)}"`,
+        );
+      }
+      for (const path of c.unprotectedPaths) {
+        expect(text).toContain(
+          `data-delete-file="/api/pages/${c.pageId}/files/${encodeURIComponent(path)}"`,
+        );
+      }
+      expect(text).toContain(
+        "Rendered page files are protected — use Delete page above to remove the page.",
+      );
+      expect(text).toContain(`data-delete="/api/pages/${c.pageId}"`);
+    }
+  });
 });

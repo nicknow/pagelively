@@ -11,6 +11,7 @@
 import { AppError } from "./errors";
 import { validateId } from "./ids";
 import { escapeHtml } from "./utils";
+import { isProtectedEntryPath } from "./admin-api";
 import type { AppConfig } from "./config";
 import type { CacheService } from "./cache-service";
 import type { PagesRepository, PageRecord } from "./pages-repository";
@@ -344,12 +345,20 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
   const backUrl = new URL("/admin", requestUrl).pathname;
   const pageApiUrl = `/api/pages/${page.id}`;
   const filesApiUrl = `/api/pages/${page.id}/files`;
+  const protectedHint =
+    files.length > 0
+      ? '<p class="hint">Rendered page files are protected — use Delete page above to remove the page.</p>'
+      : "";
+
   const fileRows = files
     .map((file) => {
       const deleteUrl = `/api/pages/${page.id}/files/${encodeURIComponent(file.path)}`;
+      const deleteButton = isProtectedEntryPath(page, file.path)
+        ? ""
+        : `<button class="button danger" type="button" data-delete-file="${escapeHtml(deleteUrl)}">Delete</button>`;
       return `<li>
         <code>${escapeHtml(file.path)}</code>
-        <button class="button danger" type="button" data-delete-file="${escapeHtml(deleteUrl)}">Delete</button>
+        ${deleteButton}
       </li>`;
     })
     .join("\n");
@@ -395,6 +404,7 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
 
   <div class="card">
     <h3>Files</h3>
+    ${protectedHint}
     ${files.length === 0 ? '<p class="hint">No files.</p>' : `<ul class="file-list">${fileRows}</ul>`}
     <h4>Add / replace files</h4>
     <form id="add-files-form" data-api="${escapeHtml(filesApiUrl)}">
