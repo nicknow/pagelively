@@ -4,10 +4,10 @@ How the pieces fit together: module boundaries and contracts, the data model (D1
 the caching model, error handling, and the concrete test strategy — with every significant
 decision recorded as an ADR in `docs/adr/`.
 
-**Status: written (Phase 2, 2026-07-31).** The authoritative description of _what_ we build
-remains `docs/product-spec.md` (spec §refs are cited throughout); these documents describe _how_
-the pieces fit. They will be kept up to date as slices land — update the doc that owns the
-changed surface in the same commit, per the roadmap's "living plan" rule.
+The authoritative description of _what_ we build remains `docs/product-spec.md` (spec §refs
+are cited throughout); these documents describe _how_ the pieces fit, as implemented. They're
+kept up to date as the code changes — the doc that owns a given surface is updated in the same
+commit as any change to that surface.
 
 ## Documents
 

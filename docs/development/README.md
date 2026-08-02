@@ -45,8 +45,9 @@ Smoke target: `GET http://localhost:8787/health` → `{"ok": true, ...}`.
   with locally generated keypairs and a mock JWKS (valid / expired / wrong-`aud` / tampered).
 
 Details and decisions: see the architecture docs and ADRs (`docs/architecture/`,
-`docs/adr/`). The slice-by-slice roadmap lives at `docs/development/roadmap.md` (produced in
-the planning phase).
+`docs/adr/`). The detailed build history — the original slice-by-slice plan, acceptance
+criteria, and open-questions log — lives at
+[`docs/development/roadmap.md`](roadmap.md), kept as a historical reference.
 
 ## Provisioning and deploy are separate
 

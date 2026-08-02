@@ -1,20 +1,26 @@
 # 02 — Module boundaries & contracts
 
 The Worker is a small, hand-rolled router over pure functions + thin binding adapters
-(ADR 0002: no router library, deps are `marked` + `jose` only). This document fixes the module
+(ADR 0002: no router library; `marked` is the only runtime dependency — Access JWT
+verification is hand-rolled with Web Crypto rather than adding `jose`, per ADR 0024). This
+document fixes the module
 boundaries and the TypeScript-facing contracts — the interfaces tests assert against and the
 implementer builds to. **The spec's §14 repo structure is authoritative; this refines it.**
 
-## Directory layout (target)
+## Directory layout (as built)
+
+`/health` has no dedicated module — it's handled inline in `index.ts`'s dispatch, not broken
+out like the other route classes.
 
 ```
 src/
-  index.ts            entry handler: dispatch + error boundary (single try/catch)
+  index.ts            entry handler: dispatch (including /health) + error boundary (single try/catch)
   router.ts           classifyPath() + route table (pure)
   config.ts           typed, validated config accessor over Env (normalizes vars)
   errors.ts           AppError taxonomy + toErrorResponse() (ADR 0005)
   ids.ts              generateId()/validateId() — Web Crypto, URL-safe (§4)
   slug.ts             slugify(), validateSlug() — reserved-word check (S02, ADR 0011), collision suffixes (ADR 0007)
+  reserved.ts         RESERVED_NAMES + isReservedName() — single source of truth for §5's reserved list (ADR 0007)
   rev.ts              nextRev(), shouldBumpRev(), buildR2Key() (ADR 0006, 0012)
   content-type.ts     MIME table (§6 whitelist + .md/.html; extensible data)
   cache-headers.ts    headersFor(routeClass, pageId?) — pure cache policy (ADR 0006, 0016)
@@ -30,22 +36,23 @@ src/
   pages-repository.ts D1: pages rows (reads/writes)
   files-repository.ts D1: files rows (reads/writes)
   object-store.ts     R2: put/get/delete/list under pages/{id}/{rev} (§8 layout)
-  access-verify.ts    JWT gate: verifyAccessJwt(request, deps) (ADR 0005, OQ-12)
-  jwks-provider.ts    JwksProvider: remote (createRemoteJWKSet) + KV cache impls
+  access-verify.ts    JWT gate: createAccessVerifier() — signature/iss/aud/exp checked with
+                      Web Crypto directly, no `jose` dependency (ADR 0005, ADR 0024, OQ-12)
+  jwks-provider.ts    JwksProvider: fetches https://{team-domain}/cdn-cgi/access/certs,
+                      imports matching JWK via Web Crypto, optional KV cache (1h TTL)
   form-parser.ts      multipart parsing + 95 MB guard + manifest validation (S17)
   admin-api.ts        /api/* handlers (list, create, patch, delete, files)
   admin-ui.ts         /admin dashboard HTML (buildless, §10)
-  health.ts           /health
   utils.ts            escapeHtml(value) — & < > " ' → entities (first consumer: base-inject.ts, S04); isoDate, etc.
 
 test/                 slice tests (see 06)
 ```
 
-Modules are grouped by **dependency direction**: `router/config/errors/ids/slug/rev/
+Modules are grouped by **dependency direction**: `router/config/errors/ids/slug/reserved/rev/
 content-type/cache-headers/markdown/base-inject/redirects/home/utils` are pure (no
 bindings, fully unit-tested); `*-repository/object-store` are binding adapters (D1/R2);
-`entry-serve/admin-api/admin-ui/health` are handlers; `cache-service/access-verify/
-jwks-provider` are seams with injectable dependencies.
+`entry-serve/admin-api/admin-ui` are handlers (plus `index.ts`'s inline `/health` dispatch);
+`cache-service/access-verify/jwks-provider` are seams with injectable dependencies.
 
 ## Environment contract
 

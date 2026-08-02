@@ -104,8 +104,9 @@ probe (§5; S12 AC keeps it).
 Each deploy starts with a **cold cache**: the Worker version is part of the Workers Caching key
 by default; we do not enable `cache.cross_version_cache` (verified docs). This is acceptable for
 a personal publisher (a republish warms in one request) and avoids stale-content-after-deploy
-complexity (ADR 0006). `setup.mjs` provisions everything (spec §13); the build team never
-deploys.
+complexity (ADR 0006). `setup.mjs` provisions everything (spec §13); deploying is always a
+deliberate, human-run step (`npm run setup` or the manual-dispatch GitHub Actions workflow),
+never automated as part of building or testing the code.
 
 ## Cross-references
 

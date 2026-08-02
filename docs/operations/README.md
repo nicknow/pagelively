@@ -4,16 +4,21 @@ Everything a human needs to provision, deploy, and run Pagelively for real.
 
 ## Status
 
-Provisioning guide written for S20. Smoke-test checklist in `smoke-test-checklist.md`.
+This guide covers the current `setup.mjs` provisioning flow end to end. For the live-only
+checks to run after your first real deploy, see `smoke-test-checklist.md`.
 
 ## Prerequisites
 
 - **Node.js** 22 or newer (the devcontainer pre-installs it).
 - **Cloudflare account** with the target domain added as a zone.
 - **Cloudflare Zero Trust initialized** (a team name, e.g. `yourteam.cloudflareaccess.com`). One-time setup; see below.
-- Either:
-  - A **Cloudflare API token** with the scopes listed below (headless / CI), or
-  - A browser for **interactive `wrangler login`** (local use).
+- **Cloudflare R2 Plan** you must setup an R2 plan on your account. This is technically _R2 Paid_ but unless you are serving huge quantities it is effectively free (review billing/charges as they apply to your account, do not rely on this statement alone - you are responsible for any charges incurred.)
+- A **Cloudflare API token** with the scopes listed below. **This is required — interactive
+  `wrangler login` alone does not work.** Wrangler's OAuth login has no Access/Zero Trust scope,
+  so it cannot make the Cloudflare Access API calls `setup.mjs` needs, and those calls run
+  early in the script (before R2/D1/KV are touched). Confirmed by manual testing: running
+  `npm run setup` with no `CLOUDFLARE_API_TOKEN` fails at the Access step every time. See
+  [Token vs interactive auth](#token-vs-interactive-auth).
 
 ## One-time: Cloudflare Zero Trust
 
@@ -54,15 +59,32 @@ export CLOUDFLARE_ACCOUNT_ID="your-account-id-here"  # optional; setup can read 
 
 ## Token vs interactive auth
 
+**Bottom line: set `CLOUDFLARE_API_TOKEN`. Interactive `wrangler login` with no token does not
+work — confirmed by manually running `npm run setup` against a real account.** Every attempt
+without an API token fails at the Access provisioning step, which runs early in the script
+(before R2, D1, or KV are touched — see the step order in "Provisioning" below), so nothing
+partially succeeds first; it just fails.
+
 `setup.mjs` authenticates Cloudflare API calls one of two ways:
 
-- **API token (headless/CI and locals who prefer it):** set `CLOUDFLARE_API_TOKEN` (see scopes
-  above). The script sends `Authorization: Bearer <token>` on every call. This is the
-  authoritative path and the only one that works in headless mode.
-- **Wrangler OAuth (interactive):** with no `CLOUDFLARE_API_TOKEN`, `setup.mjs` runs
-  `wrangler login` in your browser. After login, wrangler stores OAuth credentials in its
-  global config directory, resolved as `xdgAppPaths(".wrangler").config()` per the
-  `xdg-portable` rules (honoring `XDG_CONFIG_HOME` on every OS):
+- **API token (required):** set `CLOUDFLARE_API_TOKEN` (see scopes above). The script sends
+  `Authorization: Bearer <token>` on every call. This is the only path that currently works,
+  interactive or not.
+- **Wrangler OAuth (does not work for this app):** with no `CLOUDFLARE_API_TOKEN`, `setup.mjs`
+  falls back to running `wrangler login` in your browser and reusing the resulting OAuth token
+  as the Bearer token for its own API calls. This exists in the code as a convenience fallback,
+  but it can't provision Cloudflare Access: Wrangler's OAuth login is scoped to a fixed list of
+  grants baked into Wrangler itself (run `wrangler login --scopes-list` to see them), and **no
+  Access/Zero Trust scope is ever included in that list** — it's not something you can opt into,
+  because Wrangler never requests it. `setup.mjs` creates the Access application and policy via
+  direct Cloudflare API calls (`/accounts/{id}/access/apps`, `.../policies`), and those calls —
+  including the very first one, which just _lists_ existing apps — are rejected for lacking
+  that scope. There is currently no way to get past this without a token; don't bother trying
+  `wrangler login` first.
+
+  For reference, if you do go through the motions: after login, wrangler stores OAuth
+  credentials in its global config directory, resolved as `xdgAppPaths(".wrangler").config()`
+  per the `xdg-portable` rules (honoring `XDG_CONFIG_HOME` on every OS):
   - Linux: `~/.config/.wrangler/config/default.toml`
   - macOS: `~/Library/Preferences/.wrangler/config/default.toml`
   - Windows: `%APPDATA%\xdg.config\.wrangler\config\default.toml` (`%APPDATA%` falls back
@@ -70,20 +92,16 @@ export CLOUDFLARE_ACCOUNT_ID="your-account-id-here"  # optional; setup can read 
   - Legacy override kept by wrangler for backwards compatibility:
     `~/.wrangler/config/default.toml` on every OS (checked after the native path).
 
-  The script reads the plaintext `oauth_token` from that file and uses it as the Bearer token
-  for the REST API calls. (`WRANGLER_HOME` is not a wrangler environment variable and is not
-  honored.)
-
 Caveats:
 
-- **`wrangler login --use-keyring` is not supported.** It stores the token encrypted in a
-  `default.enc` file with the key in the OS keychain, which `setup.mjs` cannot read. If the
-  script detects `default.enc` with no plaintext token, it fails fast with instructions:
-  re-run `wrangler login --no-use-keyring` (plaintext), or set `CLOUDFLARE_API_TOKEN`.
+- **`wrangler login --use-keyring` is not supported** (moot until the OAuth path works at all,
+  but documented for completeness). It stores the token encrypted in a `default.enc` file with
+  the key in the OS keychain, which `setup.mjs` cannot read. If the script detects `default.enc`
+  with no plaintext token, it fails fast with instructions: re-run
+  `wrangler login --no-use-keyring` (plaintext), or set `CLOUDFLARE_API_TOKEN`.
 - **API token is authoritative for Access (§13 of the product spec).** The token scopes above
-  include _Access: Apps and Policies: Edit_. The OAuth path is a convenience for local runs;
-  CI and anything scripted should use a scoped API token so failures are deterministic and
-  don't depend on a browser.
+  include _Access: Apps and Policies: Edit_ — there is no OAuth equivalent, confirmed. Every
+  run — first run, re-run, headless, interactive — needs it.
 
 ## Provisioning
 
@@ -152,9 +170,15 @@ Re-running is safe. The script lists existing resources by name and skips create
 - **"Zero Trust not initialized"**: complete the one-time Zero Trust setup above, then re-run.
 - **D1 migration errors**: ensure the `wrangler.toml` `database_id` matches the provisioned database.
 - **Custom domain not active**: DNS propagation can take a few minutes; `setup.mjs` does not wait for it.
-- **"Failed to list Access apps (HTTP 400)… Authentication error"**: the API call went out
-  unauthenticated — e.g. a stale or encrypted wrangler credential. Re-run `wrangler login
---no-use-keyring`, or set `CLOUDFLARE_API_TOKEN` and re-run.
+- **"Failed to list Access apps…" (authentication/authorization error, `wrangler login` used
+  with no `CLOUDFLARE_API_TOKEN`)**: expected and confirmed — Wrangler's OAuth login has no
+  Access/Zero Trust scope, so it can never authorize Access API calls (see "Token vs
+  interactive auth" above). This is not something a re-run or a fresh `wrangler login` fixes.
+  Set `CLOUDFLARE_API_TOKEN` with the scopes above and re-run.
+- **"Failed to list Access apps (HTTP 400)… Authentication error", using `CLOUDFLARE_API_TOKEN`
+  or expecting it to be picked up**: the API call went out unauthenticated — e.g. a stale or
+  encrypted wrangler credential when you intended to fall back to OAuth. Re-run `wrangler login
+--no-use-keyring`, or double-check `CLOUDFLARE_API_TOKEN` is actually exported in this shell.
 - **"Found an encrypted wrangler OAuth credential…"**: you previously used `wrangler login
 --use-keyring`; re-run `wrangler login --no-use-keyring` to store the token as plaintext.
 

@@ -1,32 +1,34 @@
-# Pagelively — Development Roadmap (living plan)
+# Pagelively — development history and build log
 
-Status: **approved** (human, 2026-07-30) — Phase 1 plan locked; Phase 2 (architecture) next.
-Last updated: 2026-08-02.
+**This is a historical record, not a current task list.** Pagelively was built in small,
+ordered units of work ("slices," numbered S01–S22, plus a small post-launch backlog T1–T4) by
+AI agents working in defined roles; this document is the plan they worked from, kept up to
+date as they went. Every item in it is **done** — there's nothing left to pick up here. It's
+kept because the detailed acceptance criteria, ordering rationale, risk register, and
+open-questions log are the most precise record of _why_ the implementation looks the way it
+does, one level more granular than the [ADRs](../adr/) that summarize the same decisions.
 
-Source of truth for _what_ we build: `docs/product-spec.md` (§refs below point at it). This
-roadmap is the slice-by-slice plan: ordering, acceptance criteria, risks, open questions.
-It lives here because future developers and agents need it; full draft acceptance criteria
-and spec cross-references are regenerable scratch under `.work/planner/`.
+If you're trying to understand current behavior, prefer `docs/architecture/` and `docs/adr/`
+first — they're written for a reader who doesn't need the build-order context. Come here when
+you want the exact reasoning behind one specific slice.
+
+Source of truth for _what_ we build: `docs/product-spec.md` (§refs below point at it).
 
 ---
 
-## 0. How to read and update this document
+## 0. How this document is organized
 
-- **Slice statuses** are one of: `planned` → `in-progress` → `done` → `blocked` (note the
-  reason). The orchestrator/implementer flips them as slices close. All slices S01–S22 are
-  `done` as of 2026-08-01 (S22 = end-to-end closeout).
-- **Order matters.** Slices are numbered in build order within milestones; the critical path
-  in §3 is the only hard sequence. Parallelizable slices can proceed on separate branches,
-  but the per-slice loop (tests → code → gates → validate → review → commit) never overlaps
-  within a slice.
-- **Open questions (§5) must be resolved before the slices marked "blocking" start.**
-  Resolutions get recorded as ADRs (Phase 2) or as notes in this file.
-- **Platform facts (§6) are dated and sourced.** Cloudflare limits/pricing drift; re-verify
-  with `cfdocs` before any slice that depends on a number here, and update this file.
-- **When reality diverges from this plan** (slices merge/split, scope changes): update this
-  file in the same commit, note the reason, and surface it in the slice report. Never let
-  the roadmap rot while code advances.
-- Deferred/future items (§17 of the spec) are listed in §7 and are **not** slices.
+- **Slice statuses** were tracked as `planned` → `in-progress` → `done` → `blocked` while the
+  work was active. All slices S01–S22, and the post-launch backlog T1–T4 (§9), are `done`.
+- **Order mattered.** Slices are numbered in the order they were built within each milestone;
+  §3 records the dependency chain that drove that order.
+- **Open questions (§5)** were design questions raised during planning; each was eventually
+  resolved and recorded as an ADR (or as a note in this file).
+- **Platform facts (§6)** were verified against Cloudflare's docs as of the date noted there.
+  Cloudflare's limits and pricing change over time — treat these as a snapshot, not a live
+  source; re-verify against current docs before relying on a specific number.
+- Deferred/future items (spec §17) are listed in §7 and were never slices — they're ideas, not
+  commitments.
 
 ---
 

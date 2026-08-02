@@ -307,7 +307,7 @@ or login forms live in the app itself.
 A minimal, buildless admin (server‑rendered HTML + a little vanilla JS — no framework needed,
 keeps the Worker small). A small SPA is an optional upgrade.
 
-The UI should reference the product' names: Pagelively.
+The UI should reference the product's name: Pagelively.
 
 **Dashboard:** list of pages (title, slug, id, kind, created date) with links to view, edit,
 delete.
@@ -396,15 +396,23 @@ ship in the README.
 ### Local one‑command setup
 `npm install` then `npm run setup` runs `setup.mjs`, which:
 1. Verifies Node and installs Wrangler (as a dev dependency, via `npx`).
-2. Authenticates to Cloudflare — `wrangler login` (opens a browser) for local use, or uses a
-   `CLOUDFLARE_API_TOKEN` if present (for headless/CI).
+2. Authenticates to Cloudflare — `wrangler login` (opens a browser) if no
+   `CLOUDFLARE_API_TOKEN` is set, else uses the token directly. **`CLOUDFLARE_API_TOKEN` is
+   required, confirmed by testing** — not just for headless/CI. Cloudflare Access provisioning
+   (step 7, below) calls the Cloudflare REST API directly with whatever credential is
+   available, and `wrangler login`'s OAuth token has no Access/Zero Trust scope in its grant
+   (verify with `wrangler login --scopes-list`), so a run with no token fails there every time.
+   In the actual runtime order (as opposed to this list's narrative order) Access is
+   provisioned *before* step 4's resource creation, so a token-less run fails immediately,
+   before touching R2/D1/KV. See `docs/operations/README.md` for the full explanation.
 3. Prompts for: the Worker domain (`pages.acme.com`), the CDN/asset domain
    (`cdn.pages.acme.com`), the project name, the email(s) allowed to reach the admin (for
    the Cloudflare Access policy), and — only when it cannot be resolved automatically — the
    Zero Trust team domain (`yourteam.cloudflareaccess.com`; set `SETUP_ACCESS_TEAM_DOMAIN` to
    skip the lookup/prompt, e.g. in CI).
-4. **Idempotently** creates resources, skipping any that already exist:
-   `wrangler r2 bucket create`, `wrangler d1 create`, `wrangler kv namespace create`.
+4. **Idempotently** creates resources, skipping any that already exist — R2 bucket, D1
+   database, and (optionally) KV namespace — via direct Cloudflare REST API calls using the
+   resolved credential (not `wrangler r2 bucket create`-style subcommands).
 5. Writes the returned resource IDs into `wrangler.toml` (or a generated overlay file).
 6. Applies D1 migrations: `wrangler d1 migrations apply`.
 7. Configures **Cloudflare Access** via the Cloudflare API: idempotently creates an Access
@@ -439,14 +447,12 @@ Two supported styles:
 - **Codespaces / any dev container:** run the same `npm run setup` in a cloud dev environment.
 
 ### Required Cloudflare API token scopes (for token/CI auth)
-When not using interactive `wrangler login`, mint a token with:
-- **Account** → Workers Scripts: *Edit*, Workers R2 Storage: *Edit*, D1: *Edit*,
-  Workers KV Storage: *Edit* (if KV used), Access: Apps and Policies: *Edit* (to create the
-  Access application + policy), Account Settings: *Read*.
-- **Zone** (for the target zone) → DNS: *Edit* (for both the Worker and R2/CDN records),
-  Workers Routes: *Edit* (to attach the Worker custom domain).
-
-The README will list these explicitly so token creation is copy‑paste.
+When not using interactive `wrangler login`, a token is needed with Workers/R2/D1/KV edit
+scopes, Access application/policy edit, and per-zone DNS/Workers Routes edit access. The
+authoritative, copy-pasteable scope list lives in
+[`docs/operations/README.md`](operations/README.md#api-token-scopes) — this spec describes
+*why* each scope is needed (§13 above); that doc is the one to follow when actually creating
+a token.
 
 ---
 
