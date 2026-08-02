@@ -115,7 +115,7 @@ describe("serveEntry", () => {
 
     const text = await res.text();
     expect(text).toContain("<h1>Hello</h1>");
-    expect(text).toContain('<base href="https://cdn.example.com/pages/page000001/1/">');
+    expect(text).toContain('<base href="https://cdn.example.com/pages/page000001/1/index.html">');
   });
 
   it("serves a page by id under /p/{id}/", async () => {
@@ -136,7 +136,7 @@ describe("serveEntry", () => {
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).toContain("<p>By id</p>");
-    expect(text).toContain('<base href="https://cdn.example.com/pages/page000002/1/">');
+    expect(text).toContain('<base href="https://cdn.example.com/pages/page000002/1/index.html">');
     expect(res.headers.get("Cache-Tag")).toBe("page-page000002");
   });
 
@@ -182,7 +182,7 @@ describe("serveEntry", () => {
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).toContain("<h1>Notes</h1>");
-    expect(text).toContain('<base href="https://cdn.example.com/pages/page000004/1/">');
+    expect(text).toContain('<base href="https://cdn.example.com/pages/page000004/1/index.html">');
   });
 
   it("serves a bundle page the same way as html", async () => {
@@ -200,7 +200,7 @@ describe("serveEntry", () => {
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).toContain("<p>Bundle</p>");
-    expect(text).toContain('<base href="https://cdn.example.com/pages/page000005/1/">');
+    expect(text).toContain('<base href="https://cdn.example.com/pages/page000005/1/index.html">');
   });
 
   it("returns a clean 404 for an unknown slug", async () => {

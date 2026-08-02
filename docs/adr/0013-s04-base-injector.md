@@ -85,14 +85,16 @@ future caller passes a hostile string.
 
 ### 6. Href normalization — defensive, but not URL validation
 
-The emitted href **always ends with `/`** (S04 AC 2): truncate at the first of `?`/`#`
-(whichever comes first — a `#` inside a query still starts the fragment), then append `/` if
-the result does not end with one (empty href → `/`). No trimming and **no URL-encoding**: the
-caller composes the full href `{ASSET_BASE_URL}/pages/{id}/{rev}/` from an already-validated
-base URL, and `ASSET_BASE_URL` validation is `config.ts`'s job (architecture 02), not this
-module's. Query/fragment stripping is the one normalization worth doing here so a stray
-`?token=` or `#`-suffix can never produce a base that accidentally routes relative assets
-through a query.
+The emitted href **preserves the caller's path as-is** (S04 AC 2): truncate at the first of
+`?`/`#` (whichever comes first — a `#` inside a query still starts the fragment), but do not
+add or remove a trailing `/`. An empty href normalizes to `/`. No trimming and **no
+URL-encoding**: the caller composes the full file-style href
+`{ASSET_BASE_URL}/pages/{id}/{rev}/{entry_path}` (e.g. `.../index.html`) from an
+already-validated base URL, and `ASSET_BASE_URL` validation is `config.ts`'s job
+(architecture 02), not this module's. Query/fragment stripping is the one normalization worth
+doing here so a stray `?token=` or `#`-suffix can never produce a base that accidentally routes
+relative assets through a query. A folder-style href ending in `/` is still accepted and preserved
+if passed.
 
 ### 7. Totality — never throws on any input (S04 AC 3 & 6)
 
@@ -185,7 +187,7 @@ Recorded by the S04 reviewer + implementer. No contract shape change.
 
 ## Cross-references
 
-- Spec: §6 (base href `{ASSET_BASE_URL}/pages/{id}/{rev}/`), §4 (html-kind pages are
+- Spec: §6 (base href `{ASSET_BASE_URL}/pages/{id}/{rev}/{entry_path}`), §4 (html-kind pages are
   user-uploaded), §14 (serve-time injection), §12 (`ASSET_BASE_URL`).
 - Docs: `docs/architecture/02` (contracts — base-inject.ts + utils.ts slots),
   `docs/architecture/05` (error handling), `docs/architecture/08` (coverage thresholds).

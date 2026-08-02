@@ -58,8 +58,9 @@ caching Access JWKS.
 3. PagesRepository resolves slug/id → `PageRecord` (`rev`, `entry_path`, kind). Miss → 404.
 4. Kind dispatch:
    - `html` / `markdown` / `bundle` → read the entry bytes from R2
-     `pages/{id}/{rev}/index.html`, inject the `<base>` tag (serve-time, ADR 0008), return
-     `text/html; charset=utf-8` with entry cache headers + `Cache-Tag: page-{id}`.
+     `pages/{id}/{rev}/{entry_path}`, inject the `<base>` tag pointing at the entry file
+     itself (serve-time, ADR 0008), return `text/html; charset=utf-8` with entry cache
+     headers + `Cache-Tag: page-{id}`.
    - `image` / raw single-file → 301 to `{ASSET_BASE_URL}/pages/{id}/{rev}/{entry_path}`,
      same caching policy as entry responses (the redirect target embeds `rev`, so it is
      stable per rev; tag purge refreshes it on mutation).

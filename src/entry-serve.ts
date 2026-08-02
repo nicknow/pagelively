@@ -4,7 +4,7 @@
  * Resolves a slug or id to a page row via D1, then:
  * - image pages → 301 redirect to the CDN object.
  * - html / markdown / bundle pages → fetch the entry HTML from R2, inject the
- *   `<base href="{ASSET_BASE_URL}/pages/{id}/{rev}/">` tag, and return it with
+ *   `<base href="{ASSET_BASE_URL}/pages/{id}/{rev}/{entry_path}">` tag, and return it with
  *   entry cache headers.
  *
  * Markdown entries are already rendered to HTML at publish time (S17), so this
@@ -30,9 +30,9 @@ export interface EntryServeDependencies {
   markdown?: unknown;
 }
 
-/** Build the CDN base href for a page. */
-function buildBaseHref(config: AppConfig, pageId: string, rev: number): string {
-  return `${config.assetBaseUrl}/pages/${pageId}/${rev}/`;
+/** Build the CDN base href for a page, pointing at the entry file itself. */
+function buildBaseHref(config: AppConfig, pageId: string, rev: number, entryPath: string): string {
+  return `${config.assetBaseUrl}/pages/${pageId}/${rev}/${entryPath}`;
 }
 
 /**
@@ -62,11 +62,11 @@ export async function serveEntry(
       return clean404Response(url);
     }
 
-    const baseHref = buildBaseHref(deps.config, page.id, page.rev);
+    const baseHref = buildBaseHref(deps.config, page.id, page.rev, page.entry_path);
 
     if (page.kind === "image") {
       const headers = deps.cache.headersFor("redirect", page.id);
-      headers.set("Location", `${baseHref}${page.entry_path}`);
+      headers.set("Location", baseHref);
       return new Response(null, { status: 301, headers });
     }
 

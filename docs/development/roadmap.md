@@ -146,7 +146,8 @@ strings (`%2e%2e`/`\` are literal — S17's write-side `../` rejection is the fr
 variants; tags in comments/attribute values/raw-text/template contents ignored); `<head>`
 created if absent (never throws on any input — malformed/empty HTML still yields a document
 containing the base); existing `<base>` removed so exactly one remains; href escaped and
-normalized to end with `/`; href `{ASSET_BASE_URL}/pages/{id}/{rev}/` (§6). Serve-time
+normalized to strip query/fragment and preserve the caller's path; href
+`{ASSET_BASE_URL}/pages/{id}/{rev}/{entry_path}` (§6). Serve-time
 injection for all kinds (OQ-14 default). ADR 0008 decision 4 amended (missing `<head>`:
 create, not 500).
 

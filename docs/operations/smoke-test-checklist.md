@@ -90,8 +90,8 @@ deployed Worker behaves the same way on the real edge:
 - [ ] `GET /` with `HOME_MODE=page` and `HOME_PAGE_SLUG=hello` returns the same entry
       HTML as `GET /hello/` (no `Location` header, `text/html; charset=utf-8`).
 - [ ] `GET /hello` → `301` to `GET /hello/` (absolute `Location` preserving host/scheme/port).
-- [ ] `GET /hello/` on an html page returns the entry HTML with `<base href="{ASSET_BASE_URL}/pages/{id}/{rev}/">`
-      injected as the first element of `<head>`.
+- [ ] `GET /hello/` on an html page returns the entry HTML with `<base href="{ASSET_BASE_URL}/pages/{id}/{rev}/{entry_path}">`
+      (e.g. `.../index.html`) injected as the first element of `<head>`.
 - [ ] `GET /p/{id}/` returns the same page by canonical id, with the same base tag.
 - [ ] Image pages return `301` to `{ASSET_BASE_URL}/pages/{id}/{rev}/{entry_path}` with
       `Cache-Control: public, max-age=300, stale-while-revalidate=3600` and `Cache-Tag: page-{id}`.

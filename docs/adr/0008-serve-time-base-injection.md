@@ -23,9 +23,13 @@ at **serve time** (injected per request).
    HTML would bake one environment into content and break §13's "assets work from any of the
    three environments" — a stored URL cannot serve preview _and_ assigned and r2.dev-derived
    bases simultaneously.
-3. **Base value**: exactly `ASSET_BASE_URL` as configured (trailing slash normalized to the
-   form used in `docs/architecture/02`'s `AppConfig`); no path prefixes, no query strings
-   allowed (config validation at boot, fail-fast per ADR 0001).
+3. **Base value**: the entry-serve layer composes the full file-style href
+   `{ASSET_BASE_URL}/pages/{id}/{rev}/{entry_path}` (e.g. `.../index.html` for an HTML
+   page, `.../site/index.html` for a bundle, `.../photo.jpg` for the image redirect). The
+   S04 injector normalizes the caller's href by stripping any query string or fragment
+   but otherwise preserves the path as-is, including a trailing `/` if present; an empty
+   href normalizes to `/`. No additional URL validation is performed by the injector
+   (config validation at boot, fail-fast per ADR 0001).
 4. **Injection safety**: pure function over `(html, baseUrl)` — string-level insertion into
    `<head>` only (the template always has `<head>`); ~~`html` with no `<head>` → error 500 at
    render time (rendered pages always come from the bundled template; §7), never silent
