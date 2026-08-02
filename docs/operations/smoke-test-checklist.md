@@ -369,11 +369,18 @@ them and that the dashboard surface exists to watch them.
 - [ ] `DELETE /api/pages/{id}/files/{path}` with a valid token removes a file, bumps `rev`, and
       copies remaining files to the new rev.
 - [ ] `DELETE /api/pages/{id}/files/index.html` returns `400`
-      `{ error: "entry_not_deletable", message: "The entry file cannot be deleted." }`
-      for document pages.
+      `{ error: "entry_not_deletable", message: "..." }` for document pages.
+- [ ] `DELETE /api/pages/{id}/files/source.md` returns `400`
+      `{ error: "entry_not_deletable", message: "..." }` for Markdown pages.
 - [ ] `DELETE /api/pages/{id}/files/{image-filename}` returns `400`
-      `{ error: "entry_not_deletable", message: "The entry file cannot be deleted." }`
-      for image pages.
+      `{ error: "entry_not_deletable", message: "..." }` for image pages.
+- [ ] The `entry_not_deletable` message is actionable: it names the protected
+      entry file(s) and instructs the operator to delete the whole page via the
+      **Delete page** button.
+- [ ] `GET /admin/edit/{id}` does not show a Delete button for protected entry files
+      (`index.html`/`source.md` for Markdown, `index.html` for HTML, the image file for image
+      pages) but does show Delete buttons for other files, and it shows the hint
+      "Rendered page files are protected — use Delete page above to remove the page.".
 - [ ] `DELETE /api/pages/{id}` returns `204`, removes the `pages` row and `files` rows, and
       deletes all objects under `pages/{id}/`.
 - [ ] All S18 endpoints return `403` `{ error: "Forbidden", message: "Forbidden" }` without a

@@ -410,11 +410,21 @@ function servedEntryPath(page: PageRecord): string {
   return page.entry_path;
 }
 
+const PROTECTED_ENTRY_DELETION_MESSAGE =
+  "The rendered page files (index.html and source.md) are part of the page and cannot be deleted individually. Delete the page to remove it.";
+
+function protectedEntryDeletionMessage(_page: PageRecord, path: string): string {
+  if (path === "index.html" || path === "source.md") {
+    return PROTECTED_ENTRY_DELETION_MESSAGE;
+  }
+  return `The file "${path}" is the page and cannot be deleted individually. Delete the page to remove it.`;
+}
+
 /**
  * True when `path` is the served entry or the raw markdown source that renders
  * into it. Such paths cannot be deleted without breaking the page.
  */
-function isProtectedEntryPath(page: PageRecord, path: string): boolean {
+export function isProtectedEntryPath(page: PageRecord, path: string): boolean {
   if (path === servedEntryPath(page)) {
     return true;
   }
@@ -765,7 +775,7 @@ export async function handleDeleteFile(
   }
 
   if (isProtectedEntryPath(page, match.path)) {
-    throw new AppError("entry_not_deletable", 400, "The entry file cannot be deleted.");
+    throw new AppError("entry_not_deletable", 400, protectedEntryDeletionMessage(page, match.path));
   }
 
   const existingFiles = await filesRepository.listForPage(page.id);

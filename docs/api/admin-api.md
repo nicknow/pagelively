@@ -212,7 +212,7 @@ are supported.
 
 - File delete bumps `rev` (ADR 0012).
 - Remaining files are copied to the new rev folder.
-- Deleting the entry file is rejected:
+- Deleting the entry file is rejected. The whole page must be deleted instead (`DELETE /api/pages/{id}`):
   - `index.html` for markdown pages and for bundle pages whose entry is Markdown.
   - The original HTML path for HTML pages and for bundle pages whose entry is HTML (e.g.
     `site/index.html` in a bundle with that entry).
@@ -225,7 +225,11 @@ are supported.
 **Error responses:**
 
 - `400` `{ error: "invalid_id" }` — id format is invalid.
-- `400` `{ error: "entry_not_deletable" }` — the path is the page entry.
+- `400` `{ error: "entry_not_deletable" }` — the path is the page entry. The error message
+  explains the protected path(s) and tells the operator to delete the whole page (e.g.,
+  "The rendered page files (index.html and source.md) are part of the page and cannot be
+  deleted individually. Delete the page to remove it." for rendered pages; for image pages it
+  names the image file). The response body is still `{ error: "entry_not_deletable" }`.
 - `404` `{ error: "not_found" }` — page id or file path does not exist.
 - `500` `{ error: "db_write_failed" }` — D1 write failed after R2 writes; new rev folder is
   removed best-effort.

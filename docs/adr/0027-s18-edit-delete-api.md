@@ -60,7 +60,12 @@ into it:
   nested bundle entry).
 
 Any `DELETE .../:path` matching one of these protected paths returns
-`400 { error: "entry_not_deletable" }`.
+`400 { error: "entry_not_deletable" }`. The error message is now actionable and names the
+protected path(s): for rendered pages it says "The rendered page files (index.html and
+source.md) are part of the page and cannot be deleted individually. Delete the page to
+remove it."; for an image page it names the image file. The JSON body stays the same
+`{ error: "entry_not_deletable" }` shape so existing clients do not need to change. The
+whole page is removed with `DELETE /api/pages/:id`.
 
 The entry file **can** be replaced via `POST /api/pages/:id/files` (e.g., upload a new
 `index.html` for an HTML page, or a new `.md` matching the bundle Markdown entry that
