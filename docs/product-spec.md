@@ -391,8 +391,10 @@ ship in the README.
 2. Authenticates to Cloudflare — `wrangler login` (opens a browser) for local use, or uses a
    `CLOUDFLARE_API_TOKEN` if present (for headless/CI).
 3. Prompts for: the Worker domain (`pages.acme.com`), the CDN/asset domain
-   (`cdn.pages.acme.com`), the project name, and the email(s) allowed to reach the admin (for
-   the Cloudflare Access policy).
+   (`cdn.pages.acme.com`), the project name, the email(s) allowed to reach the admin (for
+   the Cloudflare Access policy), and — only when it cannot be resolved automatically — the
+   Zero Trust team domain (`yourteam.cloudflareaccess.com`; set `SETUP_ACCESS_TEAM_DOMAIN` to
+   skip the lookup/prompt, e.g. in CI).
 4. **Idempotently** creates resources, skipping any that already exist:
    `wrangler r2 bucket create`, `wrangler d1 create`, `wrangler kv namespace create`.
 5. Writes the returned resource IDs into `wrangler.toml` (or a generated overlay file).
@@ -401,13 +403,20 @@ ship in the README.
    application over `pages.acme.com/admin*` and `/api/*` plus a policy allowing your email(s),
    then captures the application's **AUD** tag and team domain and writes them as vars
    (`ACCESS_AUD`, `ACCESS_TEAM_DOMAIN`). If Zero Trust isn't initialized yet, it prints the
-   one‑time steps and pauses.
+   one‑time steps and pauses. The team domain comes from `SETUP_ACCESS_TEAM_DOMAIN`, else the
+   Access organizations endpoint (`result.domain ?? result.auth_domain` — the API schema
+   documents `auth_domain`, live accounts may return `domain`), else the prompt — Access app
+   objects carry `aud` but not the team domain.
 8. Configures the Worker custom domain in `wrangler.toml` (the `custom_domain` route
    auto‑creates the DNS record on deploy, because `acme.com` is a zone in the same account).
+   Zone lookup is exact-match, so a subdomain (`cdn.n.3a8r.com`) is resolved to its covering
+   zone (`3a8r.com`) by stripping leftmost labels; no covering zone → clear pre-deploy error.
 9. Connects the **R2 bucket to the CDN domain** (`cdn.pages.acme.com`) for public reads via the
    Cloudflare API, and writes `ASSET_BASE_URL`. This is the path that serves asset bytes free
-   and unlimited.
-10. `wrangler deploy`.
+   and unlimited. R2 must be enabled on the account (error `[10042]` gets an actionable
+   message).
+10. `wrangler deploy`. A token missing the D1 permission (error `[10000]` on the D1 calls)
+    gets an actionable "add D1: Edit" message.
 11. Prints the live URL, the CDN URL, and the admin URL.
 
 Thin wrappers `setup.sh` (Linux) and `setup.ps1` (Windows PowerShell) simply call

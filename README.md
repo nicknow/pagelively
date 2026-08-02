@@ -72,6 +72,10 @@ Re-running `npm run setup` is safe. See the operator checklist at
      Workers KV Storage: _Edit_ (if KV used), Access: Apps and Policies: _Edit_,
      Account Settings: _Read_.
    - **Zone** (for the target zone) → DNS: _Edit_, Workers Routes: _Edit_.
+     R2 must be **enabled** on the account (R2 → Overview). D1 permission is `D1: Edit`
+     (not just `Read`); without it setup fails with an actionable message.
+     The team domain (e.g. `yourteam.cloudflareaccess.com`) is resolved automatically; set
+     `SETUP_ACCESS_TEAM_DOMAIN` in CI to skip the org lookup / prompt.
 
 See [`docs/operations/README.md`](docs/operations/README.md) for the full provisioning guide
 and the exact workflow wiring.

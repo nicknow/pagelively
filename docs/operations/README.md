@@ -29,8 +29,21 @@ If Zero Trust is not initialized when you run `setup.mjs`, the script will print
 
 Create a token at <https://dash.cloudflare.com/profile/api-tokens> with:
 
-- **Account** → Workers Scripts: _Edit_, Workers R2 Storage: _Edit_, D1: _Edit_, Workers KV Storage: _Edit_ (if KV is used), Access: Apps and Policies: _Edit_, Account Settings: _Read_.
+- **Account** → Workers Scripts: _Edit_, Workers R2 Storage: _Edit_, D1: _Edit_ (read-only is
+  not enough), Workers KV Storage: _Edit_ (if KV is used), Access: Apps and Policies: _Edit_,
+  Account Settings: _Read_.
 - **Zone** (for your target domain) → DNS: _Edit_, Workers Routes: _Edit_.
+- **R2 must be enabled** on the account (R2 → Overview) before setup runs.
+
+The team domain (`yourteam.cloudflareaccess.com`) is resolved automatically: setup first tries
+`SETUP_ACCESS_TEAM_DOMAIN` (set it to skip the lookup entirely, e.g. in CI), otherwise the
+Access organizations endpoint (`GET /accounts/{accountId}/access/organizations` →
+`result.domain ?? result.auth_domain`; the API schema documents `auth_domain`, live accounts
+may return `domain`, and setup reads both).
+That endpoint needs the extra **Account → Access: Organizations, Identity Providers, and
+Groups: Read** permission; when the token lacks it the endpoint is skipped (403 `[10000]`) and
+setup falls back to an interactive prompt. For fully non-interactive runs, set
+`SETUP_ACCESS_TEAM_DOMAIN`.
 
 Set the token as an environment variable:
 
@@ -92,6 +105,8 @@ This runs `setup.mjs` (or use `setup.sh` on Linux/macOS, `setup.ps1` on Windows)
    - Project name (used for resource names like `pagelively-assets`)
    - Admin email(s), comma-separated
    - Whether to create the optional KV namespace for JWKS caching
+   - Zero Trust team domain (e.g. `yourteam.cloudflareaccess.com`) — only if it could not be
+     resolved from `SETUP_ACCESS_TEAM_DOMAIN` or the Access organizations endpoint
 4. Idempotently create the R2 bucket, D1 database, optional KV namespace, and Cloudflare Access application + policy.
 5. Connect the R2 bucket to the CDN domain via the Cloudflare API.
 6. Write the returned IDs, the CDN URL, and the Access `aud` / team domain into `wrangler.toml`.
@@ -123,7 +138,17 @@ Re-running is safe. The script lists existing resources by name and skips create
 
 ## Troubleshooting
 
-- **"Zone not found"**: add the Worker domain and the CDN domain to your Cloudflare account first.
+- **"Zone not found"**: add the Worker domain and the CDN domain to your Cloudflare account
+  first. The zone lookup is an exact match, so a subdomain (e.g. `cdn.n.3a8r.com`) is resolved
+  to its covering zone (`n.3a8r.com`, then `3a8r.com`) automatically; if none exists in the
+  account, setup logs which domain could not be resolved and stops before deploying.
+- **"R2 is not enabled on this Cloudflare account"** (error `[10042]`): enable R2 in the
+  Cloudflare dashboard (R2 → Overview) and re-run.
+- **"The Cloudflare API token is missing the D1 permission"** (error `[10000]` on the D1
+  calls): add **Account → D1: Edit** to the token (not just Read) and re-run.
+- **"Could not determine Access team domain"**: set `SETUP_ACCESS_TEAM_DOMAIN` and re-run, or
+  add the optional "Access: Organizations, Identity Providers, and Groups: Read" permission so
+  setup can resolve it automatically. Headless runs throw with the exact env var name.
 - **"Zero Trust not initialized"**: complete the one-time Zero Trust setup above, then re-run.
 - **D1 migration errors**: ensure the `wrangler.toml` `database_id` matches the provisioned database.
 - **Custom domain not active**: DNS propagation can take a few minutes; `setup.mjs` does not wait for it.

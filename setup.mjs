@@ -40,6 +40,7 @@ export function envToSetupOptions(env = {}) {
     headless: parseTruthy(env.SETUP_NON_INTERACTIVE) === true,
   };
   if (createKv !== undefined) options.createKv = createKv;
+  if (env.SETUP_ACCESS_TEAM_DOMAIN) options.accessTeamDomain = env.SETUP_ACCESS_TEAM_DOMAIN;
   return options;
 }
 
@@ -51,6 +52,11 @@ const PROMPT_ENV_OVERRIDES = [
   { match: "CDN / asset domain", label: "CDN / asset domain", env: "SETUP_CDN_DOMAIN" },
   { match: "Project name", label: "project name", env: "SETUP_PROJECT_NAME" },
   { match: "Admin email", label: "admin email(s)", env: "ADMIN_EMAILS" },
+  {
+    match: "Zero Trust team domain",
+    label: "Zero Trust team domain",
+    env: "SETUP_ACCESS_TEAM_DOMAIN",
+  },
 ];
 
 export function parseAdminEmails(input) {
@@ -66,7 +72,8 @@ export function normalizeDomain(domain) {
     .trim()
     .toLowerCase()
     .replace(/^https?:\/\//, "")
-    .replace(/\/+$/, "");
+    .replace(/\/+$/, "")
+    .replace(/\.+$/, "");
 }
 
 export function apexDomain(domain) {
@@ -251,6 +258,123 @@ export async function describeApiError(response, fallback) {
     .filter(Boolean)
     .join(", ");
   return details ? `${base}: ${details}` : base;
+}
+
+// --- Zero Trust team domain resolution -------------------------------------
+// Verified live app objects carry `aud` but NO `team_domain`/`access_app_id`
+// field. The team domain lives only on
+// `GET /accounts/{accountId}/access/organizations`. The official API schema
+// (developers.cloudflare.com/api/resources/zero_trust/subresources/
+// organizations/methods/list/) documents the field as `result.auth_domain`
+// ("The unique subdomain assigned to your Zero Trust organization", e.g.
+// "test.cloudflareaccess.com"); `domain` is not in the schema, but it IS what
+// live accounts return (verified on the human's account). Read both, so a
+// fresh account that only exposes the documented shape still resolves:
+// `result.domain ?? result.auth_domain`. The endpoint needs the separate
+// "Access: Organizations, Identity Providers, and Groups" token permission —
+// many provisioning tokens 403 ([10000]) there. Resolution order: explicit
+// option -> SETUP_ACCESS_TEAM_DOMAIN -> org endpoint (a non-OK/403/[10000]
+// response must not crash) -> interactive prompt -> throw. In headless mode
+// the injected prompt already throws deterministically naming
+// SETUP_ACCESS_TEAM_DOMAIN (see PROMPT_ENV_OVERRIDES).
+
+export const TEAM_DOMAIN_PROMPT = "Zero Trust team domain (e.g. yourteam.cloudflareaccess.com):";
+
+export async function resolveTeamDomain({ accessTeamDomain, env = {}, accountId, api, prompt }) {
+  if (accessTeamDomain && String(accessTeamDomain).trim()) {
+    return String(accessTeamDomain).trim();
+  }
+  const fromEnv = env.SETUP_ACCESS_TEAM_DOMAIN && String(env.SETUP_ACCESS_TEAM_DOMAIN).trim();
+  if (fromEnv) return fromEnv;
+  if (accountId && api) {
+    try {
+      const orgRes = await api("GET", `/accounts/${accountId}/access/organizations`);
+      if (orgRes && orgRes.ok) {
+        const data = await orgRes.json();
+        const domain = data && data.result && (data.result.domain ?? data.result.auth_domain);
+        if (domain && String(domain).trim()) return String(domain).trim();
+      }
+    } catch {
+      // A 403/[10000]/non-OK org response (or a thrown error) falls through to
+      // the prompt / headless throw instead of crashing the run.
+    }
+  }
+  if (prompt) {
+    const answer = String((await prompt(TEAM_DOMAIN_PROMPT, "")) || "").trim();
+    if (answer) return answer;
+  }
+  throw new Error(
+    "Could not determine Access team domain. Provide it when prompted, or set the " +
+      "SETUP_ACCESS_TEAM_DOMAIN environment variable and re-run.",
+  );
+}
+
+// --- Covering-zone lookup ---------------------------------------------------
+// `GET /zones?name=` is an EXACT match, so a subdomain (`cdn.n.3a8r.com`)
+// returns zero results. Strip the leftmost label and retry
+// (`n.3a8r.com` -> `3a8r.com`) until a covering zone is found or no labels
+// remain. Domains are normalized first (schemes, trailing slashes AND
+// trailing dots stripped) and empty candidates are skipped, so `/zones?name=`
+// is never called with a blank name (a strict API would 400 it). A non-OK
+// response throws with describeApiError; not finding any zone returns
+// undefined (runSetup logs a clear error, per ADR 0030).
+
+export function zoneCandidates(domain) {
+  const parts = normalizeDomain(domain).split(".");
+  const candidates = [];
+  for (let i = 0; i < parts.length; i++) {
+    const candidate = parts.slice(i).join(".");
+    if (candidate) candidates.push(candidate);
+  }
+  return candidates;
+}
+
+export async function findCoveringZone(domain, api) {
+  for (const candidate of zoneCandidates(domain)) {
+    const res = await api("GET", `/zones?name=${encodeURIComponent(candidate)}`);
+    if (!res.ok) {
+      throw new Error(await describeApiError(res, "Failed to look up Cloudflare zone"));
+    }
+    const data = await res.json();
+    const zones = (data && data.result) || [];
+    if (Array.isArray(zones) && zones.length > 0) return zones[0];
+  }
+  return undefined;
+}
+
+// --- Provisioning error mapping --------------------------------------------
+// R2 returns code 10042 when R2 is not enabled on the account; D1 returns
+// code 10000 (Authentication error) when the token lacks the D1 permission.
+// Those get actionable, secret-free messages; everything else falls back to
+// describeApiError (which reuses the response body, so no double-consume).
+
+export const PROVISIONING_ERROR_MESSAGES = {
+  10042:
+    "R2 is not enabled on this Cloudflare account. Enable it in the Cloudflare dashboard (R2 > Overview), then re-run.",
+  10000:
+    "The Cloudflare API token is missing the D1 permission. Add Account → D1: Edit (see docs/operations/README.md 'API token scopes'), then re-run.",
+};
+
+export async function provisioningError(response, fallback, codes = []) {
+  try {
+    const data = await response.json();
+    const errors = (data && data.errors) || [];
+    if (Array.isArray(errors)) {
+      for (const e of errors) {
+        if (
+          e &&
+          e.code !== undefined &&
+          codes.includes(e.code) &&
+          PROVISIONING_ERROR_MESSAGES[e.code]
+        ) {
+          return PROVISIONING_ERROR_MESSAGES[e.code];
+        }
+      }
+    }
+  } catch {
+    // Unreadable body: fall through to the generic describeApiError path.
+  }
+  return describeApiError(response, fallback);
 }
 
 export function createApiClient({ env = {}, oauthToken, resolveOauthToken, fetchImpl }) {
@@ -482,30 +606,32 @@ export async function runSetup(options, deps) {
   const appId = app.id;
   const accessAud = app.aud;
 
-  let accessTeamDomain = opts.accessTeamDomain || app.access_app_id || app.team_domain;
-
-  if (!accessAud || !accessTeamDomain) {
-    // Fetch full app details if aud/team domain not in list response
+  if (!accessAud) {
+    // Fetch full app details when aud is not present in the list response.
     const appRes = await api("GET", `/accounts/${accountId}/access/apps/${appId}`);
     if (!appRes.ok) {
       throw new Error(await describeApiError(appRes, "Failed to fetch Access application details"));
     }
     const appData = await appRes.json();
     app = appData.result;
-    accessTeamDomain = accessTeamDomain || app.access_app_id || app.team_domain;
   }
 
   const finalAccessAud = app.aud || accessAud;
-  const finalAccessTeamDomain =
-    opts.accessTeamDomain || accessTeamDomain || app.access_app_id || app.team_domain;
 
   if (!finalAccessAud) {
     throw new Error("Could not determine Access application AUD tag.");
   }
 
-  if (!finalAccessTeamDomain) {
-    throw new Error("Could not determine Access team domain.");
-  }
+  // The Access app object has no team_domain field (verified live keys);
+  // resolve it via option -> SETUP_ACCESS_TEAM_DOMAIN -> org endpoint ->
+  // interactive prompt (headless throws naming SETUP_ACCESS_TEAM_DOMAIN).
+  const finalAccessTeamDomain = await resolveTeamDomain({
+    accessTeamDomain: opts.accessTeamDomain,
+    env,
+    accountId,
+    api,
+    prompt: promptFn,
+  });
 
   // --- 7. Create or reuse Access policy -----------------------------------
   const appPoliciesRes = await api("GET", `/accounts/${accountId}/access/apps/${appId}/policies`);
@@ -540,27 +666,26 @@ export async function runSetup(options, deps) {
   }
 
   // --- 8. Verify zones ----------------------------------------------------
+  // GET /zones?name= is an exact match, so subdomains are resolved to their
+  // covering zone by stripping leftmost labels (n.3a8r.com -> 3a8r.com).
   log("Looking up Cloudflare zones...");
-  const workerZoneRes = await api("GET", `/zones?name=${encodeURIComponent(workerDomain)}`);
-  const cdnZoneRes = await api("GET", `/zones?name=${encodeURIComponent(cdnDomain)}`);
-
-  if (!workerZoneRes.ok || !cdnZoneRes.ok) {
-    throw new Error("Failed to look up Cloudflare zones.");
+  const workerZone = await findCoveringZone(workerDomain, api);
+  if (workerZone) {
+    log(`Resolved zone for ${workerDomain}: ${workerZone.name} (${workerZone.id})`);
+  }
+  const cdnZone = await findCoveringZone(cdnDomain, api);
+  if (cdnZone) {
+    log(`Resolved zone for ${cdnDomain}: ${cdnZone.name} (${cdnZone.id})`);
   }
 
-  const workerZoneData = await workerZoneRes.json();
-  const cdnZoneData = await cdnZoneRes.json();
-  const workerZones = workerZoneData.result || [];
-  const cdnZones = cdnZoneData.result || [];
-
-  if (workerZones.length === 0) {
+  if (!workerZone) {
     log("");
     log(`ERROR: The zone for ${workerDomain} was not found in this Cloudflare account.`);
     log("Make sure the domain has been added to Cloudflare before deploying.");
     log("");
     return;
   }
-  if (cdnZones.length === 0) {
+  if (!cdnZone) {
     log("");
     log(`ERROR: The zone for ${cdnDomain} was not found in this Cloudflare account.`);
     log("Make sure the subdomain is covered by a zone in the same account before deploying.");
@@ -568,13 +693,13 @@ export async function runSetup(options, deps) {
     return;
   }
 
-  const cdnZoneId = cdnZones[0].id;
+  const cdnZoneId = cdnZone.id;
 
   // --- 9. Ensure R2 bucket exists -----------------------------------------
   log("Checking R2 bucket...");
   const bucketsRes = await api("GET", `/accounts/${accountId}/r2/buckets`);
   if (!bucketsRes.ok) {
-    throw new Error(`Failed to list R2 buckets: ${bucketsRes.status}`);
+    throw new Error(await provisioningError(bucketsRes, "Failed to list R2 buckets", [10042]));
   }
   const bucketsData = await bucketsRes.json();
   const buckets = (bucketsData.result && bucketsData.result.buckets) || [];
@@ -586,7 +711,9 @@ export async function runSetup(options, deps) {
       name: bucketName,
     });
     if (!createBucketRes.ok) {
-      throw new Error(`Failed to create R2 bucket: ${createBucketRes.status}`);
+      throw new Error(
+        await provisioningError(createBucketRes, "Failed to create R2 bucket", [10042]),
+      );
     }
     const createBucketData = await createBucketRes.json();
     bucket = createBucketData.result;
@@ -616,7 +743,7 @@ export async function runSetup(options, deps) {
   log("Checking D1 database...");
   const dbsRes = await api("GET", `/accounts/${accountId}/d1/database`);
   if (!dbsRes.ok) {
-    throw new Error(`Failed to list D1 databases: ${dbsRes.status}`);
+    throw new Error(await provisioningError(dbsRes, "Failed to list D1 databases", [10000]));
   }
   const dbsData = await dbsRes.json();
   const databases = dbsData.result || [];
@@ -626,7 +753,9 @@ export async function runSetup(options, deps) {
     log("Creating D1 database...");
     const createDbRes = await api("POST", `/accounts/${accountId}/d1/database`, { name: dbName });
     if (!createDbRes.ok) {
-      throw new Error(`Failed to create D1 database: ${createDbRes.status}`);
+      throw new Error(
+        await provisioningError(createDbRes, "Failed to create D1 database", [10000]),
+      );
     }
     const createDbData = await createDbRes.json();
     db = createDbData.result;

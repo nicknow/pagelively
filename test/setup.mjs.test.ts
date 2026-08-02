@@ -374,9 +374,11 @@ describe("setup.mjs helpers", () => {
     expect(parseAdminEmails(undefined)).toEqual([]);
   });
 
-  it("normalizeDomain strips scheme and lowercases", () => {
+  it("normalizeDomain strips scheme, lowercases, and removes trailing dots", () => {
     expect(normalizeDomain("https://Pages.Example.COM")).toBe("pages.example.com");
     expect(normalizeDomain("http://cdn.pages.example.com/")).toBe("cdn.pages.example.com");
+    expect(normalizeDomain("example.com.")).toBe("example.com");
+    expect(normalizeDomain("https://Example.COM./")).toBe("example.com");
   });
 
   it("deriveBucketName sanitizes project name", () => {
@@ -1455,7 +1457,7 @@ describe("setup.mjs runSetup", () => {
     expect(deps._calls.logs.some((m) => m.includes("Access policy already exists"))).toBe(true);
   });
 
-  it("fetches full Access app details when aud or team domain is missing from the list", async () => {
+  it("fetches full Access app details when aud is missing from the list (team domain via org endpoint)", async () => {
     const ids = {
       accountId: "acc-123",
       appId: "app-123",
@@ -1476,6 +1478,17 @@ describe("setup.mjs runSetup", () => {
         }),
       },
       {
+        match: (m, p) => m === "GET" && p === `/accounts/${ids.accountId}/access/organizations`,
+        response: async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            result: { domain: "team.cloudflareaccess.com" },
+          }),
+        }),
+      },
+      {
         match: (m, p) => m === "GET" && p === `/accounts/${ids.accountId}/access/apps/${ids.appId}`,
         response: async () => ({
           ok: true,
@@ -1486,7 +1499,6 @@ describe("setup.mjs runSetup", () => {
               id: ids.appId,
               aud: ids.aud,
               name: "Pagelively Admin",
-              team_domain: "team.cloudflareaccess.com",
             },
           }),
         }),

@@ -306,6 +306,77 @@ not a wrangler variable and is not honored), fails fast with actionable instruct
 failures (distinguishing auth code `10000` from Zero Trust-not-initialized code `1047`). See
 ADR 0033. +44 tests (`test/setup-auth.test.ts`); suite: 1020 tests / 36 files.
 
+**Field fix 2026-08-01 (PENDING — approved as Option A, do not start until told).**
+**wrangler OAuth cannot provision Cloudflare Access — fail fast at the Access step.**
+Root cause: `GET /accounts/{accountId}/access/apps` (setup.mjs `runSetup` step 5) is rejected
+with 403 `[10000] Authentication error` when authenticated via the OAuth fallback. Verified
+facts: (1) Cloudflare requires at least one of `Access: Apps and Policies Read/Write/Revoke`
+on the credential (cfdocs, Access applications API); (2) wrangler's OAuth app has NO `access:*`
+scope — `wrangler login --scopes-list` (v4.116.0) lists 28 scopes, none Access-related, and
+`--scopes` can only pick from that fixed set; (3) wrangler has no CLI command to create Access
+apps (`wrangler --help`), so the REST API — and therefore a real API token — is the only path;
+(4) account ID resolution is fine (`wrangler whoami`); code `10000` ≠ Zero Trust
+not-initialized `1047`. Fix (test-first, `src/*` untouched, no real Cloudflare calls):
+
+- In `buildRealDeps`/`createApiClient`, when the active auth source is the OAuth fallback (no
+  `CLOUDFLARE_API_TOKEN`), `runSetup` must throw BEFORE the first Access REST call with an
+  actionable message: wrangler OAuth has no `access:*` scope and the Zero Trust API rejects it
+  (403 `[10000]`); create an API token with the `docs/operations/README.md` scopes (incl.
+  Account → Access: Apps and Policies: Edit) and re-run with `CLOUDFLARE_API_TOKEN=…`.
+  Same fail-fast pattern as the existing `default.enc`/keyring error. Env-token runs unchanged;
+  a `10000` on an env token keeps the current surfacing.
+- Tests in `test/setup-auth.test.ts` (and/or `test/setup.mjs.test.ts`): OAuth-only run → throws
+  the Access-scope message without making the API call; env-token run → unchanged; 1047 pause
+  path still works; no existing test modified.
+- Docs: correct the two places claiming the OAuth path works end-to-end —
+  `docs/operations/README.md` "Token vs interactive auth" and `docs/operations/
+smoke-test-checklist.md` S20 "OAuth fallback path … proceeds past 'Failed to list Access
+  apps' and completes" (now known-impossible; rewrite to expect the fail-fast message, and the
+  interactive-success check must use `CLOUDFLARE_API_TOKEN`).
+- New ADR 0034 (accepted): "wrangler OAuth cannot provision Cloudflare Access — Access step
+  requires an API token", with a correction note on ADR 0033 (its interactive-success claim is
+  incomplete); index ADR 0034 in `docs/adr/README.md`.
+- Gates: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm run
+test:coverage`, `npm run build`. Commit as `fix(setup): fail fast when OAuth cannot access
+Zero Trust` on a `feat/fix-setup-access-oauth`-style branch.
+
+**Field fix 2026-08-01** (setup provisioning: team domain, covering zone, R2/D1 errors):
+three provisioning bugs fixed in setup.mjs (test-first, `src/*` untouched, no real
+Cloudflare calls). (1) **Team domain**: Access app objects carry `aud` but NO
+`team_domain`/`access_app_id` (verified live keys); the domain lives only on
+`GET /accounts/{accountId}/access/organizations` → `result.domain ?? result.auth_domain` (the
+official API schema documents `auth_domain` — example `test.cloudflareaccess.com` — and not
+`domain`; the human's live account returns `domain`, so setup reads both; needs the separate
+"Access: Organizations, Identity Providers, and Groups" scope, which provisioning tokens
+often lack — 403 `[10000]`). Resolution order: `opts.accessTeamDomain` →
+`SETUP_ACCESS_TEAM_DOMAIN` → org endpoint (non-OK/403 falls through, never crashes) →
+interactive prompt "Zero Trust team domain (e.g. yourteam.cloudflareaccess.com):" →
+headless/empty throw naming `SETUP_ACCESS_TEAM_DOMAIN`. The old `app.access_app_id` /
+`app.team_domain` reads (which always yielded undefined) are deleted. (2) **Covering zone**:
+`GET /zones?name=` is an EXACT match, so `cdn.n.3a8r.com` returned zero results; the new
+`findCoveringZone` strips leftmost labels (`n.3a8r.com` → `3a8r.com`) and logs the resolved
+zone name; not-found still logs a clear pre-deploy error and returns (no throw, per ADR 0030).
+(3) **R2/D1 error mapping**: R2 not-enabled → code `10042` gets an actionable "enable R2 in
+the dashboard" message; D1 missing permission → code `10000` gets an actionable "add D1: Edit"
+message; everything else keeps the `describeApiError` generic fallback. New exports
+`resolveTeamDomain`, `findCoveringZone`, `zoneCandidates`, `provisioningError`,
+`TEAM_DOMAIN_PROMPT`, `PROVISIONING_ERROR_MESSAGES` (+ `accessTeamDomain` in
+`envToSetupOptions`); `.env.example` gains `SETUP_ACCESS_TEAM_DOMAIN`. 38 new tests
+(`test/setup-provisioning.test.ts`) + updated real-shape mocks in the two existing setup test
+files (fake `team_domain` fields removed). ADR 0035. README/ops docs updated (R2 enabled,
+D1: Edit scope, troubleshooting entries).
+
+- **Fix round 2026-08-01** (validator findings on the above, no src/* changes): (a)
+  `resolveTeamDomain` now reads `result.domain ?? result.auth_domain` — an auth_domain-only
+  org body (the documented schema shape) resolves automatically instead of silently falling
+  to the prompt; `domain` wins when both are present. (b) `normalizeDomain` also strips
+  trailing dots (`"example.com."` → `"example.com"`) and `zoneCandidates` skips empty
+  candidates, so `/zones?name=` is never called with a blank name and a trailing-dot domain
+  resolves its covering zone gracefully instead of a strict API's 400 making
+  `findCoveringZone` throw. Validator-pinned tests updated to the new behavior; added
+  precedence/auth_domain/trailing-dot tests. Suite now: 1074 tests / 38 files; coverage
+  per-gate below.
+
 **S21 — GitHub Actions + quickstart** — manual-dispatch `deploy.yml` using repo secrets
 (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `ADMIN_EMAILS`) running `npm ci` +
 setup (§13); YAML parses; README documents Node prerequisite (Linux + Windows 10/11) and

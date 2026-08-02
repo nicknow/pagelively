@@ -85,7 +85,6 @@ function createFirstRunResponder(
           id: appId,
           aud,
           name: "pagelively admin",
-          team_domain: "team.cloudflareaccess.com",
         },
       });
     if (method === "GET" && path === `/accounts/${accountId}/access/apps/${appId}/policies`)
@@ -159,13 +158,14 @@ describe("setup.mjs headless env mapping helpers", () => {
     expect(parseTruthy("")).toBeUndefined();
   });
 
-  it("envToSetupOptions maps all six SETUP_* / ADMIN_EMAILS env vars", () => {
+  it("envToSetupOptions maps all SETUP_* / ADMIN_EMAILS env vars", () => {
     expect(
       envToSetupOptions({
         SETUP_WORKER_DOMAIN: "pages.example.com",
         SETUP_CDN_DOMAIN: "cdn.pages.example.com",
         SETUP_PROJECT_NAME: "pagelively",
         ADMIN_EMAILS: "admin@example.com, ops@example.com",
+        SETUP_ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com",
         SETUP_CREATE_KV: "1",
         SETUP_NON_INTERACTIVE: "yes",
         UNRELATED: "ignored",
@@ -175,9 +175,24 @@ describe("setup.mjs headless env mapping helpers", () => {
       cdnDomain: "cdn.pages.example.com",
       projectName: "pagelively",
       adminEmails: "admin@example.com, ops@example.com",
+      accessTeamDomain: "team.cloudflareaccess.com",
       createKv: true,
       headless: true,
     });
+  });
+
+  it("envToSetupOptions: SETUP_ACCESS_TEAM_DOMAIN maps to accessTeamDomain only when set", () => {
+    expect(
+      envToSetupOptions({ SETUP_ACCESS_TEAM_DOMAIN: "yourteam.cloudflareaccess.com" }),
+    ).toEqual({
+      workerDomain: undefined,
+      cdnDomain: undefined,
+      projectName: undefined,
+      adminEmails: undefined,
+      accessTeamDomain: "yourteam.cloudflareaccess.com",
+      headless: false,
+    });
+    expect(envToSetupOptions({}).accessTeamDomain).toBeUndefined();
   });
 
   it("envToSetupOptions: SETUP_CREATE_KV falsy maps to createKv false", () => {
@@ -195,6 +210,7 @@ describe("setup.mjs headless env mapping helpers", () => {
 describe("setup.mjs runSetup headless mode", () => {
   it("headless with all values: no prompt/confirm/pause calls, provisions and deploys", async () => {
     const deps = makeDeps(createFirstRunResponder());
+    deps.env = { SETUP_ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com" };
     await runSetup(
       {
         headless: true,
@@ -221,6 +237,7 @@ describe("setup.mjs runSetup headless mode", () => {
     // workerDomain/cdnDomain/projectName not provided -> prompt defaults apply;
     // createKv not provided -> confirm default (true) applies.
     const deps = makeDeps(createFirstRunResponder());
+    deps.env = { SETUP_ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com" };
     await runSetup(
       {
         headless: true,
@@ -334,7 +351,11 @@ describe("setup.mjs runSetup headless mode", () => {
 
   it("headless with the token supplied only via env (as the workflow does) proceeds", async () => {
     const deps = makeDeps(createFirstRunResponder());
-    deps.env = { CLOUDFLARE_API_TOKEN: "token-123", CLOUDFLARE_ACCOUNT_ID: "acc-123" };
+    deps.env = {
+      CLOUDFLARE_API_TOKEN: "token-123",
+      CLOUDFLARE_ACCOUNT_ID: "acc-123",
+      SETUP_ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com",
+    };
     await runSetup(
       {
         headless: true,
@@ -371,6 +392,7 @@ describe("setup.mjs runSetup headless mode", () => {
 
   it("headless with createKv=false never calls the KV namespaces API", async () => {
     const deps = makeDeps(createFirstRunResponder());
+    deps.env = { SETUP_ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com" };
     await runSetup(
       {
         headless: true,

@@ -7,12 +7,43 @@ export function envToSetupOptions(env: Record<string, string | undefined>): {
   adminEmails: string | undefined;
   headless: boolean;
   createKv?: boolean;
+  accessTeamDomain?: string;
 };
 export function normalizeDomain(domain: string): string;
 export function deriveBucketName(projectName: string): string;
 export function deriveDbName(projectName: string): string;
 export function deriveKvName(projectName: string): string;
 export function updateWranglerToml(content: string, values: Record<string, unknown>): string;
+
+export const TEAM_DOMAIN_PROMPT: string;
+export function resolveTeamDomain(options: {
+  accessTeamDomain?: string;
+  env?: Record<string, string | undefined>;
+  accountId?: string;
+  api?: (
+    method: string,
+    path: string,
+    body?: unknown,
+    opts?: unknown,
+  ) => Promise<{ ok: boolean; status: number; json: () => Promise<Record<string, unknown>> }>;
+  prompt?: (message: string, defaultValue?: string) => Promise<string>;
+}): Promise<string>;
+export function zoneCandidates(domain: string): string[];
+export function findCoveringZone(
+  domain: string,
+  api: (
+    method: string,
+    path: string,
+    body?: unknown,
+    opts?: unknown,
+  ) => Promise<{ ok: boolean; status: number; json: () => Promise<Record<string, unknown>> }>,
+): Promise<Record<string, unknown> | undefined>;
+export const PROVISIONING_ERROR_MESSAGES: Record<number, string>;
+export function provisioningError(
+  response: { status: number; json: () => Promise<unknown> },
+  fallback: string,
+  codes?: number[],
+): Promise<string>;
 
 export function wranglerConfigPaths(
   env?: Record<string, string | undefined>,
