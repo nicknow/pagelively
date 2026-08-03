@@ -19,6 +19,13 @@ No Cloudflare credentials are ever required for development or testing. Provisio
 deploying a real instance is a separate, human-run step covered in
 [`docs/operations/`](docs/operations/) — contributors don't need it to work on the code.
 
+## Branching
+
+Feature branches fork from `development` and PR back into `development` — that's the
+integration branch where in-flight work lands and gets exercised together. `main` only moves
+when a human deliberately promotes `development` into it; that's the "this is
+released/deployable" signal. Don't target `main` directly.
+
 ## Before opening a pull request
 
 Run the full gate locally:
@@ -27,10 +34,10 @@ Run the full gate locally:
 npm run typecheck && npm run lint && npm run format:check && npm test
 ```
 
-A PR that leaves any of these red won't be merged. If you're changing behavior, add or update
-tests first — see [`.ai/standards/test-standards.md`](.ai/standards/test-standards.md) for how
-this project tests (real D1 migrations against local emulation, mocked JWKS for Access, no
-faked infrastructure).
+The same gate runs in CI on every PR into `development` or `main`. A PR that leaves any of
+these red won't be merged. If you're changing behavior, add or update tests first — see
+[`.ai/standards/test-standards.md`](.ai/standards/test-standards.md) for how this project tests
+(real D1 migrations against local emulation, mocked JWKS for Access, no faked infrastructure).
 
 For code style and structural conventions, see
 [`.ai/standards/coding-standards.md`](.ai/standards/coding-standards.md).

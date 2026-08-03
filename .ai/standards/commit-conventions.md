@@ -25,8 +25,12 @@ Examples:
 ## Branching
 
 - Feature branches per unit of work: `feat/<short-name>`, `fix/<short-name>`,
-  `chore/<short-name>`.
-- Commit on the branch; do not merge to `main` without human review. Do not force-push.
+  `chore/<short-name>`, branched from `development`.
+- Commit on the branch; open a PR into `development` (CI must be green). Do not force-push.
+- `development` is the integration branch — it's where in-flight work lands and gets exercised
+  together. `main` only moves when a human deliberately promotes `development` into it (a PR or
+  merge that a human reviews and clicks), signaling "this is released/deployable." Never commit
+  or merge directly to `main`.
 - One slice = one branch + one (or a few, logically grouped) commits.
 
 ## Hygiene
