@@ -2,7 +2,7 @@
  * D1 pages repository — read-only surface (S10).
  *
  * Implements the `PagesRepository` contract from `docs/architecture/02-module-boundaries-contracts.md`
- * using the real migrated schema (`migrations/0001_init.sql`).
+ * using the real migrated schema (`migrations/0001_init.sql` + `0002_password_protect.sql`).
  *
  * Query discipline:
  * - `getById`: primary-key lookup.
@@ -30,6 +30,10 @@ export interface PageRecord {
   raw_md_path: string | null;
   show_source: 0 | 1;
   visibility: Visibility;
+  // S23 (ADR 0041): "pbkdf2$<iter>$<salt-b64url>$<hash-b64url>" or null
+  // (unprotected). Never serialized to API responses — surfaces as
+  // `has_password: boolean` only.
+  password_hash: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -44,6 +48,8 @@ export interface NewPage {
   raw_md_path: string | null;
   show_source: 0 | 1;
   visibility: Visibility;
+  // S23: optional on create — absent/empty = unprotected (architecture 02).
+  passwordHash?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -53,6 +59,8 @@ export interface MetaPatch {
   title?: string;
   visibility?: Visibility;
   show_source?: 0 | 1;
+  // S23 tri-state: undefined = unchanged, null = clear, string = set.
+  passwordHash?: string | null;
 }
 
 export interface PagesRepository {
@@ -61,6 +69,9 @@ export interface PagesRepository {
   list(): Promise<PageRecord[]>;
   create(p: NewPage): Promise<PageRecord>;
   updateMeta(id: string, patch: MetaPatch): Promise<PageRecord | null>;
+  // S23 (ADR 0041 decision 10): stored PBKDF2 string, or null to clear; no rev
+  // bump; invalid id → 400 invalid_id (fail-fast); unknown id → null, no throw.
+  setPasswordHash(id: string, hash: string | null): Promise<PageRecord | null>;
   applyRevBump(
     id: string,
     rev: number,
@@ -107,6 +118,10 @@ function toPageRecord(row: Record<string, unknown>): PageRecord {
       row.raw_md_path === null || row.raw_md_path === undefined ? null : String(row.raw_md_path),
     show_source,
     visibility: visibility as Visibility,
+    password_hash:
+      row.password_hash === null || row.password_hash === undefined
+        ? null
+        : String(row.password_hash),
     created_at: String(row.created_at),
     updated_at: String(row.updated_at),
   };
@@ -142,7 +157,7 @@ export function createPagesRepository(db: D1Database): PagesRepository {
       try {
         const row = await db
           .prepare(
-            `SELECT id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, created_at, updated_at
+            `SELECT id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, created_at, updated_at
              FROM pages
              WHERE id = ?`,
           )
@@ -159,7 +174,7 @@ export function createPagesRepository(db: D1Database): PagesRepository {
       try {
         const row = await db
           .prepare(
-            `SELECT id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, created_at, updated_at
+            `SELECT id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, created_at, updated_at
              FROM pages
              WHERE slug = ?`,
           )
@@ -175,7 +190,7 @@ export function createPagesRepository(db: D1Database): PagesRepository {
       try {
         const result = await db
           .prepare(
-            `SELECT id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, created_at, updated_at
+            `SELECT id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, created_at, updated_at
              FROM pages
              ORDER BY created_at DESC, id DESC`,
           )
@@ -209,8 +224,8 @@ export function createPagesRepository(db: D1Database): PagesRepository {
       try {
         await db
           .prepare(
-            `INSERT INTO pages (id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO pages (id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .bind(
             p.id,
@@ -222,11 +237,13 @@ export function createPagesRepository(db: D1Database): PagesRepository {
             p.raw_md_path,
             p.show_source,
             p.visibility,
+            p.passwordHash ?? null,
             p.created_at,
             p.updated_at,
           )
           .run();
-        return { ...p };
+        const { passwordHash, ...rest } = p;
+        return { ...rest, password_hash: passwordHash ?? null };
       } catch (error) {
         throw wrapDbWriteError(error);
       }
@@ -266,6 +283,13 @@ export function createPagesRepository(db: D1Database): PagesRepository {
         setClauses.push("show_source = ?");
         values.push(patch.show_source);
       }
+      // S23 tri-state (architecture 02): undefined/absent = unchanged,
+      // null = clear, string = set. No rev bump — a metadata edit like the
+      // others (ADR 0012: RevAction "password-edit").
+      if ("passwordHash" in patch && patch.passwordHash !== undefined) {
+        setClauses.push("password_hash = ?");
+        values.push(patch.passwordHash);
+      }
 
       if (setClauses.length === 0) {
         // Nothing to change; return current row if it exists.
@@ -282,7 +306,7 @@ export function createPagesRepository(db: D1Database): PagesRepository {
             `UPDATE pages
              SET ${setClauses.join(", ")}
              WHERE id = ?
-             RETURNING id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, created_at, updated_at`,
+             RETURNING id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, created_at, updated_at`,
           )
           .bind(...values)
           .first<Record<string, unknown>>();
@@ -290,6 +314,15 @@ export function createPagesRepository(db: D1Database): PagesRepository {
       } catch (error) {
         throw wrapDbWriteError(error);
       }
+    },
+
+    // S23 (ADR 0041 decision 10): dedicated set/clear for the unlock handlers.
+    // Shares ONE implementation with `updateMeta` — it delegates the tri-state
+    // UPDATE, so both paths write the same column, bump `updated_at`, never
+    // touch `rev`, fail fast on invalid ids (400 invalid_id), and return null
+    // for unknown ids without throwing.
+    async setPasswordHash(id: string, hash: string | null): Promise<PageRecord | null> {
+      return this.updateMeta(id, { passwordHash: hash });
     },
 
     async applyRevBump(
@@ -305,7 +338,7 @@ export function createPagesRepository(db: D1Database): PagesRepository {
             `UPDATE pages
              SET rev = ?, entry_path = ?, raw_md_path = ?, updated_at = ?
              WHERE id = ?
-             RETURNING id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, created_at, updated_at`,
+             RETURNING id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, created_at, updated_at`,
           )
           .bind(rev, entryPath, rawMdPath, new Date().toISOString(), id)
           .first<Record<string, unknown>>();
