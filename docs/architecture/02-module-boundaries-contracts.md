@@ -15,6 +15,8 @@ out like the other route classes.
 ```
 src/
   index.ts            entry handler: dispatch (including /health) + error boundary (single try/catch)
+                      dispatch order: health → trailing-slash → home → slug|id → unlock|asset
+                      (public, BEFORE the Access gate) → admin|api (Access JWT gate)
   router.ts           classifyPath() + route table (pure)
   config.ts           typed, validated config accessor over Env (normalizes vars)
   errors.ts           AppError taxonomy + toErrorResponse() (ADR 0005)
@@ -32,8 +34,14 @@ src/
   redirects.ts        trailing-slash + image/raw 301 helpers (pure)
   home.ts             home-mode resolution (pure)
   entry-serve.ts      entry pipeline: resolve → read → inject base → respond
+  password.ts         PBKDF2-HMAC-SHA256 hash/verify + rules — pure (S23, ADR 0041)
+  password-token.ts   unlock cookie: token gen, build/parse, SHA-256 hash — pure (S23)
+  password-prompt.ts  inline HTML prompt page + escaped error slot — pure (S23)
+  unlock.ts           POST /p/{id}/unlock handler (S23)
+  asset-serve.ts      GET /assets/pages/{id}/{rev}/{path…} handler (S23)
   cache-service.ts    CacheService — headers + purge adapter (the cache seam, ADR 0009)
   pages-repository.ts D1: pages rows (reads/writes)
+  unlocks-repository.ts D1: page_unlocks rows (S23) — upsert/getByPageId/deleteByPageId
   files-repository.ts D1: files rows (reads/writes)
   object-store.ts     R2: put/get/delete/list under pages/{id}/{rev} (§8 layout)
   access-verify.ts    JWT gate: createAccessVerifier() — signature/iss/aud/exp checked with
@@ -49,9 +57,10 @@ test/                 slice tests (see 06)
 ```
 
 Modules are grouped by **dependency direction**: `router/config/errors/ids/slug/reserved/rev/
-content-type/cache-headers/markdown/base-inject/redirects/home/utils` are pure (no
-bindings, fully unit-tested); `*-repository/object-store` are binding adapters (D1/R2);
-`entry-serve/admin-api/admin-ui` are handlers (plus `index.ts`'s inline `/health` dispatch);
+content-type/cache-headers/markdown/base-inject/redirects/home/utils` plus the S23 pure
+modules `password/password-token/password-prompt` are pure (no bindings, fully unit-tested);
+`*-repository/object-store` are binding adapters (D1/R2); `entry-serve/unlock/asset-serve/
+admin-api/admin-ui` are handlers (plus `index.ts`'s inline `/health` dispatch);
 `cache-service/access-verify/jwks-provider` are seams with injectable dependencies.
 
 ## Environment contract
@@ -97,6 +106,8 @@ type CacheRouteClass =
   | "entry" // /{slug}/, /p/{id}/, home page
   | "redirect" // 301 image/raw → CDN object
   | "asset" // R2 CDN-served object
+  | "protected" // S23: password-gated surface — prompt, unlocked entry, protected image
+  //                bytes, worker asset bytes, unlock 303/errors — always no-store, no Cache-Tag
   | "admin" // admin UI + API
   | "notFound" // clean 404
   | "error"; // generic 500
@@ -111,6 +122,8 @@ interface PageRecord {
   raw_md_path: string | null; // "source.md" for markdown entries (incl. bundle w/ md entry)
   show_source: 0 | 1;
   visibility: Visibility;
+  password_hash: string | null; // S23: "pbkdf2$<iter>$<salt-b64url>$<hash-b64url>" or null (unprotected).
+  // Never serialized to API responses — surfaces as `has_password: boolean` only (ADR 0041).
   created_at: string; // ISO-8601 UTC
   updated_at: string;
 }
@@ -136,6 +149,7 @@ type RevAction =
   | { type: "re-render" } // markdown re-render — bumps
   | { type: "slug-edit" } // metadata — no bump (ADR 0012 reconciliation)
   | { type: "meta-edit" } // title/visibility/show_source — no bump
+  | { type: "password-edit" } // S23: set/clear password — no bump, but unlock rows deleted
   | { type: "create" }; // rev starts at 1 (§8 DEFAULT 1)
 
 // Fail-fast (typed AppError, never raw): invalid rev → "invalid_rev"/500;
@@ -153,6 +167,8 @@ type Route =
   | { type: "health" }
   | { type: "slug"; slug: string } // /{slug} or /{slug}/
   | { type: "id"; id: string } // /p/{id}/…
+  | { type: "unlock"; id: string } // /p/{id}/unlock[/]  (S23, public)
+  | { type: "asset"; id: string; rev: string; path: string } // /assets/pages/{id}/{rev}/{path…} (S23, public)
   | { type: "admin" } // /admin…  (Access-protected at edge)
   | { type: "api" } // /api/*    (Access-protected at edge)
   | { type: "unknown" };
@@ -160,11 +176,16 @@ type Route =
 function classifyPath(pathname: string): Route;
 ```
 
-Rules (spec §5): root → `home`; `/health` → `health` (never redirected); `/p/{id}` → `id`;
-`/{slug}` → `slug`; `/admin` → `admin`; `/api/...` → `api`; everything else → `unknown`
+Rules (spec §5 + ADR 0041): root → `home`; `/health` → `health` (never redirected);
+`/p/{id}` → `id`; `/p/{id}/unlock` (case-insensitive literal, exactly that depth) → `unlock`;
+`/assets/pages/{id}/{rev}/{path…}` → `asset` (id/rev raw segments, path = remaining segments
+joined; `%2F` anywhere → `unknown`, encoded slashes never become separators); `/{slug}` →
+`slug`; `/admin` → `admin`; `/api/...` → `api`; **any other `/assets/...` → `unknown`**
+(`assets` is reserved, ADR 0007 — no slug collision possible); everything else → `unknown`
 (clean 404). Trailing-slash handling is a separate pure step (`redirects.ts`): `/{slug}` →
-301 `/{slug}/`, `/p/{id}` → 301 `/p/{id}/`, never on root/health, no loops on encoded
-slashes (S08 AC). Malformed paths never throw.
+301 `/{slug}/`, `/p/{id}` → 301 `/p/{id}/`, never on root/health, **never on the new
+`unlock`/`asset` types** (no 301 interference with POST unlock), no loops on encoded slashes
+(S08 AC). Malformed paths never throw.
 
 ## Redirects contract (pure)
 
@@ -217,15 +238,33 @@ interface PagesRepository {
   list(): Promise<PageRecord[]>; // admin-only, created_at DESC
   create(p: NewPage): Promise<PageRecord>;
   updateMeta(id: string, patch: MetaPatch): Promise<PageRecord | null>; // no rev bump
+  setPasswordHash(id: string, hash: string | null): Promise<PageRecord | null>; // S23:
+  //   hash = stored PBKDF2 string, or null to clear; no rev bump; invalid id → 400
+  //   invalid_id (fail-fast); unknown id → null, no throw
   applyRevBump(
     id: string,
     rev: number,
     entryPath: string,
     rawMdPath: string | null,
   ): Promise<PageRecord | null>;
-  delete(id: string): Promise<boolean>; // files cascade (§8)
+  delete(id: string): Promise<boolean>; // files + page_unlocks cascade (§8, migration 0002)
   slugTaken(slug: string, exceptId?: string): Promise<boolean>;
 }
+
+// S23 (ADR 0041). page_unlocks: one row per protected page — token_hash only, never the
+// raw token. Upsert on unlock (the latest unlock wins; re-unlocking rotates the token).
+interface UnlocksRepository {
+  create(pageId: string, tokenHash: string): Promise<void>; // upsert (INSERT … ON CONFLICT)
+  getByPageId(pageId: string): Promise<{ tokenHash: string; createdAt: string } | null>;
+  deleteByPageId(pageId: string): Promise<void>; // called on password set/clear AND delete (cascade)
+}
+
+// NewPage / MetaPatch — S23 additions. password_hash is optional on create (absent/empty =
+// unprotected) and tri-state on patch: undefined = unchanged, ""/null = clear, string = set.
+// Validation (min 5 after trim, max 256) happens in the handler BEFORE any side effect →
+// 400 invalid_password with an actionable message (architecture 05 rule 5).
+type NewPage = { /* …as built… */ passwordHash: string | null };
+type MetaPatch = { /* slug?, title?, visibility?, show_source? */ passwordHash?: string | null };
 
 interface FilesRepository {
   replaceAll(pageId: string, rev: number, files: NewFile[]): Promise<void>; // delete+insert
@@ -286,9 +325,11 @@ interface CacheService {
 - Test impl: a recording fake asserted for call shape (tags, timing, absence on read-only ops).
 - `headersFor` is pure (`src/cache-headers.ts`) and fully unit-tested (S07 AC). It returns a
   fresh `Headers` object: entry/redirect get `Cache-Control: public, max-age=300,
-stale-while-revalidate=3600` + `Cache-Tag: page-{id}`; asset gets `public, max-age=31536000,
-immutable`; admin, notFound, and error get `no-store`. The function never emits
-  `s-maxage`, `must-revalidate`, `proxy-revalidate`, or `private`.
+  stale-while-revalidate=3600` + `Cache-Tag: page-{id}`; asset gets `public, max-age=31536000,
+  immutable`; **protected (S23) gets `no-store` and no `Cache-Tag`** — never stored by Workers
+  Caching (`Cf-Cache-Status: BYPASS`, verified), so password changes never need the edge to
+  forget stale copies of protected responses; admin, notFound, and error get `no-store`. The
+  function never emits `s-maxage`, `must-revalidate`, `proxy-revalidate`, or `private`.
 - Live purge/HIT verification → operator smoke-test checklist (06, S22).
 
 ## JWT verification seam (ADR 0005, OQ-12)
@@ -323,6 +364,24 @@ interface VerifiedIdentity {
 // entry-serve.ts
 async function serveEntry(request: Request, deps: { config; pages; objects; cache });
 // returns entry HTML (injected base), or 301 for image/raw, or 404/500 via errors.ts
+// S23 gate (ADR 0041): after resolve, before kind dispatch —
+//   page.password_hash && no valid pl_unlock cookie ⇒ 200 prompt page
+//   (headersFor("protected"), no R2 read); valid cookie ⇒ protected variants:
+//   base href = new URL(request.url).origin + /assets/pages/{id}/{rev}/{entry_path};
+//   image kind served as Worker image bytes (never 301-to-CDN); all headersFor("protected").
+
+// unlock.ts (S23) — public, no Access
+async function serveUnlock(request: Request, deps: { config; pages; unlocks; objects });
+// POST /p/{id}/unlock[/]: wrong pw → 200 prompt + escaped inline error; invalid id → 400;
+// unknown OR unprotected page → 404; missing/blank pw → 400 invalid_password; correct →
+// Set-Cookie pl_unlock + upsert token hash + 303 /p/{id}/. GET → prompt or clean 404;
+// other methods → 405. All responses headersFor("protected").
+
+// asset-serve.ts (S23) — public, no Access
+async function serveAsset(request: Request, deps: { objects });
+// GET /assets/pages/{id}/{rev}/{path…}: stored bytes + stored content type +
+// headersFor("protected"); write-side path rules (400), invalid id → 400, bad rev → 400
+// invalid_rev, missing object/malformed %-encoding → clean 404. No D1 read, no cookie check.
 
 // admin-api.ts — each handler: (request, ctx, deps) => Response
 async function handleListPages(...);    // GET  /api/pages
@@ -333,6 +392,16 @@ async function handleDeletePage(...);   // DELETE /api/pages/{id}
 async function handleAddFiles(...);     // POST /api/pages/{id}/files
 async function handleDeleteFile(...);   // DELETE /api/pages/{id}/files/{path}
 ```
+
+S23 admin-api notes: `manifest.password` is accepted by **both** form-parser entry points
+(multipart manifest JSON and JSON paste), validated before any side effect; create/patch with a
+password call `pages.setPasswordHash` and then `unlocks.deleteByPageId(id)` (set or clear —
+existing cookies stop working immediately; re-entering the same password forces re-unlock,
+PBKDF2 salts are random); the mutation purge (`cache.purgePage`) runs for password changes
+exactly as for other metadata edits; no rev bump (RevAction `password-edit`). Page JSON is
+built by the explicit serializer `toPageJson(record)` → `has_password: boolean` — it replaces
+the `{ ...newPage, files }` spreads so the hash cannot leak; regression tests grep response
+bodies (R19).
 
 Every mutating handler: (1) mutate D1/R2, (2) `ctx.waitUntil(cache.purgePage(ctx, id))` (or
 await — non-fatal), (3) respond `no-store`. Admin responses are JSON with the error shape from
@@ -345,8 +414,8 @@ a generic 500 with `no-store` and no stack leakage (ADR 0005; S12 AC). See 05.
 
 ## Cross-references
 
-- Spec: §2, §5, §6, §7, §8, §9, §10, §12, §14.
+- Spec: §2, §5, §6, §7, §8, §9, §10, §12, §14, §17 (per-page password).
 - Docs: [01 — System overview](01-system-overview.md), [03 — Data model](03-data-model.md),
   [05 — Error handling](05-error-handling.md), [06 — Test strategy](06-test-strategy.md).
 - ADRs: 0002 (toolchain/deps), 0005 (errors/auth), 0006 (cache/rev), 0007 (slugs),
-  0008 (base), 0009 (cache seam).
+  0008 (base), 0009 (cache seam), 0041 (S23 password protection).

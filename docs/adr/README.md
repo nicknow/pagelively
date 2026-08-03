@@ -47,6 +47,7 @@ memory.
 | 0038 | [OQ-17 — paste content API shape (T4)](0038-paste-content-api.md)                                                       | Accepted                         |
 | 0039 | [T3 admin UI modernization — buildless overhaul](0039-t3-admin-ui-modernization.md)                                     | Accepted                         |
 | 0040 | [In-page fragment links: point the injected `<base>` at the entry file](0040-base-href-entry-file.md)                   | Accepted                         |
+| 0041 | [S23 per-page password protection — visitor gate, PBKDF2 at rest, no-store protected surface](0041-s23-password-protected-pages.md) | Accepted                  |
 
 > **Numbering note:** ADR numbers are assigned sequentially, but some numbers are intentionally
 > unused. 0034 was reserved for an OAuth fail-fast slice that was deferred; 0037 was reserved for

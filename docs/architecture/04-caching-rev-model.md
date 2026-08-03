@@ -33,6 +33,7 @@ the testability seam.
 | Entry (`/{slug}/`, `/p/{id}/`, `/`) | HTML with injected `<base>` | `public, max-age=300, stale-while-revalidate=3600`             | `page-{id}` | Yes            |
 | Image/raw 301 (→ CDN object)        | 301 redirect                | `public, max-age=300, stale-while-revalidate=3600`             | `page-{id}` | Yes            |
 | Assets (R2 CDN host)                | object bytes                | `public, max-age=31536000, immutable` (stored as httpMetadata) | —           | Yes (CDN host) |
+| Protected (S23, ADR 0041)           | prompt / unlocked entry / protected image bytes / worker asset bytes / unlock 303 & errors | `no-store`                 | —           | **No**         |
 | Admin UI + API                      | HTML/JSON                   | `no-store`                                                     | —           | No             |
 | 404 (Worker host)                   | clean 404                   | `no-store`                                                     | —           | No             |
 | 500                                 | generic error               | `no-store`                                                     | —           | No             |
@@ -44,6 +45,15 @@ Notes:
   `max-age=300` with a 1-hour SWR tail: repeat opens inside 5 min skip the Worker entirely
   (HIT), stale opens for up to 1 h are served immediately while revalidation runs
   (UPDATING), then a fresh Worker response replaces them (verified: SWR is asynchronous).
+- **Protected responses are never stored** (S23): `no-store` (and, on the unlock 303, the
+  `Set-Cookie` header) make Workers Caching bypass the response entirely — verified
+  `Cf-Cache-Status: BYPASS` for `no-store`/`private`, and bypass when a response carries
+  `Set-Cookie`. Consequences: (1) a password change can never leave a stale protected copy at
+  the edge — the `page-{id}` purge on password change only needs to evict the **pre-protection
+  public** entry; (2) every protected request runs the Worker — the accepted S23 cost
+  (R24), surfaced to admins by the verbatim CDN-bypass notice; (3) the stale-on-error
+  fallback below does **not** apply to protected pages — a Worker failure surfaces as an
+  error, never a stale protected page, which is the correct security posture.
 - **Assets are immutable by URL construction** (`{rev}` in the path): `max-age=31536000,
 immutable`, and republish changes the URL so no purge is ever needed for asset bytes
   (spec §11; ADR 0006). The CDN host is R2's public-bucket custom domain; note (verified) that
@@ -70,9 +80,10 @@ URLs** (cache key = path + entrypoint + version; host is not part of the key —
 | --------------------------------------- | ------------------------------------- | --------------------------- | ---------------------------------------------------------------- |
 | Create page                             | rows + rev-1 folder                   | (rev = 1)                   | `page-{id}` (harmless no-op until first hit)                     |
 | PATCH slug/title/visibility/show_source | rows only                             | **No**                      | `page-{id}` (refreshes entry HTML under old _and_ new slug URLs) |
+| **Set/clear password (S23)**            | `pages.password_hash` + **delete `page_unlocks` row** (existing cookies die) | **No** (`password-edit`)    | `page-{id}` — evicts the pre-protection **public** entry; protected responses were never stored |
 | Add/replace file(s)                     | new rev folder, rows re-pointed       | **Yes**                     | `page-{id}` (entry HTML + 301)                                   |
 | Delete a file                           | object + row removed; entry re-served | **Yes** (content-affecting) | `page-{id}`                                                      |
-| Delete page                             | rows (cascade) + all objects          | —                           | `page-{id}`                                                      |
+| Delete page                             | rows (cascade, incl. page_unlocks) + all objects | —                     | `page-{id}`                                                      |
 | Re-render markdown (future, OQ-13)      | rewrite/bump + render                 | Yes                         | `page-{id}`                                                      |
 
 - Purge is **post-write and non-fatal**: the mutation is already committed; a purge failure is
@@ -85,7 +96,9 @@ URLs** (cache key = path + entrypoint + version; host is not part of the key —
 
 - `rev` starts at 1 and increments by 1 per content-affecting publish: `nextRev(n) = n + 1`.
 - **Bump policy** — `shouldBumpRev` is true only for: file add/replace, file delete, entry
-  change, markdown (re-)render. False for: slug/title/visibility/show_source edits.
+  change, markdown (re-)render. False for: slug/title/visibility/show_source/password
+  edits (`password-edit` added for S23 — the `page-{id}` purge covers protection changes, and
+  protected responses are never stored, so no cache-busting is needed for them).
   Implemented in S03 with the concrete `RevAction` union and fail-fast throws; the
   ADR-0006-vs-this-matrix conflict over "slug PATCH bumps" is reconciled in favor of
   **no bump** — see ADR 0012.
@@ -106,11 +119,14 @@ URLs** (cache key = path + entrypoint + version; host is not part of the key —
   `proxy-revalidate` on the response, Cloudflare's default serves the last good cached entry
   (verified: stale-on-error default is on unless those directives are present). We rely on the
   default — a transient Worker failure degrades to serving the previous entry, not a 5xx.
+  **Except protected pages (S23):** never cached, so a Worker failure surfaces as an error —
+  the correct posture for gated content (a stale protected page must never be served).
 - 5xx responses themselves are `no-store` and never poison the cache.
 
 ## Cross-references
 
-- Spec: §3 (1+3 model), §8 (`rev`), §11 (caching behavior), §12 (vars).
-- Docs: [03 — Data model](03-data-model.md) (rev semantics, key layout),
+- Spec: §3 (1+3 model), §8 (`rev`), §11 (caching behavior), §12 (vars), §17 (per-page password).
+- Docs: [03 — Data model](03-data-model.md) (rev semantics, key layout, page_unlocks),
   [05 — Error handling](05-error-handling.md), [06 — Test strategy](06-test-strategy.md).
-- ADRs: 0006 (caching/rev decision), 0009 (cache seam / testability).
+- ADRs: 0006 (caching/rev decision), 0009 (cache seam / testability),
+  0041 (S23 — `protected` route class, no-store surface, purge-on-password-change).

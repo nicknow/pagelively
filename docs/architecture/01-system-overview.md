@@ -16,21 +16,28 @@ caching Access JWKS.
              │                                         │  one entrypoint (default)      │
              │                                         │                                │
              │                                         │  router → handlers              │
-             │                                         │    public: home/slug/id/health  │
+             │                                         │    public: home/slug/id/health │
+             │                                         │            unlock/asset (S23)  │
              │                                         │    admin: /admin UI             │
-             │                                         │    api:   /api/* (JWT-gated)    │
+             │                                         │    api:   /api/* (JWT-gated)   │
              │                                         │                                │
-             │                                         │  D1  pages/files rows          │
+             │                                         │  D1  pages/files/page_unlocks  │
              │                                         │  R2  pages/{id}/{rev}/… write   │
              │                                         │  KV  access-jwks (optional)     │
              │                                         │  ctx.cache.purge on mutations   │
              │                                         └───────────────▲────────────────┘
              │                                           Workers Caching (entry responses
-             │                                           cached at the edge, tagged page-{id})
+             │                                           cached at the edge, tagged page-{id};
+             │                                           protected responses never stored —
+             │                                           Cf-Cache-Status: BYPASS)
              │
              └─── GET cdn.pages.acme.com/pages/{id}/{rev}/…  ───►  R2 custom domain
-                                                          (CDN serves bytes directly —
-                                                          no Worker, no Worker requests)
+                                                           (CDN serves bytes directly —
+                                                           no Worker, no Worker requests)
+                                                           NOTE (S23): this path is only
+                                                           reachable for non-protected pages —
+                                                           protected pages reference the
+                                                           Worker origin, never this host
 ```
 
 - **One Worker, one entrypoint.** All request classes — public, admin UI, admin API — share the
@@ -56,16 +63,45 @@ caching Access JWKS.
 1. Worker runs (Workers Caching miss or stale-within-SWR window; see 04).
 2. `classifyPath` (pure) resolves the path to a route; unknown → clean 404 (`no-store`).
 3. PagesRepository resolves slug/id → `PageRecord` (`rev`, `entry_path`, kind). Miss → 404.
-4. Kind dispatch:
+4. **Password gate (S23, ADR 0041)**: if `page.password_hash !== null` and no valid
+   `pl_unlock` cookie → **200 prompt page** (inline HTML, escaped error slot, `no-store`,
+   no `Cache-Tag`; entry bytes are never read from R2). With a valid cookie → proceed to
+   kind dispatch in the protected variants below.
+5. Kind dispatch:
    - `html` / `markdown` / `bundle` → read the entry bytes from R2
      `pages/{id}/{rev}/{entry_path}`, inject the `<base>` tag pointing at the entry file
      itself (serve-time, ADR 0008), return `text/html; charset=utf-8` with entry cache
-     headers + `Cache-Tag: page-{id}`.
-   - `image` / raw single-file → 301 to `{ASSET_BASE_URL}/pages/{id}/{rev}/{entry_path}`,
-     same caching policy as entry responses (the redirect target embeds `rev`, so it is
-     stable per rev; tag purge refreshes it on mutation).
-5. The response is stored by Workers Caching; repeat opens skip D1/R2/CPU
-   (spec §3's "repeat opens skip D1/render/CPU").
+     headers + `Cache-Tag: page-{id}`. **Protected variant (S23)**: the `<base>` points at
+     the **Worker origin** `/assets/pages/{id}/{rev}/{entry_path}` (never
+     `config.assetBaseUrl`), and the response is `no-store` with no `Cache-Tag`.
+   - `image` / raw single-file → **unprotected:** 301 to
+     `{ASSET_BASE_URL}/pages/{id}/{rev}/{entry_path}`, same caching policy as entry
+     responses (the redirect target embeds `rev`, so it is stable per rev; tag purge
+     refreshes it on mutation). **Protected:** never redirected — image bytes are served
+     from the Worker with their stored content type and `no-store` (for image pages the
+     entry URL _is_ the gate).
+6. The response is stored by Workers Caching; repeat opens skip D1/R2/CPU
+   (spec §3's "repeat opens skip D1/render/CPU"). Protected responses are **never stored**
+   (verified: `no-store`/`private` → `Cf-Cache-Status: BYPASS`, Worker runs on every
+   request) — protected repeat opens always hit D1+R2 (see §"Why this stays free" below).
+
+### Unlock — `POST /p/{id}/unlock[/]` (S23)
+
+Public route (no Access). Wrong password → **200** re-render of the prompt with the inline
+error HTML-escaped. Unknown or unprotected page → 404. Invalid id → 400. Correct password →
+set `pl_unlock={pageId}.{token}` (`Path=/; HttpOnly; SameSite=Lax; Secure`), upsert the
+SHA-256 token hash row in D1 `page_unlocks`, **303 to `/p/{id}/`** (no `next` param — zero
+open-redirect surface). GET → prompt or clean 404; other methods → 405. Every response on
+this route is `no-store`. (Details: ADR 0041, 02.)
+
+### Worker asset route — `GET /assets/pages/{id}/{rev}/{path…}` (S23)
+
+Public route (no Access). Serves the stored object bytes from R2 with the stored content
+type and `no-store`, for the protected entry's `base` href. Path validation reuses the
+write-side rules (decoded `..`, leading `/`, `%`, empty segments → 400; never sibling
+keys). Invalid id → 400; non-integer/zero rev → 400 `invalid_rev`; missing object or
+malformed percent-encoding → clean 404. No D1 read, no cookie check — asset bytes are
+URL-obscured, not individually gated (threat boundary, ADR 0041).
 
 ### Asset request — `GET cdn.pages.acme.com/pages/{id}/{rev}/…`
 
@@ -95,9 +131,15 @@ probe (§5; S12 AC keeps it).
   (§3). The Worker only ever sees entry requests (one per page-open) and admin traffic.
 - Workers Caching absorbs repeat entry opens (the "1"): 100,000 requests/day on the free plan
   (verified limits) buys ~100k page-opens/day even before caching; cached hits cost no CPU.
+- **Protected pages are the exception (S23, R24, accepted):** every entry _and_ asset
+  request for a protected page is a billed Worker request (`no-store` → BYPASS, never
+  cached), so the free-plan request ceiling is the real cap for protected traffic. The
+  admin UI surfaces this with the verbatim notice "All access will bypass the CDN which
+  may increase usage." whenever a password is set (ADR 0041).
 - Everything else (D1 rows, KV ops, R2 ops) stays within verified free quotas by design:
   index-covered D1 lookups (03), JWKS KV cache with 1h TTL, rev folders sized to personal use
-  (OQ-10 — no GC in v1, human decision pending).
+  (OQ-10 — no GC in v1, human decision pending). Protected views add one D1 PK lookup per
+  page-open; D1 free reads (5 M rows/day) stay far under the Workers request ceiling.
 
 ## Deployments and cache
 
@@ -110,7 +152,9 @@ never automated as part of building or testing the code.
 
 ## Cross-references
 
-- Spec: §2 architecture, §3 cost/caching, §5 URLs, §6 base tag, §8 storage, §11 serving, §12 config.
+- Spec: §2 architecture, §3 cost/caching, §5 URLs, §6 base tag, §8 storage, §11 serving,
+  §12 config, §17 per-page password.
 - Docs: [02 — Module boundaries](02-module-boundaries-contracts.md),
   [03 — Data model](03-data-model.md), [04 — Caching & rev](04-caching-rev-model.md).
-- ADRs: 0006 (caching/rev), 0008 (base), 0005 (auth fail-closed).
+- ADRs: 0006 (caching/rev), 0008 (base), 0005 (auth fail-closed),
+  0041 (S23 password protection — gate, prompt, no-store surface).
