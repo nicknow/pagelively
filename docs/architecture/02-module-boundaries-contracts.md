@@ -260,10 +260,11 @@ interface UnlocksRepository {
 }
 
 // NewPage / MetaPatch — S23 additions. password_hash is optional on create (absent/empty =
-// unprotected) and tri-state on patch: undefined = unchanged, ""/null = clear, string = set.
-// Validation (min 5 after trim, max 256) happens in the handler BEFORE any side effect →
-// 400 invalid_password with an actionable message (architecture 05 rule 5).
-type NewPage = { /* …as built… */ passwordHash: string | null };
+// unprotected) and tri-state on patch: undefined = unchanged, null = clear, string = set
+// (the API layer maps "" → null per ADR 0041 D12; the repo stores only validated strings
+// or null). Validation (min 5 after trim, max 256) happens in the handler BEFORE any side
+// effect → 400 invalid_password with an actionable message (architecture 05 rule 5).
+type NewPage = { /* …as built… */ passwordHash?: string | null };
 type MetaPatch = { /* slug?, title?, visibility?, show_source? */ passwordHash?: string | null };
 
 interface FilesRepository {
@@ -418,4 +419,5 @@ a generic 500 with `no-store` and no stack leakage (ADR 0005; S12 AC). See 05.
 - Docs: [01 — System overview](01-system-overview.md), [03 — Data model](03-data-model.md),
   [05 — Error handling](05-error-handling.md), [06 — Test strategy](06-test-strategy.md).
 - ADRs: 0002 (toolchain/deps), 0005 (errors/auth), 0006 (cache/rev), 0007 (slugs),
-  0008 (base), 0009 (cache seam), 0041 (S23 password protection).
+  0008 (base), 0009 (cache seam), 0041 (S23 password protection),
+  0042 (S23-A primitives), 0043 (S23-B storage implementation).
