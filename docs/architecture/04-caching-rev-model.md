@@ -28,15 +28,15 @@ the testability seam.
 
 ## Route-class header policy
 
-| Route class                         | Response                    | `Cache-Control`                                                | `Cache-Tag` | Stored?        |
-| ----------------------------------- | --------------------------- | -------------------------------------------------------------- | ----------- | -------------- |
-| Entry (`/{slug}/`, `/p/{id}/`, `/`) | HTML with injected `<base>` | `public, max-age=300, stale-while-revalidate=3600`             | `page-{id}` | Yes            |
-| Image/raw 301 (→ CDN object)        | 301 redirect                | `public, max-age=300, stale-while-revalidate=3600`             | `page-{id}` | Yes            |
-| Assets (R2 CDN host)                | object bytes                | `public, max-age=31536000, immutable` (stored as httpMetadata) | —           | Yes (CDN host) |
-| Protected (S23, ADR 0041)           | prompt / unlocked entry / protected image bytes / worker asset bytes / unlock 303 & errors | `no-store`                 | —           | **No**         |
-| Admin UI + API                      | HTML/JSON                   | `no-store`                                                     | —           | No             |
-| 404 (Worker host)                   | clean 404                   | `no-store`                                                     | —           | No             |
-| 500                                 | generic error               | `no-store`                                                     | —           | No             |
+| Route class                         | Response                                                                                   | `Cache-Control`                                                | `Cache-Tag` | Stored?        |
+| ----------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------- | ----------- | -------------- |
+| Entry (`/{slug}/`, `/p/{id}/`, `/`) | HTML with injected `<base>`                                                                | `public, max-age=300, stale-while-revalidate=3600`             | `page-{id}` | Yes            |
+| Image/raw 301 (→ CDN object)        | 301 redirect                                                                               | `public, max-age=300, stale-while-revalidate=3600`             | `page-{id}` | Yes            |
+| Assets (R2 CDN host)                | object bytes                                                                               | `public, max-age=31536000, immutable` (stored as httpMetadata) | —           | Yes (CDN host) |
+| Protected (S23, ADR 0041)           | prompt / unlocked entry / protected image bytes / worker asset bytes / unlock 303 & errors | `no-store`                                                     | —           | **No**         |
+| Admin UI + API                      | HTML/JSON                                                                                  | `no-store`                                                     | —           | No             |
+| 404 (Worker host)                   | clean 404                                                                                  | `no-store`                                                     | —           | No             |
+| 500                                 | generic error                                                                              | `no-store`                                                     | —           | No             |
 
 Notes:
 
@@ -76,15 +76,15 @@ matches **case-insensitively** and clears every cached response carrying the tag
 both `/{slug}/` and `/p/{id}/` responses carry `page-{id}`, **one tag purge refreshes both
 URLs** (cache key = path + entrypoint + version; host is not part of the key — verified).
 
-| Admin action                            | D1/R2 effect                          | Rev bump?                   | Purge                                                            |
-| --------------------------------------- | ------------------------------------- | --------------------------- | ---------------------------------------------------------------- |
-| Create page                             | rows + rev-1 folder                   | (rev = 1)                   | `page-{id}` (harmless no-op until first hit)                     |
-| PATCH slug/title/visibility/show_source | rows only                             | **No**                      | `page-{id}` (refreshes entry HTML under old _and_ new slug URLs) |
+| Admin action                            | D1/R2 effect                                                                 | Rev bump?                   | Purge                                                                                           |
+| --------------------------------------- | ---------------------------------------------------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------- |
+| Create page                             | rows + rev-1 folder                                                          | (rev = 1)                   | `page-{id}` (harmless no-op until first hit)                                                    |
+| PATCH slug/title/visibility/show_source | rows only                                                                    | **No**                      | `page-{id}` (refreshes entry HTML under old _and_ new slug URLs)                                |
 | **Set/clear password (S23)**            | `pages.password_hash` + **delete `page_unlocks` row** (existing cookies die) | **No** (`password-edit`)    | `page-{id}` — evicts the pre-protection **public** entry; protected responses were never stored |
-| Add/replace file(s)                     | new rev folder, rows re-pointed       | **Yes**                     | `page-{id}` (entry HTML + 301)                                   |
-| Delete a file                           | object + row removed; entry re-served | **Yes** (content-affecting) | `page-{id}`                                                      |
-| Delete page                             | rows (cascade, incl. page_unlocks) + all objects | —                     | `page-{id}`                                                      |
-| Re-render markdown (future, OQ-13)      | rewrite/bump + render                 | Yes                         | `page-{id}`                                                      |
+| Add/replace file(s)                     | new rev folder, rows re-pointed                                              | **Yes**                     | `page-{id}` (entry HTML + 301)                                                                  |
+| Delete a file                           | object + row removed; entry re-served                                        | **Yes** (content-affecting) | `page-{id}`                                                                                     |
+| Delete page                             | rows (cascade, incl. page_unlocks) + all objects                             | —                           | `page-{id}`                                                                                     |
+| Re-render markdown (future, OQ-13)      | rewrite/bump + render                                                        | Yes                         | `page-{id}`                                                                                     |
 
 - Purge is **post-write and non-fatal**: the mutation is already committed; a purge failure is
   logged, not surfaced as a 500 (S13 AC; stale-for-SWR-window max is bounded by headers).

@@ -325,8 +325,8 @@ interface CacheService {
 - Test impl: a recording fake asserted for call shape (tags, timing, absence on read-only ops).
 - `headersFor` is pure (`src/cache-headers.ts`) and fully unit-tested (S07 AC). It returns a
   fresh `Headers` object: entry/redirect get `Cache-Control: public, max-age=300,
-  stale-while-revalidate=3600` + `Cache-Tag: page-{id}`; asset gets `public, max-age=31536000,
-  immutable`; **protected (S23) gets `no-store` and no `Cache-Tag`** — never stored by Workers
+stale-while-revalidate=3600` + `Cache-Tag: page-{id}`; asset gets `public, max-age=31536000,
+immutable`; **protected (S23) gets `no-store` and no `Cache-Tag`** — never stored by Workers
   Caching (`Cf-Cache-Status: BYPASS`, verified), so password changes never need the edge to
   forget stale copies of protected responses; admin, notFound, and error get `no-store`. The
   function never emits `s-maxage`, `must-revalidate`, `proxy-revalidate`, or `private`.

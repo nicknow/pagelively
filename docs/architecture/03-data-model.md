@@ -62,8 +62,9 @@ CREATE TABLE page_unlocks (
   cache-busting dimension: entry HTML and the `<base>` href embed it, asset URLs are
   rev-stable (04).
 - **`password_hash`** (S23, nullable) — PBKDF2-HMAC-SHA256 self-describing string
-  `pbkdf2$<iter>$<salt-b64url>$<hash-b64url>` (100,000 iterations default, random 16-byte
-  salt per hash), or `NULL` for unprotected pages. **Never serialized to any API response** —
+  `pbkdf2$<iter>$<salt-b64url>$<hash-b64url>` (10,000 iterations default — amended
+  2026-08-02 from 100,000 after the S23-A benchmark, ADR 0041; random 16-byte salt per
+  hash), or `NULL` for unprotected pages. **Never serialized to any API response** —
   page JSON emits `has_password: boolean` via the explicit serializer (ADR 0041; regression
   tests grep response bodies). Changing the password (set or clear) deletes the page's
   `page_unlocks` row so existing cookies stop working immediately (revocation).

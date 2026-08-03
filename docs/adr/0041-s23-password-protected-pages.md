@@ -40,24 +40,37 @@ All platform facts were **re-verified against current Cloudflare docs on 2026-08
 1. **Credential model (OQ-19 option c): opaque token cookie, SHA-256 at rest.** Unlock
    cookie `pl_unlock={pageId}.{token}`, where `token` is 32 random bytes from Web Crypto
    `crypto.getRandomValues`, base64url-encoded without padding. Attributes: `Path=/;
-   HttpOnly; SameSite=Lax; Secure`. At rest, `page_unlocks` (D1) stores only `token_hash` =
+HttpOnly; SameSite=Lax; Secure`. At rest, `page_unlocks` (D1) stores only `token_hash` =
    hex SHA-256 of the token; the raw token is never stored and never logged. One row per
    page (upsert — the latest unlock wins; re-unlocking rotates the token and invalidates the
    previous cookie). A protected page view costs exactly **one D1 PK lookup + one SHA-256 +
    one constant-time compare** — no PBKDF2 on the view path (R18). **No new server secret**;
    spec §12 holds; no Env/config/provisioning change.
 2. **Password hashing (OQ-21): PBKDF2-HMAC-SHA256 via Web Crypto.** `hashPassword(pw)` uses
-   `crypto.subtle.deriveBits` with **100,000 iterations** (default), a **random 16-byte salt
+   `crypto.subtle.deriveBits` with **10,000 iterations** (default), a **random 16-byte salt
    per hash**, and a self-describing storage format
    `pbkdf2$<iter>$<salt-b64url>$<hash-b64url>` (two hashes of the same password differ).
    Rules: min **5 chars after trim**, max **256 chars** (else 400 `invalid_password` with an
    actionable message — bounds PBKDF2 input); create with empty/absent password =
    unprotected; PATCH `""`/`null` = clear; PATCH with the field absent = unchanged.
    Verification is total: malformed stored strings → `false`, never throws; derived-key
-   comparison is constant-time (xor-accumulate, length-safe). The iteration count is
-   **benchmarked in S23-A** under the Free-plan 10 ms CPU/request budget and the measured
-   figure recorded in the Consequences below; **any future change to the count is an ADR
-   amendment, never a silent tweak**.
+   comparison is constant-time (xor-accumulate, length-safe).
+
+   > **Amendment (2026-08-02) — default iterations 100,000 → 10,000.** S23-A benchmarked
+   > PBKDF2-HMAC-SHA256 inside the workerd pool (the Workers runtime, `.work/implementer/
+s23-a-benchmark.md`): `hashPassword` @ 100,000 iterations measured **~38–40 ms median**
+   > on the benchmark machine (~0.4 µs/iteration, linear across counts) — ~10× the ~4 ms
+   > target (40% of the Free-plan 10 ms CPU/request budget). **10,000 iterations measure
+   > ~4 ms ≈ 40% of the budget** and were adopted as the default. OWASP's ~600k
+   > PBKDF2-HMAC-SHA256 guidance is infeasible on the Free plan (~240 ms measured on this
+   > hardware); production hardware may be faster, but cannot be measured locally (no
+   > account). This is a documented security-vs-CPU compromise for a single-operator app
+   > where PBKDF2 runs only on the unlock POST, never the page-view path (R18). Because the
+   > format is self-describing, stored hashes created at any count (e.g. the old 100k
+   > default) still verify — the forward-compat guarantee is tested in
+   > `test/password.test.ts`. **Any future change to the count is an ADR amendment, never a
+   > silent tweak.**
+
 3. **Request semantics (OQ-20).** Wrong password → **200 re-render of the prompt** with the
    inline error HTML-escaped; no 401 and no `WWW-Authenticate` — **401 stays unused** in the
    taxonomy (the existing doctrine holds; the Access gate answers 403, this surface answers
@@ -94,7 +107,7 @@ All platform facts were **re-verified against current Cloudflare docs on 2026-08
    (`text/html; charset=utf-8`, `no-store`, no `Cache-Tag`; the entry bytes are **not** read
    from R2); valid cookie → serve with the protected variants below. Image-kind protected
    pages are **never 301-to-CDN** — they are served as image bytes from the Worker with their
-   stored content type and `no-store` (for image pages the entry URL *is* the gate).
+   stored content type and `no-store` (for image pages the entry URL _is_ the gate).
 8. **Bypass-CDN serving model.** For protected pages the injected `<base>` href is
    `new URL(request.url).origin` + `/assets/pages/{id}/{rev}/{entry_path}` — the **Worker
    origin**, never `config.assetBaseUrl`; the CDN host never appears in protected HTML
@@ -116,16 +129,14 @@ All platform facts were **re-verified against current Cloudflare docs on 2026-08
    never edge-cached.
 10. **Data model (migration `0002_password_protect.sql`).**
     `ALTER TABLE pages ADD COLUMN password_hash TEXT;` (nullable — existing rows become
-    NULL) plus
-    `CREATE TABLE page_unlocks (page_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL,
-    created_at TEXT NOT NULL, FOREIGN KEY (page_id) REFERENCES pages(id) ON DELETE CASCADE);`
-    Auto-applied to every test DB by the existing migration runner (`readD1Migrations` +
-    `applyD1Migrations`) — no config change. `PageRecord`/`NewPage` gain
+    NULL) plus `CREATE TABLE page_unlocks (page_id TEXT PRIMARY KEY, token_hash TEXT NOT
+NULL, created_at TEXT NOT NULL, FOREIGN KEY (page_id) REFERENCES pages(id) ON DELETE
+CASCADE);` — auto-applied to every test DB by the existing migration runner
+    (`readD1Migrations` + `applyD1Migrations`) — no config change. `PageRecord`/`NewPage` gain
     `password_hash: string | null`; `MetaPatch` gains `password_hash?: string | null`
     (undefined = unchanged, null = clear); `PagesRepository.setPasswordHash(id, hash | null)`
     (invalid id → 400 `invalid_id`; unknown id → `null`, no throw).
-11. **The hash never leaves D1.** Every page JSON surface (list, detail, create 201, patch
-    200) emits **`has_password: boolean` only**, through an explicit serializer
+11. **The hash never leaves D1.** Every page JSON surface (list, detail, create 201, patch 200) emits **`has_password: boolean` only**, through an explicit serializer
     (`toPageJson` in `admin-api.ts`). The existing `{ ...newPage, files }` (L391) and
     `{ ...updatedPage, files }` (L585) spreads are replaced with the serializer so the hash
     cannot leak (R19). Regression tests grep every response body for `password_hash` and
@@ -156,15 +167,23 @@ All platform facts were **re-verified against current Cloudflare docs on 2026-08
 - **The view path stays cheap**: one D1 PK read + one SHA-256 + one constant-time compare per
   protected page view. PBKDF2 runs once per **unlock attempt**, never per page view. D1
   free-tier reads (5 M rows/day) are bounded in practice by the Workers request ceiling.
-- **Protected traffic is Worker traffic (R24, accepted)**: every entry *and* asset request
+- **Protected traffic is Worker traffic (R24, accepted)**: every entry _and_ asset request
   for a protected page is a billed Worker request — the honest cost of bypassing the CDN,
   surfaced to the admin by the verbatim notice. The Free-plan ceiling (~100 k requests/day,
   verified) is the real cap for protected pages.
-- **CPU budget (R18)**: PBKDF2-HMAC-SHA256 at 100,000 iterations is expected to land in the
-  low single-digit ms in workerd — comfortably inside the Free-plan 10 ms CPU/request limit
-  (I/O waits do not count; isolates tolerate infrequent overruns — verified). **S23-A must
-  measure and record the actual figure; if the measured cost exceeds roughly 40% of the
-  budget, the iteration count is tuned down and this ADR is amended — never silently.**
+- **CPU budget (R18) — measured and resolved.** S23-A measured PBKDF2-HMAC-SHA256 in the
+  workerd pool (full method + numbers: `.work/implementer/s23-a-benchmark.md`):
+  `hashPassword` @ 100,000 iterations → **median ≈ 38–40 ms** (mean ≈ 40–43 ms, per-iteration
+  ≈ 0.4 µs); raw `deriveBits` @ 25,000 → **≈ 10 ms**; raw `deriveBits` @ 10,000 → **≈ 4 ms**
+  (Node 22 `webcrypto` sanity check @ 100k → median ≈ 47 ms — the machine is simply slow at
+  PBKDF2, the workerd number is not pathological). The 100k figure is ~10× the ~4 ms target
+  (40% of the Free-plan 10 ms CPU/request limit; I/O waits do not count, isolates tolerate
+  infrequent overruns — verified). **The default iteration count is therefore 10,000
+  (~4 ms ≈ 40% of the budget)** per the Decision-2 amendment above; the count is a named
+  constant (`PBKDF2_ITERATIONS` in `src/password.ts`), and verification derives with the
+  count stored in each hash string, so existing hashes at other counts keep verifying
+  (forward-compat tested). Any future count change remains an ADR amendment, never a silent
+  tweak.
 - **Password changes are visible immediately via tag purge.** Purge is best-effort, so a
   failed purge could leave a stale **public** entry cached for up to the SWR window
   (1 h) — bounded, accepted (R17).
