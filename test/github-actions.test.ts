@@ -55,7 +55,8 @@ describe(".github/workflows/deploy.yml", () => {
     expect(inputs?.["cdn-domain"]?.default).toBe("cdn.pages.example.com");
     expect(inputs?.["project-name"]?.default).toBe("pagelively");
     expect(inputs?.["create-kv"]?.default).toBe("true");
-    expect(Object.keys(inputs ?? {})).toHaveLength(4);
+    expect(inputs?.["access-team-domain"]?.default).toBe("yourteam.cloudflareaccess.com");
+    expect(Object.keys(inputs ?? {})).toHaveLength(5);
   });
 
   it("runs on ubuntu-latest with checkout and actions/setup-node@v4 (node 22, npm cache)", () => {
@@ -73,7 +74,7 @@ describe(".github/workflows/deploy.yml", () => {
     expect(runSteps.indexOf("npm ci")).toBeLessThan(runSteps.indexOf("npm run setup"));
   });
 
-  it("wires the three secrets, the four inputs mappings, and SETUP_NON_INTERACTIVE=1 into setup", () => {
+  it("wires the three secrets, the five inputs mappings, and SETUP_NON_INTERACTIVE=1 into setup", () => {
     const setupStep = findStep((s) => s.run === "npm run setup");
     expect(setupStep.env).toMatchObject({
       CLOUDFLARE_API_TOKEN: "${{ secrets.CLOUDFLARE_API_TOKEN }}",
@@ -83,6 +84,7 @@ describe(".github/workflows/deploy.yml", () => {
       SETUP_CDN_DOMAIN: "${{ inputs.cdn-domain }}",
       SETUP_PROJECT_NAME: "${{ inputs.project-name }}",
       SETUP_CREATE_KV: "${{ inputs.create-kv }}",
+      SETUP_ACCESS_TEAM_DOMAIN: "${{ inputs.access-team-domain }}",
       SETUP_NON_INTERACTIVE: "1",
     });
   });

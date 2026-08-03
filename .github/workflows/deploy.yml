@@ -32,6 +32,10 @@ on:
         description: Create the optional KV namespace for JWKS caching
         required: true
         default: "true"
+      access-team-domain:
+        description: Zero Trust team domain (e.g. yourteam.cloudflareaccess.com)
+        required: true
+        default: yourteam.cloudflareaccess.com
 
 jobs:
   deploy:
@@ -53,4 +57,5 @@ jobs:
           SETUP_CDN_DOMAIN: ${{ inputs.cdn-domain }}
           SETUP_PROJECT_NAME: ${{ inputs.project-name }}
           SETUP_CREATE_KV: ${{ inputs.create-kv }}
+          SETUP_ACCESS_TEAM_DOMAIN: ${{ inputs.access-team-domain }}
           SETUP_NON_INTERACTIVE: "1"
