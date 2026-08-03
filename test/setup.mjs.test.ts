@@ -2096,6 +2096,7 @@ database_id = "00000000-0000-0000-0000-000000000000"
 `;
     const updated = updateWranglerToml(toml, {
       bucketName: "new-bucket",
+      dbName: "new-db",
       dbId: "d1-new",
       assetBaseUrl: "https://cdn.new.com",
       accessTeamDomain: "newteam.cloudflareaccess.com",
@@ -2106,6 +2107,7 @@ database_id = "00000000-0000-0000-0000-000000000000"
     expect(updated).toContain("# Custom header comment");
     expect(updated).toContain("# Keep this comment");
     expect(updated).toContain(`bucket_name = "new-bucket"`);
+    expect(updated).toContain(`database_name = "new-db"`);
     expect(updated).toContain(`database_id = "d1-new"`);
     expect(updated).toContain(`ASSET_BASE_URL = "https://cdn.new.com"`);
     expect(updated).toContain(`ACCESS_TEAM_DOMAIN = "newteam.cloudflareaccess.com"`);
@@ -2114,6 +2116,7 @@ database_id = "00000000-0000-0000-0000-000000000000"
     expect(updated).toContain(`pattern = "pages.example.com"`);
     expect(updated).toContain(`custom_domain = true`);
     expect(updated).not.toContain(`bucket_name = "old-bucket"`);
+    expect(updated).not.toContain(`database_name = "pagelively-db"`);
     expect(updated).not.toContain(`database_id = "00000000-0000-0000-0000-000000000000"`);
     expect(updated).not.toContain(`ASSET_BASE_URL = "https://cdn.example.com"`);
   });

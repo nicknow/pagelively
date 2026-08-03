@@ -111,6 +111,12 @@ export function updateWranglerToml(content, values) {
       () => `bucket_name = "${values.bucketName}"`,
     );
   }
+  if (values.dbName) {
+    updated = updated.replace(
+      /database_name = "[^"]*"/,
+      () => `database_name = "${values.dbName}"`,
+    );
+  }
   if (values.dbId) {
     updated = updated.replace(/database_id = "[^"]*"/, () => `database_id = "${values.dbId}"`);
   }
@@ -904,6 +910,7 @@ export async function runSetup(options, deps) {
   const tomlContent = await fs.readFile(tomlPath, "utf8");
   const updatedToml = updateWranglerToml(tomlContent, {
     bucketName,
+    dbName,
     dbId: db.uuid || db.id || db.database_id,
     assetBaseUrl,
     accessTeamDomain: finalAccessTeamDomain,
