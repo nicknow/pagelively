@@ -120,8 +120,8 @@ The full index, including a short glossary of recurring terms, is at
 
 ## Status
 
-Feature-complete for v1: the full publish/edit/delete flow, the admin UI, Cloudflare Access
-auth, and one-command provisioning are all implemented and covered by an automated local
+**v1.0.0 released.** The full publish/edit/delete flow, the admin UI, Cloudflare Access auth,
+and one-command provisioning are all implemented and covered by an automated local
 end-to-end test in addition to the unit suite. Run `npm test` for current results — it
 includes a gate that fails the build if the Worker bundle grows past the Workers free-tier
 size limit (see [`test/build-size.test.ts`](test/build-size.test.ts)).

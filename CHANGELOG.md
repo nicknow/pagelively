@@ -3,6 +3,22 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.0] — v1 release
+
+First stable release. The 0.1.0 build was deployed, exercised, and hardened with a few
+post-deploy fixes that keep the one-command provision/deploy path reliable.
+
+### Fixed
+
+- Fragment/bookmark links in served HTML pages no longer 404. The injected `<base>` tag now
+  points at the actual entry file (`.../{rev}/index.html`) so in-page anchors resolve to the
+  real CDN object.
+- GitHub Actions deploy workflow now passes the Zero Trust team domain to the headless setup
+  script (`SETUP_ACCESS_TEAM_DOMAIN`), so the Access provisioning step can complete without
+  interactive prompts.
+- `setup.mjs` now writes the real D1 `database_name` into `wrangler.toml`, so `wrangler d1
+migrations apply` finds the database on the first deploy.
+
 ## [0.1.0] — Initial public release
 
 The first complete build: upload and publish HTML, Markdown, and image content (single files,
