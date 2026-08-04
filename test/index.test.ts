@@ -3,6 +3,10 @@ import { env } from "cloudflare:workers";
 import { createExecutionContext } from "cloudflare:test";
 import worker from "../src/index";
 import { createObjectStore } from "../src/object-store";
+import { createPagesRepository } from "../src/pages-repository";
+import { createUnlocksRepository } from "../src/unlocks-repository";
+import { hashPassword } from "../src/password";
+import { generateToken, hashToken, formatUnlockCookie } from "../src/password-token";
 import {
   ACCESS_AUD,
   createMockFetch,
@@ -56,6 +60,7 @@ async function insertPage(
 async function clearPages(db: D1Database) {
   await db.prepare("DELETE FROM pages").run();
   await db.prepare("DELETE FROM files").run();
+  await db.prepare("DELETE FROM page_unlocks").run();
 }
 
 async function clearBucket(bucket: R2Bucket) {
@@ -76,6 +81,12 @@ async function fetchIndex(path: string, customEnv?: Env): Promise<Response> {
   const ctx = createExecutionContext();
   const e = customEnv ?? env;
   return worker.fetch(new Request(`https://pages.example.com${path}`), e, ctx);
+}
+
+async function fetchIndexRequest(request: Request, customEnv?: Env): Promise<Response> {
+  const ctx = createExecutionContext();
+  const e = customEnv ?? env;
+  return worker.fetch(request, e, ctx);
 }
 
 let privateKey: CryptoKey;
@@ -444,5 +455,249 @@ describe("index.ts — public entry pipeline", () => {
       createExecutionContext(),
     );
     expect(method.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
+  });
+
+  // --- S23 public gate wired in (ADR 0041; architecture 02 dispatch order) ---
+
+  it("GET /p/{id}/unlock renders the prompt without any Access token (public route)", async () => {
+    const db2 = env.DB;
+    const id = "page200001";
+    await insertPage(db2, { id, slug: "secret", kind: "html" });
+    await createPagesRepository(db2).setPasswordHash(id, await hashPassword("secret1"));
+
+    const res = await fetchIndex(`/p/${id}/unlock`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(res.headers.get("Cache-Tag")).toBeNull();
+    const text = await res.text();
+    expect(text).toContain("This page is password protected.");
+    expect(text).toContain(`action="/p/${id}/unlock"`);
+  });
+
+  it("POST /p/{id}/unlock with the correct password returns 303 with the unlock cookie", async () => {
+    const id = "page200001";
+    await insertPage(db, { id, slug: "secret", kind: "html" });
+    await createPagesRepository(db).setPasswordHash(id, await hashPassword("secret1"));
+
+    const res = await fetchIndexRequest(
+      new Request(`https://pages.example.com/p/${id}/unlock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "password=secret1",
+      }),
+    );
+
+    expect(res.status).toBe(303);
+    expect(res.headers.get("Location")).toBe(`/p/${id}/`);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    const setCookie = res.headers.get("Set-Cookie");
+    expect(setCookie).toMatch(
+      /^pl_unlock=page200001\.[A-Za-z0-9_-]{43}; Path=\/; HttpOnly; SameSite=Lax; Secure$/,
+    );
+  });
+
+  it("POST /p/{id}/unlock with the wrong password re-renders the prompt with an error", async () => {
+    const id = "page200001";
+    await insertPage(db, { id, slug: "secret", kind: "html" });
+    await createPagesRepository(db).setPasswordHash(id, await hashPassword("secret1"));
+
+    const res = await fetchIndexRequest(
+      new Request(`https://pages.example.com/p/${id}/unlock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "password=wrongpw",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    const text = await res.text();
+    expect(text).toContain('role="alert"');
+    expect(text).toContain("Incorrect password.");
+  });
+
+  it("POST /p/{id}/unlock with a non-form or unparseable body → 400 JSON invalid_form_data via the error boundary (never a 500)", async () => {
+    const id = "page200001";
+    await insertPage(db, { id, slug: "secret", kind: "html" });
+    await createPagesRepository(db).setPasswordHash(id, await hashPassword("secret1"));
+
+    const cases: Array<{ label: string; init: RequestInit }> = [
+      {
+        label: "text/plain",
+        init: {
+          method: "POST",
+          headers: { "Content-Type": "text/plain" },
+          body: "password=secret1",
+        },
+      },
+      {
+        label: "application/json",
+        init: {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: '{"password":"secret1"}',
+        },
+      },
+      { label: "no content-type", init: { method: "POST", body: "password=secret1" } },
+      { label: "empty body", init: { method: "POST", body: "" } },
+      {
+        label: "malformed multipart boundary",
+        init: {
+          method: "POST",
+          headers: { "Content-Type": "multipart/form-data; boundary=does-not-exist" },
+          body: "--not-the-boundary\r\n",
+        },
+      },
+    ];
+
+    for (const c of cases) {
+      const res = await fetchIndexRequest(
+        new Request(`https://pages.example.com/p/${id}/unlock`, c.init),
+      );
+      expect(res.status, `${c.label}: expected 400, got ${res.status}`).toBe(400);
+      expect(res.headers.get("Content-Type"), c.label).toBe("application/json; charset=utf-8");
+      expect(res.headers.get("Cache-Control"), c.label).toBe("no-store");
+      expect(res.headers.get("Cache-Tag"), c.label).toBeNull();
+      expect(await res.json(), c.label).toMatchObject({ error: "invalid_form_data" });
+    }
+  });
+
+  it("protected page: prompt without a cookie, unlocked entry with a valid cookie", async () => {
+    const id = "page200001";
+    await insertPage(db, { id, slug: "secret", kind: "html" });
+    await createPagesRepository(db).setPasswordHash(id, await hashPassword("secret1"));
+    await objects.put(
+      id,
+      1,
+      "index.html",
+      "<!doctype html><html><head></head><body><p>Secret</p></body></html>",
+      "text/html; charset=utf-8",
+    );
+
+    const locked = await fetchIndex("/secret/");
+    expect(locked.status).toBe(200);
+    expect(await locked.text()).toContain("This page is password protected.");
+
+    const token = generateToken();
+    await createUnlocksRepository(db).create(id, await hashToken(token));
+    const unlocked = await fetchIndexRequest(
+      new Request("https://pages.example.com/secret/", {
+        headers: { Cookie: `pl_unlock=${formatUnlockCookie(id, token)}` },
+      }),
+    );
+
+    expect(unlocked.status).toBe(200);
+    expect(unlocked.headers.get("Cache-Control")).toBe("no-store");
+    expect(unlocked.headers.get("Cache-Tag")).toBeNull();
+    const text = await unlocked.text();
+    expect(text).toContain("<p>Secret</p>");
+    expect(text).toContain(
+      '<base href="https://pages.example.com/assets/pages/page200001/1/index.html">',
+    );
+    expect(text).not.toContain("cdn.example.com");
+  });
+
+  it("protected image page: prompt without a cookie, Worker image bytes with a cookie (no 301)", async () => {
+    const id = "page200002";
+    await insertPage(db, { id, slug: "pict", kind: "image", entry_path: "photo.jpg" });
+    await createPagesRepository(db).setPasswordHash(id, await hashPassword("secret1"));
+    await objects.put(id, 1, "photo.jpg", "fake-jpeg-bytes", "image/jpeg");
+
+    const locked = await fetchIndex("/pict/");
+    expect(locked.status).toBe(200);
+    expect(locked.headers.get("Location")).toBeNull();
+    expect(await locked.text()).toContain("This page is password protected.");
+
+    const token = generateToken();
+    await createUnlocksRepository(db).create(id, await hashToken(token));
+    const unlocked = await fetchIndexRequest(
+      new Request("https://pages.example.com/pict/", {
+        headers: { Cookie: `pl_unlock=${formatUnlockCookie(id, token)}` },
+      }),
+    );
+
+    expect(unlocked.status).toBe(200);
+    expect(unlocked.headers.get("Location")).toBeNull();
+    expect(unlocked.headers.get("Content-Type")).toBe("image/jpeg");
+    expect(unlocked.headers.get("Cache-Control")).toBe("no-store");
+    expect(await unlocked.text()).toBe("fake-jpeg-bytes");
+  });
+
+  it("home-mode protected page forwards the cookie (prompt without, entry with)", async () => {
+    const id = "page200003";
+    await insertPage(db, { id, slug: "homesec", kind: "html" });
+    await createPagesRepository(db).setPasswordHash(id, await hashPassword("secret1"));
+    await objects.put(
+      id,
+      1,
+      "index.html",
+      "<!doctype html><html><head></head><body><h1>Home Secured</h1></body></html>",
+      "text/html; charset=utf-8",
+    );
+    const envHome = makeEnv({ HOME_MODE: "page", HOME_PAGE_SLUG: "homesec" });
+
+    const locked = await fetchIndex("/", envHome);
+    expect(locked.status).toBe(200);
+    expect(await locked.text()).toContain("This page is password protected.");
+
+    const token = generateToken();
+    await createUnlocksRepository(db).create(id, await hashToken(token));
+    const unlocked = await fetchIndexRequest(
+      new Request("https://pages.example.com/", {
+        headers: { Cookie: `pl_unlock=${formatUnlockCookie(id, token)}` },
+      }),
+      envHome,
+    );
+
+    expect(unlocked.status).toBe(200);
+    const text = await unlocked.text();
+    expect(text).toContain("<h1>Home Secured</h1>");
+    expect(text).not.toContain("password protected");
+  });
+
+  it("GET /assets/pages/{id}/{rev}/{path} is public and serves no-store bytes", async () => {
+    await objects.put("page200004", 1, "assets/css/style.css", "body {}", "text/css");
+
+    const res = await fetchIndex("/assets/pages/page200004/1/assets/css/style.css");
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("text/css");
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(res.headers.get("Cache-Tag")).toBeNull();
+    expect(await res.text()).toBe("body {}");
+  });
+
+  it("traversal and malformed-encoding attacks on /assets never 500 and never leak", async () => {
+    await objects.put("page200005", 1, "sibling.html", "sibling", "text/html");
+
+    // Encoded ../ with an encoded slash → router rejects (unknown) → clean 404.
+    const encSlash = await fetchIndex("/assets/pages/page200005/1/%2e%2e%2fsibling.html");
+    expect(encSlash.status).toBe(404);
+    expect(await encSlash.text()).toContain("Not Found");
+
+    // Encoded dot-dot + literal slash is normalized at URL parse → clean 404.
+    const normalized = await fetchIndex("/assets/pages/page200005/1/%2e%2e/sibling.html");
+    expect(normalized.status).toBe(404);
+    expect(await normalized.text()).toContain("Not Found");
+
+    // The reachable decoded-traversal shape (..\ via %5C) → typed 400, never 500.
+    const backslash = await fetchIndex("/assets/pages/page200005/1/%2e%2e%5csibling.html");
+    expect(backslash.status).toBe(400);
+    expect(((await backslash.json()) as { error: string }).error).toBe("path_traversal");
+
+    // Encoded slash → classified unknown → clean 404.
+    const encodedSlash = await fetchIndex("/assets/pages/page200005/1/a%2Fb");
+    expect(encodedSlash.status).toBe(404);
+
+    // Malformed percent-encoding → clean 404, never 500.
+    const malformed = await fetchIndex("/assets/pages/page200005/1/bad%2.html");
+    expect(malformed.status).toBe(404);
+    expect(await malformed.text()).toContain("Not Found");
+
+    // The sibling key was never served by any of the attacks above.
+    const res = await fetchIndex("/assets/pages/page200005/1/sibling.html");
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("sibling");
   });
 });

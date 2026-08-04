@@ -43,6 +43,7 @@ export type RevAction =
   | { type: "re-render" } // markdown re-render (template changes, OQ-13)
   | { type: "slug-edit" } // PATCH slug (metadata — does NOT bump)
   | { type: "meta-edit" } // PATCH title/visibility/show_source (no bump)
+  | { type: "password-edit" } // PATCH password (metadata — does NOT bump, ADR 0041)
   | { type: "create" }; // new page — rev starts at 1 (§8 DEFAULT 1)
 
 /** Guards the rev invariant shared by nextRev and buildR2Key. */
@@ -118,6 +119,7 @@ export function shouldBumpRev(action: RevAction): boolean {
       return true;
     case "slug-edit":
     case "meta-edit":
+    case "password-edit":
     case "create":
       return false;
     default:

@@ -54,6 +54,12 @@ describe("headersFor — happy path (S07 AC 1–6)", () => {
     expect(getHeader(headers, "Cache-Tag")).toBeUndefined();
   });
 
+  it("protected: no-store, no Cache-Tag (S23, ADR 0041 decision 9)", () => {
+    const headers = headersFor("protected");
+    expectCacheControl(headers, "no-store");
+    expect(getHeader(headers, "Cache-Tag")).toBeUndefined();
+  });
+
   it("admin: no-store, no tag", () => {
     const headers = headersFor("admin");
     expectCacheControl(headers, "no-store");
@@ -85,8 +91,8 @@ describe("headersFor — pageId edge cases (S07 AC 1, 3, 7)", () => {
     expect(getHeader(headers, "Cache-Tag")).toBe(`page-${PAGE_ID}`);
   });
 
-  it("pageId is ignored for asset, admin, notFound, and error", () => {
-    for (const routeClass of ["asset", "admin", "notFound", "error"] as const) {
+  it("pageId is ignored for asset, protected, admin, notFound, and error", () => {
+    for (const routeClass of ["asset", "protected", "admin", "notFound", "error"] as const) {
       const headers = headersFor(routeClass, PAGE_ID);
       expect(getHeader(headers, "Cache-Tag")).toBeUndefined();
     }
@@ -195,7 +201,15 @@ describe("headersFor — failure modes (S07 AC 7, 8)", () => {
 // ---------------------------------------------------------------------------
 
 describe("headersFor — never emits forbidden directives (S07 AC 7)", () => {
-  const CLASSES = ["entry", "redirect", "asset", "admin", "notFound", "error"] as const;
+  const CLASSES = [
+    "entry",
+    "redirect",
+    "asset",
+    "protected",
+    "admin",
+    "notFound",
+    "error",
+  ] as const;
 
   it.each(CLASSES)(
     "%s: no s-maxage, must-revalidate, proxy-revalidate, or private",

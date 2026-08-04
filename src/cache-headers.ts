@@ -21,6 +21,9 @@ export type CacheRouteClass =
   | "entry" // /{slug}/, /p/{id}/, home page
   | "redirect" // 301 image/raw → CDN object
   | "asset" // R2 CDN-served object
+  | "protected" // S23: password-gated surface — prompt, unlocked entry,
+  //   protected image bytes, worker asset bytes, unlock 303/errors.
+  //   Always no-store, never a Cache-Tag (ADR 0041 decision 9).
   | "admin" // admin UI + API
   | "notFound" // clean 404
   | "error"; // generic 500
@@ -54,6 +57,13 @@ const POLICY: Record<CacheRouteClass, CachePolicy> = {
   },
   asset: {
     cacheControl: "public, max-age=31536000, immutable",
+    needsPageId: false,
+  },
+  protected: {
+    // Workers Caching never stores a no-store response (Cf-Cache-Status:
+    // BYPASS, verified 2026-08-02), so password changes never need the edge
+    // to forget stale copies of protected responses (ADR 0041 decision 9).
+    cacheControl: "no-store",
     needsPageId: false,
   },
   admin: {

@@ -18,6 +18,7 @@ function pageRecord(
     raw_md_path: null,
     show_source: 0,
     visibility: "public",
+    password_hash: null,
     created_at: "2026-01-01T00:00:00.000Z",
     updated_at: "2026-01-01T00:00:00.000Z",
     ...overrides,
@@ -412,7 +413,7 @@ describe("createPagesRepository", () => {
         updated_at: now,
       };
       const created = await repo.create(page);
-      expect(created).toEqual(page);
+      expect(created).toEqual({ ...page, password_hash: null });
 
       const row = await db.prepare("SELECT * FROM pages WHERE id = ?").bind(page.id).first();
       expect(row).toMatchObject({ id: page.id, slug: page.slug, title: page.title });
@@ -679,6 +680,160 @@ describe("createPagesRepository", () => {
     });
   });
 
+  // --- password_hash mapping (S23, migration 0002) ---
+
+  describe("password_hash mapping", () => {
+    it("maps a stored password_hash to PageRecord on getById", async () => {
+      const id = "hashedpage01";
+      const hash = "pbkdf2$10000$c2FsdA$aGFzaA";
+      await insertPage(db, { id, slug: "h" });
+      await db.prepare("UPDATE pages SET password_hash = ? WHERE id = ?").bind(hash, id).run();
+
+      const page = await repo.getById(id);
+      expect(page).not.toBeNull();
+      expect(page!.password_hash).toBe(hash);
+    });
+
+    it("maps null password_hash across getBySlug, list, updateMeta, and applyRevBump", async () => {
+      const id = "plainpage01";
+      await insertPage(db, { id, slug: "plain" });
+
+      const bySlug = await repo.getBySlug("plain");
+      expect(bySlug!.password_hash).toBeNull();
+
+      const listed = await repo.list();
+      expect(listed[0].password_hash).toBeNull();
+
+      const meta = await repo.updateMeta(id, { title: "T" });
+      expect(meta!.password_hash).toBeNull();
+
+      const bumped = await repo.applyRevBump(id, 2, "index.html", null);
+      expect(bumped!.password_hash).toBeNull();
+    });
+
+    it("treats a missing password_hash column value as null", async () => {
+      const badRow = makeMockRow({ password_hash: undefined });
+      const badRepo = createPagesRepository(makeMockDb(badRow));
+      const page = await badRepo.getById("validId000");
+      expect(page).not.toBeNull();
+      expect(page!.password_hash).toBeNull();
+    });
+  });
+
+  // --- setPasswordHash (S23, ADR 0041 decision 10) ---
+
+  describe("setPasswordHash", () => {
+    it("sets password_hash and returns the updated record without bumping rev", async () => {
+      const pageId = "setpwhash01";
+      const hash = "pbkdf2$10000$c2FsdA$aGFzaA";
+      await insertPage(db, { id: pageId, slug: "pw", rev: 3 });
+
+      const updated = await repo.setPasswordHash(pageId, hash);
+      expect(updated).not.toBeNull();
+      expect(updated!.password_hash).toBe(hash);
+      expect(updated!.rev).toBe(3); // no rev bump
+
+      const row = await db
+        .prepare("SELECT password_hash, rev FROM pages WHERE id = ?")
+        .bind(pageId)
+        .first();
+      expect(row).toMatchObject({ password_hash: hash, rev: 3 });
+    });
+
+    it("clears password_hash when hash is null", async () => {
+      const pageId = "clearpwhash01";
+      await insertPage(db, { id: pageId, slug: "pw2" });
+      await repo.setPasswordHash(pageId, "pbkdf2$10000$c2FsdA$aGFzaA");
+
+      const cleared = await repo.setPasswordHash(pageId, null);
+      expect(cleared).not.toBeNull();
+      expect(cleared!.password_hash).toBeNull();
+
+      const row = await db
+        .prepare("SELECT password_hash FROM pages WHERE id = ?")
+        .bind(pageId)
+        .first();
+      expect(row).toMatchObject({ password_hash: null });
+    });
+
+    it("shares one implementation with updateMeta: both write the same column", async () => {
+      const pageId = "sharedimpl01";
+      await insertPage(db, { id: pageId, slug: "s" });
+
+      await repo.updateMeta(pageId, { passwordHash: "pbkdf2$10000$c2FsdA$YQ" });
+      expect((await repo.getById(pageId))!.password_hash).toBe("pbkdf2$10000$c2FsdA$YQ");
+
+      await repo.setPasswordHash(pageId, "pbkdf2$10000$c2FsdA$Yg");
+      expect((await repo.getById(pageId))!.password_hash).toBe("pbkdf2$10000$c2FsdA$Yg");
+
+      await repo.updateMeta(pageId, { passwordHash: null });
+      expect((await repo.getById(pageId))!.password_hash).toBeNull();
+
+      await repo.setPasswordHash(pageId, "pbkdf2$10000$c2FsdA$Yw");
+      const empty = await repo.updateMeta(pageId, {});
+      expect(empty!.password_hash).toBe("pbkdf2$10000$c2FsdA$Yw"); // unchanged
+    });
+
+    it("returns null for an unknown id without throwing", async () => {
+      const updated = await repo.setPasswordHash("Unknown000", "pbkdf2$10000$c2FsdA$aGFzaA");
+      expect(updated).toBeNull();
+    });
+
+    it("throws invalid_id (400) for an invalid id before SQL", async () => {
+      for (const bad of ["", "bad/id", "a.b", "a b", "x".repeat(65)]) {
+        await expect(repo.setPasswordHash(bad, "pbkdf2$10000$c2FsdA$aGFzaA")).rejects.toMatchObject(
+          {
+            code: "invalid_id",
+            status: 400,
+          },
+        );
+      }
+    });
+
+    it("throws db_write_failed (500) when the database write fails", async () => {
+      const badRepo = createPagesRepository({
+        prepare: () => {
+          throw new Error("simulated write failure");
+        },
+      } as unknown as D1Database);
+      await expect(
+        badRepo.setPasswordHash("validId000", "pbkdf2$10000$c2FsdA$aGFzaA"),
+      ).rejects.toMatchObject({
+        code: "db_write_failed",
+        status: 500,
+      });
+    });
+  });
+
+  // --- updateMeta passwordHash tri-state (undefined = unchanged, null = clear) ---
+
+  describe("updateMeta passwordHash", () => {
+    it("sets on string, clears on null, leaves unchanged when absent or undefined", async () => {
+      const pageId = "metapwhash01";
+      await insertPage(db, { id: pageId, slug: "m" });
+
+      const set = await repo.updateMeta(pageId, { passwordHash: "pbkdf2$10000$c2FsdA$MQ" });
+      expect(set!.password_hash).toBe("pbkdf2$10000$c2FsdA$MQ");
+
+      const clear = await repo.updateMeta(pageId, { passwordHash: null });
+      expect(clear!.password_hash).toBeNull();
+
+      await repo.updateMeta(pageId, { passwordHash: "pbkdf2$10000$c2FsdA$Mg" });
+      const absent = await repo.updateMeta(pageId, { title: "no-pw-change" });
+      expect(absent!.password_hash).toBe("pbkdf2$10000$c2FsdA$Mg");
+
+      const explicitUndefined = await repo.updateMeta(pageId, { passwordHash: undefined });
+      expect(explicitUndefined!.password_hash).toBe("pbkdf2$10000$c2FsdA$Mg");
+    });
+
+    it("does not bump rev when only the password changes", async () => {
+      const pageId = "metapwrev01";
+      await insertPage(db, { id: pageId, slug: "r", rev: 7 });
+      const updated = await repo.updateMeta(pageId, { passwordHash: "pbkdf2$10000$c2FsdA$Mw" });
+      expect(updated!.rev).toBe(7);
+    });
+  });
+
   // --- failure modes ---
 
   describe("failure modes", () => {
@@ -785,6 +940,7 @@ function makeMockRow(overrides: Partial<Record<string, unknown>> = {}): Record<s
     raw_md_path: null,
     show_source: 0,
     visibility: "public",
+    password_hash: null,
     created_at: "2026-01-01T00:00:00.000Z",
     updated_at: "2026-01-01T00:00:00.000Z",
     ...overrides,

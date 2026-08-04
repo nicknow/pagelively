@@ -8,6 +8,16 @@ All notable changes to this project are documented here. Format loosely follows
 First stable release. The 0.1.0 build was deployed, exercised, and hardened with a few
 post-deploy fixes that keep the one-command provision/deploy path reliable.
 
+### Added
+
+- Per-page password protection (S23): admins can set or clear one password per page on create
+  or edit (min 5 chars, max 256; empty = not protected). Visitors see a server-rendered
+  password prompt; a successful unlock sets an opaque-token HttpOnly cookie (`pl_unlock`).
+  Protected pages bypass the CDN — all entry HTML, image bytes, and assets are served by the
+  Worker with `Cache-Control: no-store` and a Worker-origin `<base>` href. See ADR 0041 for
+  the locked design decisions, OQ-19..OQ-24 for the open-questions log, and §10 of the roadmap
+  for the full slice table.
+
 ### Fixed
 
 - Fragment/bookmark links in served HTML pages no longer 404. The injected `<base>` tag now

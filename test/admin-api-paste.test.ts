@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { env } from "cloudflare:workers";
 import { createExecutionContext } from "cloudflare:test";
 import worker from "../src/index";
+import { verifyPassword } from "../src/password";
 import {
   ACCESS_AUD,
   createMockFetch,
@@ -372,5 +373,74 @@ describe("S17 paste — POST /api/pages application/json", () => {
     const res = await fetchApi("/api/pages", "POST", body, undefined, headers);
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: "Forbidden", message: "Forbidden" });
+  });
+
+  it("S23: JSON paste with a password creates a protected page — has_password true, hash stored, never leaked", async () => {
+    const token = await validToken();
+    const { body, headers } = pasteJson({
+      content: "# Hi",
+      format: "markdown",
+      slug: "protected-paste",
+      password: "s3cret-word",
+    });
+
+    const res = await fetchApi("/api/pages", "POST", body, token, headers);
+
+    expect(res.status).toBe(201);
+    const bodyJson = (await res.json()) as Record<string, unknown>;
+    expect(bodyJson.has_password).toBe(true);
+    // R19: the hash and the raw password never appear in any response surface.
+    expect(bodyJson).not.toHaveProperty("password_hash");
+    expect(bodyJson).not.toHaveProperty("password");
+    expect(JSON.stringify(bodyJson)).not.toContain("pbkdf2");
+    expect(JSON.stringify(bodyJson)).not.toContain("s3cret-word");
+
+    const row = await db
+      .prepare("SELECT password_hash FROM pages WHERE id = ?")
+      .bind(bodyJson.id as string)
+      .first<{ password_hash: string | null }>();
+    expect(row?.password_hash).toMatch(/^pbkdf2\$10000\$/);
+    expect(row?.password_hash).not.toBe("s3cret-word");
+    expect(await verifyPassword("s3cret-word", row!.password_hash!)).toBe(true);
+    expect(await verifyPassword("wrong-password", row!.password_hash!)).toBe(false);
+  });
+
+  it("S23: JSON paste without a password is unprotected (has_password false, NULL stored)", async () => {
+    const token = await validToken();
+    const { body, headers } = pasteJson({ content: "# Hi", format: "markdown" });
+
+    const res = await fetchApi("/api/pages", "POST", body, token, headers);
+
+    expect(res.status).toBe(201);
+    const bodyJson = (await res.json()) as Record<string, unknown>;
+    expect(bodyJson.has_password).toBe(false);
+    expect(bodyJson).not.toHaveProperty("password_hash");
+    expect(JSON.stringify(bodyJson)).not.toContain("pbkdf2");
+
+    const row = await db
+      .prepare("SELECT password_hash FROM pages WHERE id = ?")
+      .bind(bodyJson.id as string)
+      .first<{ password_hash: string | null }>();
+    expect(row?.password_hash).toBeNull();
+  });
+
+  it("S23: JSON paste with a too-short password returns 400 invalid_password and stores nothing", async () => {
+    const token = await validToken();
+    const { body, headers } = pasteJson({
+      content: "# Hi",
+      format: "markdown",
+      password: "1234",
+    });
+
+    const res = await fetchApi("/api/pages", "POST", body, token, headers);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "invalid_password",
+      message: "Password must be at least 5 characters.",
+    });
+    const count = await db.prepare("SELECT COUNT(*) AS n FROM pages").first<{ n: number }>();
+    expect(count?.n).toBe(0);
+    expect(await listKeys(bucket, "pages/")).toEqual([]);
   });
 });

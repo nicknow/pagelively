@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseFileUpdateForm, parsePublishForm, parsePublishJson } from "../src/form-parser";
+import {
+  parseFileUpdateForm,
+  parsePublishForm,
+  parsePublishJson,
+  validateStoredPath,
+} from "../src/form-parser";
 
 // S17 — form-parser direct unit tests (covers uncovered branches in src/form-parser.ts).
 
@@ -51,6 +56,27 @@ describe("parsePublishForm", () => {
     const result = await parsePublishForm(makeRequest(new FormData()));
     expect(result.manifest).toEqual({});
     expect(result.files).toEqual([]);
+  });
+
+  it("S23: carries a manifest password through", async () => {
+    const form = new FormData();
+    form.append("manifest", JSON.stringify({ password: "s3cret-word" }));
+    form.append("file:index.html", makeFile("index.html", "<h1>Hi</h1>", "text/html"));
+
+    const result = await parsePublishForm(makeRequest(form));
+    expect(result.manifest.password).toBe("s3cret-word");
+    expect(result.files).toHaveLength(1);
+  });
+
+  it("S23: rejects a non-string manifest password with 400 invalid_password", async () => {
+    const form = new FormData();
+    form.append("manifest", JSON.stringify({ password: 123 }));
+    form.append("file:index.html", makeFile("index.html", "<h1>Hi</h1>", "text/html"));
+
+    await expect(parsePublishForm(makeRequest(form))).rejects.toMatchObject({
+      code: "invalid_password",
+      status: 400,
+    });
   });
 
   it("throws invalid_manifest when the manifest field is not a string", async () => {
@@ -446,5 +472,63 @@ describe("parsePublishJson", () => {
     );
     const text = new TextDecoder().decode(result.files[0].content);
     expect(text).toBe("# Title");
+  });
+
+  it("S23: carries a top-level password through", async () => {
+    const result = await parsePublishJson(
+      makeJsonRequest({ content: "# Hi", format: "markdown", password: "s3cret-word" }),
+    );
+    expect(result.manifest.password).toBe("s3cret-word");
+  });
+
+  it("S23: rejects a non-string top-level password with 400 invalid_password", async () => {
+    await expect(
+      parsePublishJson(makeJsonRequest({ content: "# Hi", format: "markdown", password: ["no"] })),
+    ).rejects.toMatchObject({
+      code: "invalid_password",
+      status: 400,
+    });
+  });
+});
+
+// S23-C — validateStoredPath is the shared read/write path rule extracted from
+// the write-side form parser (behavior-preserving: same codes, same statuses).
+describe("validateStoredPath", () => {
+  it("accepts relative, clean paths", () => {
+    expect(() => validateStoredPath("index.html")).not.toThrow();
+    expect(() => validateStoredPath("assets/css/style.css")).not.toThrow();
+    expect(() => validateStoredPath("pages/2/photo.jpg")).not.toThrow();
+  });
+
+  it("rejects an empty path with invalid_path (400)", () => {
+    expect(() => validateStoredPath("")).toThrowError(
+      expect.objectContaining({ code: "invalid_path", status: 400 }),
+    );
+  });
+
+  it("rejects an absolute path with path_traversal (400)", () => {
+    expect(() => validateStoredPath("/etc/passwd")).toThrowError(
+      expect.objectContaining({ code: "path_traversal", status: 400 }),
+    );
+  });
+
+  it("rejects ../ anywhere with path_traversal (400)", () => {
+    for (const path of ["../etc/passwd", "a/../b"]) {
+      expect(() => validateStoredPath(path)).toThrowError(
+        expect.objectContaining({ code: "path_traversal", status: 400 }),
+      );
+    }
+  });
+
+  it("rejects backslashes with path_traversal (400)", () => {
+    expect(() => validateStoredPath("a\\b.html")).toThrowError(
+      expect.objectContaining({ code: "path_traversal", status: 400 }),
+    );
+  });
+
+  it("rejects percent signs with invalid_filename (400)", () => {
+    expect(() => validateStoredPath("bad%file.html")).toThrowError(
+      expect.objectContaining({ code: "invalid_filename", status: 400 }),
+    );
   });
 });

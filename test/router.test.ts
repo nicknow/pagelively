@@ -207,3 +207,133 @@ describe("classifyPath — validator edge cases", () => {
     }
   });
 });
+
+// --- S23-A AC 9 — unlock and asset route families (ADR 0041 decision 6) ---
+
+describe("classifyPath — S23 unlock route (/p/{id}/unlock[/])", () => {
+  it("classifies /p/{id}/unlock and /p/{id}/unlock/ as unlock, keeping the id raw", () => {
+    expect(classifyPath("/p/abc123/unlock")).toEqual({ type: "unlock", id: "abc123" });
+    expect(classifyPath("/p/abc123/unlock/")).toEqual({ type: "unlock", id: "abc123" });
+    expect(classifyPath("/p/AbC_1-x/unlock")).toEqual({ type: "unlock", id: "AbC_1-x" });
+  });
+
+  it("matches the unlock literal case-insensitively", () => {
+    expect(classifyPath("/p/abc/UNLOCK")).toEqual({ type: "unlock", id: "abc" });
+    expect(classifyPath("/p/abc/Unlock")).toEqual({ type: "unlock", id: "abc" });
+  });
+
+  it("tolerates multiple trailing slashes on unlock paths", () => {
+    expect(classifyPath("/p/abc/unlock///")).toEqual({ type: "unlock", id: "abc" });
+  });
+
+  it("classifies only exactly that depth as unlock — deeper paths are unknown", () => {
+    expect(classifyPath("/p/abc/unlock/x")).toEqual({ type: "unknown" });
+    expect(classifyPath("/p/abc/unlock/x/y")).toEqual({ type: "unknown" });
+    expect(classifyPath("/p/unlock/extra")).toEqual({ type: "unknown" });
+  });
+
+  it("keeps the id namespace separate: /p/{id} with id 'unlock' stays an id route", () => {
+    expect(classifyPath("/p/unlock")).toEqual({ type: "id", id: "unlock" });
+    expect(classifyPath("/p/unlock/unlock")).toEqual({ type: "unlock", id: "unlock" });
+  });
+
+  it("leaves /p/{id} and /p unchanged (regression)", () => {
+    expect(classifyPath("/p/abc123")).toEqual({ type: "id", id: "abc123" });
+    expect(classifyPath("/p/abc123/")).toEqual({ type: "id", id: "abc123" });
+    expect(classifyPath("/p")).toEqual({ type: "unknown" });
+    expect(classifyPath("/p/")).toEqual({ type: "unknown" });
+  });
+
+  it("still rejects encoded slashes on unlock paths (unchanged rule)", () => {
+    expect(classifyPath("/p/a%2Fb/unlock")).toEqual({ type: "unknown" });
+    expect(classifyPath("/p/abc/unl%2Fock")).toEqual({ type: "unknown" });
+    expect(classifyPath("/p/a%2fb/unlock")).toEqual({ type: "unknown" });
+  });
+});
+
+describe("classifyPath — S23 asset route (/assets/pages/{id}/{rev}/{path…})", () => {
+  it("classifies /assets/pages/{id}/{rev}/{path…} as asset, joining remaining raw segments", () => {
+    expect(classifyPath("/assets/pages/abc/1/index.html")).toEqual({
+      type: "asset",
+      id: "abc",
+      rev: "1",
+      path: "index.html",
+    });
+    expect(classifyPath("/assets/pages/abc/2/images/pic.png")).toEqual({
+      type: "asset",
+      id: "abc",
+      rev: "2",
+      path: "images/pic.png",
+    });
+    expect(classifyPath("/assets/pages/abc/3/a/b/c/d.txt")).toEqual({
+      type: "asset",
+      id: "abc",
+      rev: "3",
+      path: "a/b/c/d.txt",
+    });
+  });
+
+  it("keeps the id and rev segments raw (routing only splits)", () => {
+    expect(classifyPath("/assets/pages/AbC_1-x/12/foo.png")).toEqual({
+      type: "asset",
+      id: "AbC_1-x",
+      rev: "12",
+      path: "foo.png",
+    });
+  });
+
+  it("matches the assets prefix and the pages literal case-insensitively", () => {
+    expect(classifyPath("/ASSETS/pages/abc/1/x.png")).toEqual({
+      type: "asset",
+      id: "abc",
+      rev: "1",
+      path: "x.png",
+    });
+    expect(classifyPath("/assets/PAGES/abc/1/x.png")).toEqual({
+      type: "asset",
+      id: "abc",
+      rev: "1",
+      path: "x.png",
+    });
+  });
+
+  it("classifies any other /assets/… path as unknown (reserved, ADR 0007)", () => {
+    const reserved = [
+      "/assets",
+      "/assets/",
+      "/assets/foo.png",
+      "/assets/pages",
+      "/assets/pages/",
+      "/assets/pages/abc",
+      "/assets/pages/abc/1", // no path segment — not an object URL
+      "/assets/pages/abc/1/",
+      "/assets/pagesx/abc/1/x",
+      "/assets/other/x",
+      "/assets/ADMIN/1/x",
+    ];
+    for (const path of reserved) {
+      expect(classifyPath(path)).toEqual({ type: "unknown" });
+    }
+  });
+
+  it("rejects empty segments and encoded slashes in asset paths", () => {
+    expect(classifyPath("/assets//pages/abc/1/x")).toEqual({ type: "unknown" });
+    expect(classifyPath("/assets/pages//abc/1/x")).toEqual({ type: "unknown" });
+    expect(classifyPath("/assets/pages/abc/1/a//b")).toEqual({ type: "unknown" });
+    expect(classifyPath("/assets/pages/abc/1/a%2Fb")).toEqual({ type: "unknown" });
+    expect(classifyPath("/assets/pages/a%2Fb/1/x")).toEqual({ type: "unknown" });
+    expect(classifyPath("/assets/pages/abc/1/x%2fy")).toEqual({ type: "unknown" });
+  });
+
+  it("never throws on adversarial asset paths (total function)", () => {
+    for (const path of [
+      "/assets/pages/%/1/x",
+      "/assets/pages/abc/%2/1/x",
+      "/assets/pages/abc/1/%",
+      "/assets/pages/./1/x",
+      "/assets/pages/abc/../x",
+    ]) {
+      expect(() => classifyPath(path)).not.toThrow();
+    }
+  });
+});

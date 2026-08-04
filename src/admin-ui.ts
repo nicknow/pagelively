@@ -796,6 +796,11 @@ function uploadContent(): string {
             <span class="hint">Which file is the page entry?</span>
           </div>
         </div>
+        <div class="form-group">
+          <label class="field-label" for="password">Password <span class="hint">(optional)</span></label>
+          <input type="password" name="password" id="password" minlength="5" placeholder="Set a page password">
+          <p id="password-notice" style="display:none">All access will bypass the CDN which may increase usage.</p>
+        </div>
         <input type="hidden" name="manifest" id="manifest">
         <div class="toolbar">
           <button type="submit" class="button button-primary">Upload</button>
@@ -840,6 +845,11 @@ function uploadContent(): string {
             Show source link (for Markdown pages)
           </label>
         </div>
+        <div class="form-group">
+          <label class="field-label" for="paste-password">Password <span class="hint">(optional)</span></label>
+          <input type="password" name="paste-password" id="paste-password" minlength="5" placeholder="Set a page password">
+          <p id="paste-password-notice" style="display:none">All access will bypass the CDN which may increase usage.</p>
+        </div>
         <div class="toolbar">
           <button type="submit" id="publish-paste" class="button button-primary">Publish</button>
           <a class="button button-secondary" href="/admin">Cancel</a>
@@ -864,6 +874,17 @@ function uploadContent(): string {
 
       initSlugPreview('slug', 'slug-preview');
       initSlugPreview('paste-slug', 'paste-slug-preview');
+
+      function initPasswordNotice(inputId, noticeId) {
+        var input = document.getElementById(inputId);
+        var notice = document.getElementById(noticeId);
+        if (!input || !notice) return;
+        input.addEventListener('input', function() {
+          notice.style.display = input.value ? 'block' : 'none';
+        });
+      }
+      initPasswordNotice('password', 'password-notice');
+      initPasswordNotice('paste-password', 'paste-password-notice');
 
       function showTab(tab) {
         tabs.forEach(function(t) {
@@ -899,12 +920,14 @@ function uploadContent(): string {
       function buildManifest() {
         const files = selectedFiles();
         const relative = f => f.webkitRelativePath || f.name;
+        const pwd = document.getElementById('password').value;
         const manifest = {
           slug: document.getElementById('slug').value || undefined,
           title: document.getElementById('title').value || undefined,
           showSource: document.getElementById('show_source').checked,
           visibility: form.querySelector('input[name="visibility"]:checked').value,
           entry: entryField.classList.contains('hidden') ? undefined : entrySelect.value,
+          password: pwd || undefined,
         };
         return JSON.stringify(manifest);
       }
@@ -981,6 +1004,7 @@ function uploadContent(): string {
           return;
         }
         const pasteFormat = pasteForm.querySelector('input[name="paste-format"]:checked').value;
+        var pastePwd = document.getElementById('paste-password').value;
         const payload = {
           content: pasteContent.value,
           format: pasteFormat,
@@ -988,6 +1012,7 @@ function uploadContent(): string {
           title: document.getElementById('paste-title').value || undefined,
           visibility: pasteForm.querySelector('input[name="paste-visibility"]:checked').value,
           showSource: document.getElementById('paste-show-source').checked,
+          password: pastePwd || undefined,
         };
         const res = await fetch('/api/pages', {
           method: 'POST',
@@ -1089,6 +1114,27 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
           Show source link
         </label>
       </div>
+      <fieldset class="form-group">
+        <legend class="field-label">Password</legend>
+        ${
+          page.password_hash !== null
+            ? `<p><strong>Password:</strong> set</p>
+             <p id="edit-password-notice">All access will bypass the CDN which may increase usage.</p>`
+            : ""
+        }
+        <label class="field-label" for="edit-password">Replace password <span class="hint">(optional; leave blank to keep current)</span></label>
+        <input type="password" name="password" id="edit-password" minlength="5" placeholder="New password">
+        ${
+          page.password_hash !== null
+            ? `<div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" name="clear-password" id="clear-password" value="true">
+                Clear password
+              </label>
+            </div>`
+            : ""
+        }
+      </fieldset>
       <div class="toolbar">
         <button type="submit" class="button button-primary">Update metadata</button>
         <a class="button button-secondary" href="${escapeHtml(backUrl)}">Back</a>
@@ -1143,6 +1189,18 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
         if (title !== '') body.title = title;
         body.visibility = formData.get('visibility');
         body.showSource = formData.has('showSource');
+        const pwd = formData.get('password');
+        if (pwd && pwd !== '') {
+          body.password = pwd;
+        }${
+          page.password_hash !== null
+            ? `
+        var clearEl = document.getElementById('clear-password');
+        if (clearEl && clearEl.checked) {
+          body.password = '';
+        }`
+            : ""
+        }
         const res = await fetch(editForm.dataset.api, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },

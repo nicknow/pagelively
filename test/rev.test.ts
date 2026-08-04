@@ -183,6 +183,10 @@ describe("shouldBumpRev (S03 AC 4 & 5, architecture 04 purge matrix, OQ-04)", ()
     expect(shouldBumpRev({ type: "create" })).toBe(false);
   });
 
+  it("returns false for password-edit (metadata — ADR 0041)", () => {
+    expect(shouldBumpRev({ type: "password-edit" })).toBe(false);
+  });
+
   it("throws AppError unknown_action on an unknown action type (fail-fast)", () => {
     expectAppError(
       () => shouldBumpRev({ type: "banana" } as never),

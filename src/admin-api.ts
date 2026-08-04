@@ -41,6 +41,20 @@ export interface AdminApiDeps {
   cacheService: CacheService;
   config: AppConfig;
   verifiedIdentity: VerifiedIdentity;
+  unlocks: UnlocksRepository;
+}
+
+import type { UnlocksRepository } from "./unlocks-repository";
+import { hashPassword, validatePassword } from "./password";
+
+/**
+ * S23 (ADR 0041 D11): serializer that strips password_hash and emits
+ * has_password: boolean. Every page JSON surface uses this so the hash
+ * never leaks (R19).
+ */
+function toPageJson(record: PageRecord): Record<string, unknown> {
+  const { password_hash, ...rest } = record;
+  return { ...rest, has_password: password_hash !== null };
 }
 
 function adminJsonHeaders(cacheService: CacheService): Headers {
@@ -275,7 +289,7 @@ export async function handleListPages(
 
   const pages = await pagesRepository.list();
   const headers = adminJsonHeaders(cacheService);
-  return Response.json(pages, { headers });
+  return Response.json(pages.map(toPageJson), { headers });
 }
 
 export async function handleGetPage(
@@ -300,7 +314,7 @@ export async function handleGetPage(
 
   const files = await filesRepository.listForPage(id);
   const headers = adminJsonHeaders(cacheService);
-  return Response.json({ ...page, files }, { headers });
+  return Response.json({ ...toPageJson(page), files }, { headers });
 }
 
 export async function handleCreatePage(
@@ -340,6 +354,19 @@ export async function handleCreatePage(
   const slug = await resolveSlug(cleanedSlug, title, pagesRepository, id);
   const showSource = manifest.showSource === true ? 1 : 0;
 
+  // S23: password validation before any side effects
+  let passwordHash: string | undefined;
+  if (manifest.password !== undefined) {
+    const validation = validatePassword(manifest.password);
+    if (validation.status === "invalid") {
+      throw new AppError("invalid_password", 400, validation.message);
+    }
+    if (validation.status === "valid") {
+      passwordHash = await hashPassword(validation.value);
+    }
+    // "not-set" → leave as undefined (no password)
+  }
+
   const r2Files = buildR2Files(files, kind, entry, config.allowRawHtmlInMd, showSource === 1);
 
   const fileRecords: NewFile[] = r2Files.map((file) => ({
@@ -363,6 +390,7 @@ export async function handleCreatePage(
     raw_md_path: rawMdPath,
     show_source: showSource,
     visibility: manifest.visibility ?? "public",
+    passwordHash,
     created_at: now,
     updated_at: now,
   };
@@ -376,8 +404,9 @@ export async function handleCreatePage(
     throw error;
   }
 
+  let createdPage: PageRecord;
   try {
-    await pagesRepository.create(newPage);
+    createdPage = await pagesRepository.create(newPage);
     await filesRepository.replaceAll(id, rev, fileRecords);
   } catch (error) {
     await objectStore.deletePageObjects(id);
@@ -388,7 +417,10 @@ export async function handleCreatePage(
   await cacheService.purgePage(ctx, id);
 
   const headers = adminJsonHeaders(cacheService);
-  return Response.json({ ...newPage, files: fileRecords }, { status: 201, headers });
+  return Response.json(
+    { ...toPageJson(createdPage), files: fileRecords },
+    { status: 201, headers },
+  );
 }
 
 function isEntryReplacement(page: PageRecord, path: string): boolean {
@@ -491,12 +523,14 @@ function validatePatchBody(body: Record<string, unknown>): {
   title?: string;
   visibility?: "public" | "unlisted";
   show_source?: 0 | 1;
+  password?: string | null;
 } {
   const patch: {
     slug?: string | null;
     title?: string;
     visibility?: "public" | "unlisted";
     show_source?: 0 | 1;
+    password?: string | null;
   } = {};
 
   if ("slug" in body) {
@@ -529,6 +563,12 @@ function validatePatchBody(body: Record<string, unknown>): {
       throw new AppError("invalid_show_source", 400, "showSource must be a boolean.");
     }
     patch.show_source = body.showSource ? 1 : 0;
+  }
+  if ("password" in body) {
+    if (body.password !== null && typeof body.password !== "string") {
+      throw new AppError("invalid_password", 400, "Password must be a string.");
+    }
+    patch.password = body.password as string | null;
   }
 
   return patch;
@@ -582,7 +622,7 @@ async function writeFilesAndUpdatePage(
   await cacheService.purgePage(ctx, page.id);
   const finalFiles = await filesRepository.listForPage(page.id);
   const headers = adminJsonHeaders(cacheService);
-  return Response.json({ ...updatedPage, files: finalFiles }, { headers });
+  return Response.json({ ...toPageJson(updatedPage), files: finalFiles }, { headers });
 }
 
 export async function handlePatchPage(
@@ -660,23 +700,59 @@ export async function handlePatchPage(
     await objectStore.put(page.id, page.rev, page.entry_path, bufferFromText(html), CHARSET_HTML);
   }
 
-  try {
-    const updatedPage = await pagesRepository.updateMeta(id, patch);
-    if (!updatedPage) {
-      throw new AppError("not_found", 404, "Page not found.");
+  // S23: password handling — tri-state: present (set/clear), absent (unchanged)
+  const passwordPresent = "password" in patch;
+  let updatedPage: PageRecord | null = null;
+  if (passwordPresent) {
+    let pwdHash: string | null = null;
+    const pwd = patch.password;
+    if (pwd !== null && pwd !== "") {
+      // set: validate, hash, then store
+      const validation = validatePassword(pwd);
+      if (validation.status === "invalid") {
+        throw new AppError("invalid_password", 400, validation.message);
+      }
+      if (validation.status === "valid") {
+        pwdHash = await hashPassword(validation.value);
+      }
+      // validation.status === "not-set" (whitespace-only): pwdHash stays null = clear
     }
+    // pwdHash === null means clear (whether explicit or whitespace-triggered)
+    const result = await pagesRepository.setPasswordHash(id, pwdHash);
+    if (!result) throw new AppError("not_found", 404, "Page not found.");
+    updatedPage = result;
+    await deps.unlocks.deleteByPageId(id);
     await cacheService.purgePage(ctx, id);
-    const files = await filesRepository.listForPage(id);
-    const headers = adminJsonHeaders(cacheService);
-    return Response.json({ ...updatedPage, files }, { headers });
-  } catch (error) {
-    if (needsReRender && oldEntryHtml !== null) {
-      await objectStore
-        .put(page.id, page.rev, page.entry_path, bufferFromText(oldEntryHtml), CHARSET_HTML)
-        .catch(() => {});
-    }
-    throw error;
+    // Remove password from the meta patch so updateMeta doesn't double-write
+    delete (patch as Record<string, unknown>).password;
   }
+
+  if (Object.keys(patch).length > 0) {
+    try {
+      const result = await pagesRepository.updateMeta(id, patch);
+      if (!result) throw new AppError("not_found", 404, "Page not found.");
+      updatedPage = result;
+      await cacheService.purgePage(ctx, id);
+    } catch (error) {
+      if (needsReRender && oldEntryHtml !== null) {
+        await objectStore
+          .put(page.id, page.rev, page.entry_path, bufferFromText(oldEntryHtml), CHARSET_HTML)
+          .catch(() => {});
+      }
+      throw error;
+    }
+  }
+
+  if (!updatedPage) {
+    // No changes at all (empty patch); re-fetch
+    const result = await pagesRepository.getById(id);
+    if (!result) throw new AppError("not_found", 404, "Page not found.");
+    updatedPage = result;
+  }
+
+  const files = await filesRepository.listForPage(id);
+  const headers = adminJsonHeaders(cacheService);
+  return Response.json({ ...toPageJson(updatedPage), files }, { headers });
 }
 
 export async function handleAddFiles(
