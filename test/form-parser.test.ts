@@ -58,6 +58,27 @@ describe("parsePublishForm", () => {
     expect(result.files).toEqual([]);
   });
 
+  it("S23: carries a manifest password through", async () => {
+    const form = new FormData();
+    form.append("manifest", JSON.stringify({ password: "s3cret-word" }));
+    form.append("file:index.html", makeFile("index.html", "<h1>Hi</h1>", "text/html"));
+
+    const result = await parsePublishForm(makeRequest(form));
+    expect(result.manifest.password).toBe("s3cret-word");
+    expect(result.files).toHaveLength(1);
+  });
+
+  it("S23: rejects a non-string manifest password with 400 invalid_password", async () => {
+    const form = new FormData();
+    form.append("manifest", JSON.stringify({ password: 123 }));
+    form.append("file:index.html", makeFile("index.html", "<h1>Hi</h1>", "text/html"));
+
+    await expect(parsePublishForm(makeRequest(form))).rejects.toMatchObject({
+      code: "invalid_password",
+      status: 400,
+    });
+  });
+
   it("throws invalid_manifest when the manifest field is not a string", async () => {
     const form = new FormData();
     form.append("manifest", makeFile("manifest.json", "{}"));
@@ -451,6 +472,22 @@ describe("parsePublishJson", () => {
     );
     const text = new TextDecoder().decode(result.files[0].content);
     expect(text).toBe("# Title");
+  });
+
+  it("S23: carries a top-level password through", async () => {
+    const result = await parsePublishJson(
+      makeJsonRequest({ content: "# Hi", format: "markdown", password: "s3cret-word" }),
+    );
+    expect(result.manifest.password).toBe("s3cret-word");
+  });
+
+  it("S23: rejects a non-string top-level password with 400 invalid_password", async () => {
+    await expect(
+      parsePublishJson(makeJsonRequest({ content: "# Hi", format: "markdown", password: ["no"] })),
+    ).rejects.toMatchObject({
+      code: "invalid_password",
+      status: 400,
+    });
   });
 });
 
