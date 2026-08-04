@@ -4,6 +4,7 @@ import { createExecutionContext } from "cloudflare:test";
 import { handleListPages, handleGetPage } from "../src/admin-api";
 import { createPagesRepository } from "../src/pages-repository";
 import { createFilesRepository } from "../src/files-repository";
+import { createUnlocksRepository } from "../src/unlocks-repository";
 import { createObjectStore } from "../src/object-store";
 import { createTestCacheService } from "../src/cache-service";
 import { createConfig } from "../src/config";
@@ -24,14 +25,15 @@ async function insertPage(
     raw_md_path?: string | null;
     show_source?: number;
     visibility?: string;
+    password_hash?: string | null;
     created_at?: string;
     updated_at?: string;
   },
 ) {
   await db
     .prepare(
-      `INSERT INTO pages (id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO pages (id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       p.id,
@@ -43,8 +45,9 @@ async function insertPage(
       p.raw_md_path === undefined ? null : p.raw_md_path,
       p.show_source ?? 0,
       p.visibility ?? "public",
-      isoNow(),
-      isoNow(),
+      p.password_hash === undefined ? null : p.password_hash,
+      p.created_at ?? isoNow(),
+      p.updated_at ?? isoNow(),
     )
     .run();
 }
@@ -84,7 +87,15 @@ function makeDeps() {
   const cacheService = createTestCacheService();
   const config = makeConfig();
   const verifiedIdentity = { email: "admin@example.com" };
-  return { pagesRepository, filesRepository, objectStore, cacheService, config, verifiedIdentity };
+  return {
+    pagesRepository,
+    filesRepository,
+    objectStore,
+    cacheService,
+    config,
+    verifiedIdentity,
+    unlocks: createUnlocksRepository(db),
+  };
 }
 
 describe("admin-api handlers", () => {
@@ -150,6 +161,37 @@ describe("admin-api handlers", () => {
       expect(body[0]).toHaveProperty("created_at");
       expect(body[0]).toHaveProperty("updated_at");
       expect(body[0]).not.toHaveProperty("files");
+    });
+
+    it("S23: reports has_password for protected and unprotected pages without leaking the hash", async () => {
+      const deps = makeDeps();
+      await insertPage(db, { id: "page000011", slug: "open", title: "Open" });
+      await insertPage(db, {
+        id: "page000012",
+        slug: "locked",
+        title: "Locked",
+        password_hash: "pbkdf2$10000$salt$hash",
+      });
+
+      const res = await handleListPages(
+        new Request("https://pages.example.com/api/pages"),
+        ctx,
+        deps,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>[];
+      const open = body.find((p) => p.id === "page000011");
+      const locked = body.find((p) => p.id === "page000012");
+      expect(open?.has_password).toBe(false);
+      expect(locked?.has_password).toBe(true);
+      // R19: no password material in any response body.
+      expect(JSON.stringify(body)).not.toContain("pbkdf2");
+      expect(JSON.stringify(body)).not.toContain("password_hash");
+      expect(JSON.stringify(body)).not.toContain("$salt$hash");
+      for (const page of body) {
+        expect(page).not.toHaveProperty("password_hash");
+        expect(page).not.toHaveProperty("password");
+      }
     });
   });
 
@@ -242,6 +284,46 @@ describe("admin-api handlers", () => {
         code: "invalid_id",
         status: 400,
       });
+    });
+
+    it("S23: page detail reports has_password without leaking the hash", async () => {
+      const deps = makeDeps();
+      const pageId = "page000013";
+      await insertPage(db, {
+        id: pageId,
+        slug: "locked",
+        title: "Locked",
+        password_hash: "pbkdf2$10000$salt$hash",
+      });
+
+      const res = await handleGetPage(
+        new Request(`https://pages.example.com/api/pages/${pageId}`),
+        ctx,
+        deps,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.has_password).toBe(true);
+      expect(body).not.toHaveProperty("password_hash");
+      expect(body).not.toHaveProperty("password");
+      expect(JSON.stringify(body)).not.toContain("pbkdf2");
+      expect(JSON.stringify(body)).not.toContain("$salt$hash");
+    });
+
+    it("S23: page detail for an unprotected page reports has_password false", async () => {
+      const deps = makeDeps();
+      const pageId = "page000014";
+      await insertPage(db, { id: pageId, slug: "open", title: "Open" });
+
+      const res = await handleGetPage(
+        new Request(`https://pages.example.com/api/pages/${pageId}`),
+        ctx,
+        deps,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.has_password).toBe(false);
+      expect(body).not.toHaveProperty("password_hash");
     });
   });
 });

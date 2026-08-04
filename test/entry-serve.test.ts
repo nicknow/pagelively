@@ -1,11 +1,14 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { env } from "cloudflare:workers";
 import { createPagesRepository } from "../src/pages-repository";
+import { createUnlocksRepository } from "../src/unlocks-repository";
 import { createObjectStore } from "../src/object-store";
 import { createCacheService } from "../src/cache-service";
 import { createConfig, type AppConfig } from "../src/config";
 import { serveEntry, type EntryServeDependencies } from "../src/entry-serve";
 import { AppError } from "../src/errors";
+import { hashPassword } from "../src/password";
+import { generateToken, hashToken, formatUnlockCookie } from "../src/password-token";
 
 // S12 — Entry request pipeline (public serving). These tests exercise the
 // real D1 + R2 emulation through serveEntry before it is wired into index.ts.
@@ -62,6 +65,7 @@ async function insertPage(
 async function clearPages(db: D1Database) {
   await db.prepare("DELETE FROM pages").run();
   await db.prepare("DELETE FROM files").run();
+  await db.prepare("DELETE FROM page_unlocks").run();
 }
 
 async function clearBucket(bucket: R2Bucket) {
@@ -79,6 +83,7 @@ function makeDeps(): EntryServeDependencies {
   return {
     config: { ...config, ...TEST_CONFIG },
     pages: createPagesRepository(env.DB),
+    unlocks: createUnlocksRepository(env.DB),
     objects: createObjectStore(env.BUCKET),
     cache: createCacheService(env),
   };
@@ -280,5 +285,126 @@ describe("serveEntry", () => {
     await expect(
       serveEntry(new Request("https://pages.example.com/p/bad.id/"), deps),
     ).rejects.toMatchObject({ code: "invalid_id", status: 400 });
+  });
+
+  // --- S23 public gate (ADR 0041 decisions 3 & 7) ---
+
+  async function seedProtected(id: string, slug: string, password: string): Promise<void> {
+    await insertPage(db, { id, slug, kind: "html" });
+    await createPagesRepository(db).setPasswordHash(id, await hashPassword(password));
+  }
+
+  it("returns the password prompt (200) for a protected page without touching R2", async () => {
+    await seedProtected("page000008", "locked", "secret1");
+
+    const res = await serveEntry(new Request("https://pages.example.com/locked/"), makeDeps());
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(res.headers.get("Cache-Tag")).toBeNull();
+    const text = await res.text();
+    expect(text).toContain("This page is password protected.");
+    expect(text).toContain('action="/p/page000008/unlock"');
+    // No entry content, no title, no CDN base href ever leaks.
+    expect(text).not.toContain("cdn.example.com");
+  });
+
+  it("returns the prompt for a protected image page instead of the CDN 301", async () => {
+    await insertPage(db, {
+      id: "page000009",
+      slug: "pict",
+      kind: "image",
+      entry_path: "photo.jpg",
+    });
+    await createPagesRepository(db).setPasswordHash("page000009", await hashPassword("secret1"));
+
+    const res = await serveEntry(new Request("https://pages.example.com/pict/"), makeDeps());
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Location")).toBeNull();
+    expect(await res.text()).toContain("This page is password protected.");
+  });
+
+  it("serves the unlocked entry (no-store, Worker-origin base href) for a valid cookie", async () => {
+    await seedProtected("page000008", "locked", "secret1");
+    await objects.put(
+      "page000008",
+      1,
+      "index.html",
+      "<!doctype html><html><head></head><body><p>Unlocked</p></body></html>",
+      "text/html; charset=utf-8",
+    );
+    const token = generateToken();
+    await createUnlocksRepository(db).create("page000008", await hashToken(token));
+
+    const res = await serveEntry(
+      new Request("https://pages.example.com/locked/", {
+        headers: { Cookie: `pl_unlock=${formatUnlockCookie("page000008", token)}` },
+      }),
+      makeDeps(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(res.headers.get("Cache-Tag")).toBeNull();
+    const text = await res.text();
+    expect(text).toContain("<p>Unlocked</p>");
+    expect(text).toContain(
+      '<base href="https://pages.example.com/assets/pages/page000008/1/index.html">',
+    );
+    expect(text).not.toContain("cdn.example.com");
+    expect(text).not.toContain("password protected");
+  });
+
+  it("shows the prompt for a wrong or stale cookie", async () => {
+    await seedProtected("page000008", "locked", "secret1");
+    await objects.put(
+      "page000008",
+      1,
+      "index.html",
+      "<!doctype html><html><head></head><body><p>Unlocked</p></body></html>",
+      "text/html; charset=utf-8",
+    );
+    const staleToken = generateToken(); // no unlock row exists
+
+    const res = await serveEntry(
+      new Request("https://pages.example.com/locked/", {
+        headers: { Cookie: `pl_unlock=${formatUnlockCookie("page000008", staleToken)}` },
+      }),
+      makeDeps(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("This page is password protected.");
+  });
+
+  it("serves an unlocked page by id with the Worker-origin base href", async () => {
+    await insertPage(db, { id: "page000010", slug: null, kind: "html", rev: 2 });
+    await createPagesRepository(db).setPasswordHash("page000010", await hashPassword("secret1"));
+    await objects.put(
+      "page000010",
+      2,
+      "index.html",
+      "<!doctype html><html><head></head><body><p>By id unlocked</p></body></html>",
+      "text/html; charset=utf-8",
+    );
+    const token = generateToken();
+    await createUnlocksRepository(db).create("page000010", await hashToken(token));
+
+    const res = await serveEntry(
+      new Request("https://pages.example.com/p/page000010/", {
+        headers: { Cookie: `pl_unlock=${formatUnlockCookie("page000010", token)}` },
+      }),
+      makeDeps(),
+    );
+
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("<p>By id unlocked</p>");
+    expect(text).toContain(
+      '<base href="https://pages.example.com/assets/pages/page000010/2/index.html">',
+    );
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
   });
 });

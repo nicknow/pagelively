@@ -41,6 +41,7 @@ async function insertPage(
     raw_md_path?: string | null;
     show_source?: number;
     visibility?: string;
+    password_hash?: string | null;
     created_at?: string;
     updated_at?: string;
   },
@@ -48,8 +49,8 @@ async function insertPage(
   const now = new Date().toISOString();
   await db
     .prepare(
-      `INSERT INTO pages (id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO pages (id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       p.id,
@@ -61,6 +62,7 @@ async function insertPage(
       p.raw_md_path === undefined ? null : p.raw_md_path,
       p.show_source ?? 0,
       p.visibility ?? "public",
+      p.password_hash === undefined ? null : p.password_hash,
       p.created_at ?? now,
       p.updated_at ?? now,
     )
@@ -652,6 +654,81 @@ describe("index.ts — admin UI", () => {
     expect(text).toContain("No pages yet");
     expect(text).toContain("Upload your first page");
     expect(text).toContain('href="/admin/upload"');
+  });
+
+  it("S23: upload form has a password input and the CDN-bypass notice", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    const text = await res.text();
+    expect(text).toContain('type="password"');
+    expect(text).toContain('id="password"');
+    expect(text).toContain('minlength="5"');
+    expect(text).toContain("All access will bypass the CDN which may increase usage.");
+    expect(text).toContain('id="password-notice"');
+    expect(text).toContain('style="display:none"');
+    // Password is included in the manifest JSON
+    expect(text).toContain("password: pwd || undefined");
+  });
+
+  it("S23: paste form has a password input and the CDN-bypass notice", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    const text = await res.text();
+    expect(text).toContain('id="paste-password"');
+    expect(text).toContain('minlength="5"');
+    expect(text).toContain("All access will bypass the CDN which may increase usage.");
+    expect(text).toContain('id="paste-password-notice"');
+    expect(text).toContain("password: pastePwd || undefined");
+  });
+
+  it("S23: edit page for a password-protected page shows 'Password: set' and the CDN-bypass notice", async () => {
+    const db = env.DB;
+    const pageId = "page0000pwui";
+    await insertPage(db, {
+      id: pageId,
+      slug: "pw-page",
+      title: "PW Page",
+      kind: "html",
+      password_hash: "pbkdf2$10000$salt$hash",
+    });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "index.html",
+      r2_key: `pages/${pageId}/1/index.html`,
+      content_type: "text/html; charset=utf-8",
+      size: 100,
+    });
+
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("Password:</strong> set");
+    expect(text).toContain("All access will bypass the CDN which may increase usage.");
+    expect(text).toContain('id="clear-password"');
+    expect(text).toContain('id="edit-password"');
+    expect(text).toContain('id="edit-password-notice"');
+  });
+
+  it("S23: edit page for an unprotected page shows no password state or clear control", async () => {
+    const db = env.DB;
+    const pageId = "page0000nopw";
+    await insertPage(db, {
+      id: pageId,
+      slug: "no-pw",
+      title: "No PW",
+      kind: "html",
+    });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "index.html",
+      r2_key: `pages/${pageId}/1/index.html`,
+      content_type: "text/html; charset=utf-8",
+      size: 100,
+    });
+
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).not.toContain("Password:</strong> set");
+    expect(text).not.toContain("clear-password");
   });
 
   it("T3: edit page surfaces a protected badge for entry files and a delete button for assets", async () => {

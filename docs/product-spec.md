@@ -138,6 +138,15 @@ Two hosts (§2): the **Worker** host `pages.acme.com` handles entry requests; th
 - `GET /pages/{id}/{rev}/{path...}` → an asset served straight from R2 (images, css, js, fonts,
   `source.md`). No Worker involved.
 
+**Public — password-protected surface (Worker host `pages.acme.com`)**
+- `GET /p/{id}/unlock` → the password prompt for a protected page, or a clean 404 for an unknown
+  or unprotected page (no protection-state disclosure).
+- `POST /p/{id}/unlock` → wrong password: 200 prompt with escaped inline error; correct password:
+  303 to `/p/{id}/` with a `Set-Cookie: pl_unlock={id}.{token}`.
+- `GET /assets/pages/{id}/{rev}/{path...}` → a protected asset served by the Worker with the
+  stored content type and `Cache-Control: no-store`. Only reachable for protected pages; the CDN
+  host never appears in protected responses.
+
 **Reserved prefixes / names** (rejected as slugs): `p`, `api`, `admin`, `_`, `assets`,
 `favicon.ico`, `robots.txt`, `health`, `sitemap.xml`.
 
@@ -505,15 +514,24 @@ setup.sh / setup.ps1   thin wrappers
    public bandwidth is free and unlimited (§2, §3, §6, §11).
 
 Still deferred to later (not blocking v1): server‑side **zip** upload (folder/multi‑file covers
-v1), and an optional **public listing** at `/` (off by default).
+v1), and an optional **public listing** at `/` (off by default). Per‑page **password** protection
+was also deferred at v1 launch but has since been **built** — see §17 above and ADR 0041.
 
 ---
 
-## 17. Future enhancements
+## 17. Built enhancements
+
+### Per‑page password protection (S23) — BUILT (see ADR 0041)
+
+The admin can set or clear one password per page (min 5 chars after trim, max 256; empty/absent = not protected). Visitors with no valid cookie see a server-rendered password-prompt page — never the native browser prompt. A successful unlock sets an opaque-token HttpOnly cookie (`pl_unlock={pageId}.{token}`, SHA-256 at rest); correct-cookie visitors see the full page. Protected pages **bypass the CDN** — the entry HTML, image bytes, and every referenced asset are served entirely by the Worker with `Cache-Control: no-store` and a Worker-origin `<base>` href. The password hash never leaves D1; every JSON surface emits only `has_password: boolean`. Unlock rate limiting, cookie expiry, and "remember me" are deferred to a future iteration.
+
+**CDN-host exposure (accepted limitation):** R2 public buckets serve every object by URL; protection removes Worker-side references but cannot revoke previously-public CDN-host URLs. See ADR 0041 for the full threat model.
+
+### Future enhancements
 
 - Root‑relative link rewriting for HTML (inject `<base>` or rewrite `/…` refs to the page prefix).
 - Multipart R2 uploads for large media; client‑side image resizing.
-- Per‑page password / expiry / basic analytics.
+- Per‑page expiry / basic analytics.
 - Optional public index / tags / search.
 - Optional SPA admin with a nicer editor and drag‑to‑reorder.
 - "Re‑render all Markdown" after template changes; theme selection.

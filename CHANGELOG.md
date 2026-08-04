@@ -3,6 +3,39 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.0] — Password protection & multi-domain support
+
+### Added
+
+- Per-page password protection (S23): admins can set or clear one password per page on create
+  or edit (min 5 chars, max 256; empty = not protected). Visitors see a server-rendered
+  password prompt; a successful unlock sets an opaque-token HttpOnly cookie (`pl_unlock`).
+  Protected pages bypass the CDN — all entry HTML, image bytes, and assets are served by the
+  Worker with `Cache-Control: no-store` and a Worker-origin `<base>` href. See ADR 0041 for
+  the locked design decisions, OQ-19..OQ-24 for the open-questions log, and §10 of the roadmap
+  for the full slice table.
+
+### Fixed
+
+- `setup.mjs` now detects and rejects deployments that would silently corrupt an existing
+  deployment when run with the same projectName but different workerDomain/cdnDomain. A
+  multi-domain collision guard (`checkDomainCollisions`) queries the real Cloudflare API to
+  find existing Worker and R2 custom-domain associations before creating or modifying any
+  resource, and aborts with an actionable error message when a collision is detected. An
+  explicit opt-in override (`SETUP_ALLOW_REPOINT`) is available for deliberate repointing.
+  See ADR 0044 for the detection heuristic and rationale.
+- `setup.mjs` now rewrites the top-level `name` field in `wrangler.toml` so that the Worker
+  script targets the correct name when deploying to multiple domains from the same checkout.
+  A new `deriveWorkerName()` helper mirrors the existing `derive*Name` helpers.
+
+### Changed
+
+- CI process: switched to a `feature → development → main` branching workflow. Feature
+  branches PR into `development` (the integration branch), and `main` only moves when a
+  human deliberately promotes `development` into it for release. A CI workflow runs the
+  full local gate (typecheck, lint, format:check, test) on PRs into `development`/`main`
+  and pushes to `development`.
+
 ## [1.0.0] — v1 release
 
 First stable release. The 0.1.0 build was deployed, exercised, and hardened with a few

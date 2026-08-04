@@ -7,6 +7,8 @@ import { createTestCacheService } from "../src/cache-service";
 import { createConfig } from "../src/config";
 import { createPagesRepository, type PagesRepository } from "../src/pages-repository";
 import { createFilesRepository } from "../src/files-repository";
+import { createUnlocksRepository } from "../src/unlocks-repository";
+import { verifyPassword } from "../src/password";
 import { createObjectStore } from "../src/object-store";
 import type { ObjectStore } from "../src/object-store";
 import { AppError } from "../src/errors";
@@ -830,6 +832,110 @@ describe("S17 — POST /api/pages (publish)", () => {
     );
   });
 
+  it("S23: multipart manifest.password creates a protected page — has_password true, hash stored, never leaked", async () => {
+    const token = await validToken();
+    const form = new FormData();
+    appendManifest(form, { slug: "protected-upload", password: "s3cret-word" });
+    appendFile(form, "index.html", makeFile("index.html", "<h1>Secret</h1>", "text/html"));
+
+    const res = await fetchApi("/api/pages", "POST", form, token);
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.has_password).toBe(true);
+    // R19: the hash and the raw password never appear in any response surface.
+    expect(body).not.toHaveProperty("password_hash");
+    expect(body).not.toHaveProperty("password");
+    expect(JSON.stringify(body)).not.toContain("pbkdf2");
+    expect(JSON.stringify(body)).not.toContain("s3cret-word");
+
+    const pageId = body.id as string;
+    const row = await db
+      .prepare("SELECT password_hash FROM pages WHERE id = ?")
+      .bind(pageId)
+      .first<{ password_hash: string | null }>();
+    expect(row?.password_hash).toMatch(/^pbkdf2\$10000\$/);
+    expect(row?.password_hash).not.toBe("s3cret-word");
+    expect(await verifyPassword("s3cret-word", row!.password_hash!)).toBe(true);
+    expect(await verifyPassword("wrong-password", row!.password_hash!)).toBe(false);
+  });
+
+  it("S23: create without a password stores password_hash NULL and reports has_password false", async () => {
+    const token = await validToken();
+    const form = new FormData();
+    appendManifest(form, { slug: "open-upload" });
+    appendFile(form, "index.html", makeFile("index.html", "<h1>Open</h1>", "text/html"));
+
+    const res = await fetchApi("/api/pages", "POST", form, token);
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.has_password).toBe(false);
+    expect(body).not.toHaveProperty("password_hash");
+    expect(JSON.stringify(body)).not.toContain("pbkdf2");
+
+    const row = await db
+      .prepare("SELECT password_hash FROM pages WHERE id = ?")
+      .bind(body.id as string)
+      .first<{ password_hash: string | null }>();
+    expect(row?.password_hash).toBeNull();
+  });
+
+  it("S23: a whitespace-only password is treated as unprotected on create", async () => {
+    const token = await validToken();
+    const form = new FormData();
+    appendManifest(form, { slug: "blank-upload", password: "   " });
+    appendFile(form, "index.html", makeFile("index.html", "<h1>Open</h1>", "text/html"));
+
+    const res = await fetchApi("/api/pages", "POST", form, token);
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.has_password).toBe(false);
+
+    const row = await db
+      .prepare("SELECT password_hash FROM pages WHERE id = ?")
+      .bind(body.id as string)
+      .first<{ password_hash: string | null }>();
+    expect(row?.password_hash).toBeNull();
+  });
+
+  it("S23: a too-short password returns 400 invalid_password and stores nothing", async () => {
+    const token = await validToken();
+    const form = new FormData();
+    appendManifest(form, { slug: "short-pw", password: "1234" });
+    appendFile(form, "index.html", makeFile("index.html", "<h1>Secret</h1>", "text/html"));
+
+    const res = await fetchApi("/api/pages", "POST", form, token);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "invalid_password",
+      message: "Password must be at least 5 characters.",
+    });
+    const count = await db.prepare("SELECT COUNT(*) AS n FROM pages").first<{ n: number }>();
+    expect(count?.n).toBe(0);
+    expect(await listKeys(bucket, "pages/")).toEqual([]);
+  });
+
+  it("S23: a too-long password returns 400 invalid_password and stores nothing", async () => {
+    const token = await validToken();
+    const form = new FormData();
+    appendManifest(form, { slug: "long-pw", password: "x".repeat(257) });
+    appendFile(form, "index.html", makeFile("index.html", "<h1>Secret</h1>", "text/html"));
+
+    const res = await fetchApi("/api/pages", "POST", form, token);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "invalid_password",
+      message: "Password must be at most 256 characters.",
+    });
+    const count = await db.prepare("SELECT COUNT(*) AS n FROM pages").first<{ n: number }>();
+    expect(count?.n).toBe(0);
+    expect(await listKeys(bucket, "pages/")).toEqual([]);
+  });
+
   describe("handleCreatePage direct handler tests", () => {
     const ctx = createExecutionContext();
 
@@ -854,6 +960,7 @@ describe("S17 — POST /api/pages (publish)", () => {
         cacheService,
         config,
         verifiedIdentity: { email: "admin@example.com" },
+        unlocks: createUnlocksRepository(env.DB),
       };
     }
 
@@ -915,6 +1022,7 @@ describe("S17 — POST /api/pages (publish)", () => {
         cacheService,
         config,
         verifiedIdentity: { email: "admin@example.com" },
+        unlocks: createUnlocksRepository(env.DB),
       };
       const form = new FormData();
       appendFile(form, "test.html", makeFile("test.html", "<h1>Test</h1>", "text/html"));

@@ -693,9 +693,14 @@ stale-while-revalidate=M`; **s-maxage/must-revalidate disable SWR**; **Cache API
 
 Zip upload (needs `fflate`), public listing at `/`, "re-render all Markdown" (OQ-13),
 root-relative link rewriting, multipart R2 uploads for large media, per-page
-password/expiry/analytics, optional SPA admin, rev GC automation (OQ-10), theme selection.
+expiry/analytics, optional SPA admin, rev GC automation (OQ-10), theme selection.
 They belong in the open-questions log / future list, never silently in code (brief
 boundaries).
+
+> **Per‑page password protection** was also listed here but has since been **built** as slice
+> S23. See §10 for the full slice table, open-questions log, and risk register. Password
+> protection was promoted from §17 to a planned slice on 2026-08-02 (OQ-19..OQ-24) and is now
+> complete. Expiry and analytics remain deferred.
 
 ---
 
@@ -737,3 +742,70 @@ are resolved during planning, human-approved for the user-visible ones.
 | T2  | **Protect entry package and clarify whole-page deletion** — entry files (`index.html`/`source.md`) cannot be deleted individually; improve the API error message and add a UI hint; the whole page is deleted via the Delete page button.                                   | done  | Corrected scope: server protection already rejects individual entry deletion; this slice makes the failure actionable and the UI consistent. | OQ-16        |
 | T4  | **Paste HTML/Markdown** — publish API accepts pasted text (create-only first) instead of a file; Markdown goes through the same render pipeline (`source.md` + `index.html`).                                                                                               | done  | New API surface; the UI overhaul (T3) will style it in one pass.                                                                             | OQ-17        |
 | T3  | **Admin UI modernization** — buildless overhaul with a design-token-based CSS system, responsive layout, tabbed upload/paste, toast notifications, inline slug preview, and protected-file badges; framework/SPA deferred.                                                  | done  | Last: restyles the surfaces T1/T2/T4 introduce in a single pass instead of twice.                                                            | OQ-18        |
+
+---
+
+## 10. S23 — Per-page password protection (ADR 0041, ADR 0042, ADR 0043)
+
+Slice S23 promotes "per-page password / expiry / basic analytics" (spec §17) to a planned slice,
+with expiry and analytics still deferred. The full planning context (open questions OQ-19..OQ-24,
+risk register R16..R24, the password-protect-plan.md document) is in `.work/planner/`; the
+locked design decisions are in `docs/adr/0041-s23-password-protected-pages.md`. Implementation
+details for S23-A (primitives) are in ADR 0042; for S23-B (schema + repositories) in ADR 0043.
+
+### Slice table
+
+| ID    | Slice                                                                                                            | Size | Status | Depends on           |
+| ----- | ---------------------------------------------------------------------------------------------------------------- | ---- | ------ | -------------------- |
+| S23-A | Password/token primitives, prompt page, unlock/asset routes, protected cache class (pure, no bindings)           | M    | built  | S03, S07, S08        |
+| S23-B | Migration 0002, password_hash column, unlocks repository (D1 emulation)                                          | M    | built  | S23-A, S10           |
+| S23-C | Public gate: prompt serving, unlock POST/Cookie, protected entry and image, asset-serving route (emulated D1/R2) | L    | built  | S23-B, S12           |
+| S23-D | Admin API + UI: password on create/patch, `has_password` JSON, forms, CDN-bypass notice                          | M    | built  | S23-C, S17, S18, S19 |
+| S23-E | Docs, smoke tests, e2e journey, closeout                                                                         | S    | built  | S23-D                |
+
+### Open-questions log (OQ-19..OQ-24)
+
+| ID    | Question                                                                     | Status                |
+| ----- | ---------------------------------------------------------------------------- | --------------------- |
+| OQ-19 | **Unlock credential model:** opaque-token cookie, SHA-256 at rest (option c) | **closed** — ADR 0041 |
+| OQ-20 | Wrong-password semantics: 200 + inline error; unprotected → 404              | **closed** — ADR 0041 |
+| OQ-21 | Password rules: min 5/max 256; PBKDF2 @ 10,000 iterations                    | **closed** — ADR 0041 |
+| OQ-22 | Redirect after unlock: canonical `/p/{id}/`                                  | **closed** — ADR 0041 |
+| OQ-23 | Prompt disclosure: site name only, never page title                          | **closed** — ADR 0041 |
+| OQ-24 | CDN-host exposure acceptance: documented limitation                          | **closed** — ADR 0041 |
+
+### Risk register (R16..R24)
+
+| #   | Risk                                                                        | L×I | Status                                                                       |
+| --- | --------------------------------------------------------------------------- | --- | ---------------------------------------------------------------------------- |
+| R16 | CDN-host direct byte exposure — R2 public bucket serves every object by URL | M×H | **accepted** — documented in ADR 0041                                        |
+| R17 | Stale public cache after enabling protection                                | M×M | **mitigated** — PATCH purges tag; protected = no-store                       |
+| R18 | PBKDF2 CPU cost on Free plan                                                | M×M | **mitigated** — 10k iterations (~4 ms); benchmarked                          |
+| R19 | Hash leakage via API JSON                                                   | M×H | **mitigated** — explicit serializer, regression tests                        |
+| R20 | Cookie forgery / tampering                                                  | M×M | **mitigated** — 32-byte random token; SHA-256 at rest; constant-time compare |
+| R21 | Unlock brute-force — no rate limiting in scope                              | L×M | **accepted** — documented future work                                        |
+| R22 | Slug rename while unlocked — cookie is id-based                             | L×L | **accepted** — id is stable across renames                                   |
+| R23 | Asset-route traversal / encoding bugs                                       | L×M | **mitigated** — path validation with write-side rules                        |
+| R24 | Worker usage increase for protected pages                                   | L×M | **accepted** — verbatim admin notice; ADR 0041                               |
+
+### Known limitations
+
+- **CDN-host exposure (R16 / OQ-24):** R2 public buckets serve every object by URL at the custom
+  domain. Protection removes Worker-side references but cannot revoke previously-public (or
+  guessed) CDN-host URLs. Future option: Access-protected/separate R2 domain — not built here.
+- **No unlock rate limiting (R21):** the public `/p/{id}/unlock` endpoint accepts guesses.
+  Single-operator content means the admin can rotate/clear the password if needed.
+- **No cookie expiry / "remember me":** the unlock cookie is a session cookie (no `Max-Age`).
+  Re-authentication is required on browser restart.
+- **No per-asset cookie gating:** `serveAsset` does not check the cookie (one D1 PK lookup per
+  entry view, not per asset). Asset URLs are obscured by the unguessable page id but are not
+  individually gated.
+
+### Test count impact
+
+The full S23 suite adds approximately 395 tests across slices A through E, for a final suite at
+closeout of **1482 tests across 49 files** (from 1087 tests / 38 files at S22 close). Coverage
+remains above the 85/85/80/85 threshold at 99.39/97.23/98.19/99.68 (statements/branches/functions/lines).
+Bundle size: **190.21 KiB raw / 44.17 KiB gzip** (from 168.74 KiB raw / 39.11 KiB gzip at T3
+close). The increase reflects the inline prompt template, unlock handler, asset-serving logic,
+and data-model additions — no new runtime dependencies were added.

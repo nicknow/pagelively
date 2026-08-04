@@ -234,6 +234,9 @@ The setup script is unit-tested with mocks, but these human-run checks verify th
 - [ ] The R2 bucket is connected to the CDN domain (`cdn.pages.example.com`) under the bucket's Custom Domains settings.
 - [ ] Re-running `npm run setup` is idempotent: no new resources are created, no errors, and it still deploys.
 - [ ] If the target zone is removed, re-running `npm run setup` logs a clear "zone not found" error and exits before deploying.
+- [ ] **Multi-domain isolation (v1.1.0):** after deploying a second domain with a distinct `projectName`, verify that the two deployments are fully independent: navigate to both admin dashboards and publish a test page on each; confirm each domain serves its own content, has its own R2 bucket (check the Cloudflare dashboard → R2), and has its own Access application (Cloudflare dashboard → Zero Trust → Access → Applications). A page published on one domain must not appear on the other.
+- [ ] **Collision guard triggers correctly:** run `npm run setup` with the same `projectName` as an existing deployment but a different `workerDomain`/`cdnDomain`. The script must abort with the multi-domain collision error before modifying any resources.
+- [ ] **`SETUP_ALLOW_REPOINT` override:** run the same collision-test scenario with `SETUP_ALLOW_REPOINT=1` set; the script must proceed and repoint the existing resources at the new domain.
 - [ ] **Covering-zone resolution:** a subdomain worker/CDN domain (e.g. `n.3a8r.com` /
       `cdn.n.3a8r.com` under the `3a8r.com` zone) provisions successfully and setup logs
       `Resolved zone for <domain>: 3a8r.com`. A domain with no covering zone in the account
@@ -471,3 +474,57 @@ end-to-end flows behind Cloudflare Access:
 None — all sections through S22 are complete.
 
 See `docs/operations/README.md` for the full provisioning and deploy guide.
+
+## S23 — Per-page password protection (added during validation of S23-C)
+
+The protected surface (`/p/{id}/unlock`, `/assets/...`, the prompt, and the unlocked entry) is
+exercised by unit tests against workerd, but these live checks cover the seams those can't: real
+Cloudflare Access placement, the real R2 CDN host, and real edge caching. Run against the real
+deployment (S23-C AC 1–11; ADR 0041).
+
+Publish a page with a password set, plus one public page with an image. Replace `{id}` below with
+the protected page's id.
+
+- [ ] Locked prompt: `curl https://pages.acme.com/p/{id}/` returns `200`, `text/html; charset=utf-8`,
+      `Cache-Control: no-store`, and **no** `Cache-Tag` header; the body is the prompt ("This page is
+      password protected.") and contains **no** page title/content and **no** CDN host string.
+- [ ] Repeated prompt requests re-render every time (no edge cache): `Cf-Cache-Status` is
+      `BYPASS` (per Cloudflare docs for `no-store` responses; if the live edge reports
+      `DYNAMIC` or absent, that is also acceptable) on every hit — never `HIT`.
+- [ ] The prompt form posts to `/p/{id}/unlock` (no Access challenge: unlock is public, before the
+      Access gate — a plain `curl -X POST … -d password=…` without a `CF-Authorization` header
+      works; it must NOT 403).
+- [ ] Wrong password: `curl -X POST https://pages.acme.com/p/{id}/unlock -H 'Content-Type:
+application/x-www-form-urlencoded' --data 'password=wrong'` returns `200` with an inline
+      escaped "Incorrect password." error and **no** `Set-Cookie`.
+- [ ] Correct password in a real browser: submit the form → `303` to `/p/{id}/`; the browser stores
+      the `pl_unlock` cookie (`HttpOnly`, `SameSite=Lax`, `Secure`) and the entry renders with
+      `<base href="https://pages.acme.com/assets/pages/{id}/{rev}/index.html">` (Worker origin —
+      the CDN host never appears in the HTML).
+- [ ] Relative assets in a protected entry resolve through the base href and are served by the
+      Worker (`/assets/pages/{id}/{rev}/...` → `200` + `no-store`, `Cf-Cache-Status: BYPASS`
+      per Cloudflare docs for `no-store`; `DYNAMIC`/absent is also acceptable — never `HIT`),
+      not by the CDN.
+- [ ] Asset URLs never redirect: `/assets/pages/{id}/{rev}/...` returns bytes with no `Location`
+      header; `/p/{id}/unlock` returns `200` with no `Location`.
+- [ ] Rotation: unlocking the page again in a second browser (or after deleting cookies) issues a
+      new cookie; the previous cookie no longer unlocks the page (prompt instead of entry).
+- [ ] Public pages are unchanged: a public page's image still `301`s to the CDN host
+      (`cdn.pages.acme.com/pages/{id}/{rev}/...`) and its HTML keeps `Cache-Control:
+public, max-age=300, stale-while-revalidate=3600` with a `Cache-Tag: page-{id}`; the prompt
+      never appears for it.
+- [ ] Access still gates admin: `/admin` and `/api/pages` require a valid Access JWT (`403` /
+      `Forbidden` JSON without one) while the protected surface stays open.
+- [ ] No cache pollution after setting/clearing a password: republish a page after removing its
+      password — the public entry (with CDN base href + Cache-Tag) is served, not a stale cached
+      protected prompt; setting a password makes the public entry unreadable immediately (purge
+      `page-{id}` works).
+- [ ] Hostile inputs against the live edge: a garbage `pl_unlock=...` cookie, a `Cookie: pl_unlock`
+      with no value, and an unlock POST with a non-form `Content-Type` (`application/json`,
+      `text/plain`) all return clean responses (prompt/typed 4xx), never a `500
+{"error":"internal_error"}`. Regression canary (S23-C validator probes A–D): a
+      `Content-Type: application/json` unlock POST must return a typed `400 {"error":
+"invalid_form_data", ...}` with `Cache-Control: no-store` and no `Cache-Tag`; same for a
+      `multipart/form-data` POST whose boundary does not appear in the body, and for a POST with
+      no Content-Type at all. A valid `multipart/form-data` unlock POST must still `303` (the
+      guard is not over-broad).

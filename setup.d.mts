@@ -7,13 +7,29 @@ export function envToSetupOptions(env: Record<string, string | undefined>): {
   adminEmails: string | undefined;
   headless: boolean;
   createKv?: boolean;
+  allowRepoint?: boolean;
   accessTeamDomain?: string;
 };
 export function normalizeDomain(domain: string): string;
 export function deriveBucketName(projectName: string): string;
 export function deriveDbName(projectName: string): string;
 export function deriveKvName(projectName: string): string;
+export function deriveWorkerName(projectName: string): string;
 export function updateWranglerToml(content: string, values: Record<string, unknown>): string;
+export function checkDomainCollisions(options: {
+  accountId: string;
+  workerName: string;
+  workerDomain: string;
+  bucketName: string;
+  cdnDomain: string;
+  api: (
+    method: string,
+    path: string,
+    body?: unknown,
+  ) => Promise<{ ok: boolean; status: number; json: () => Promise<Record<string, unknown>> }>;
+  allowRepoint?: boolean;
+  log: (message: string) => void;
+}): Promise<void>;
 
 export const TEAM_DOMAIN_PROMPT: string;
 export function resolveTeamDomain(options: {

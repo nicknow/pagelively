@@ -30,6 +30,8 @@ export type Route =
   | { type: "health" }
   | { type: "slug"; slug: string } // /{slug} or /{slug}/
   | { type: "id"; id: string } // /p/{id}/…
+  | { type: "unlock"; id: string } // /p/{id}/unlock[/]  (S23, public)
+  | { type: "asset"; id: string; rev: string; path: string } // /assets/pages/{id}/{rev}/{path…} (S23, public)
   | { type: "admin" } // /admin…  (Access-protected at edge)
   | { type: "api" } // /api/*    (Access-protected at edge)
   | { type: "unknown" };
@@ -67,10 +69,27 @@ export function classifyPath(pathname: string): Route {
   if (firstLower === "p") {
     // Id routes are exactly two segments: /p/{id}[/]. Empty id and deeper
     // paths are malformed for the id surface (spec §5, ADR 0010).
-    if (rest.length !== 1) {
+    if (rest.length === 1) {
+      return { type: "id", id: rest[0] };
+    }
+    // S23 (ADR 0041 decision 6): /p/{id}/unlock[/] — the unlock literal is
+    // case-insensitive and exactly this depth; any deeper path is unknown.
+    // The id segment stays raw (case-sensitive namespace, never lowercased).
+    if (rest.length === 2 && rest[1].toLowerCase() === "unlock") {
+      return { type: "unlock", id: rest[0] };
+    }
+    return { type: "unknown" };
+  }
+  if (firstLower === "assets") {
+    // S23 (ADR 0041 decision 6): /assets/pages/{id}/{rev}/{path…} → asset
+    // (path = remaining raw segments joined). `assets` is reserved (ADR 0007),
+    // so any other /assets/… shape is unknown → clean 404. At least one path
+    // segment is required — the R2 object layout is pages/{id}/{rev}/{path}.
+    if (rest[0]?.toLowerCase() !== "pages" || rest.length < 4) {
       return { type: "unknown" };
     }
-    return { type: "id", id: rest[0] };
+    const [, id, rev, ...pathSegments] = rest;
+    return { type: "asset", id, rev, path: pathSegments.join("/") };
   }
   if (isReservedName(firstLower)) {
     return { type: "unknown" };

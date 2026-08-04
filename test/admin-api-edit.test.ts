@@ -8,6 +8,8 @@ import { createTestCacheService } from "../src/cache-service";
 import { createConfig } from "../src/config";
 import { createPagesRepository } from "../src/pages-repository";
 import { createFilesRepository } from "../src/files-repository";
+import { createUnlocksRepository } from "../src/unlocks-repository";
+import { verifyPassword } from "../src/password";
 import { createObjectStore } from "../src/object-store";
 import {
   ACCESS_AUD,
@@ -34,12 +36,13 @@ async function insertPage(
     raw_md_path?: string | null;
     show_source?: number;
     visibility?: string;
+    password_hash?: string | null;
   },
 ) {
   await db
     .prepare(
-      `INSERT INTO pages (id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO pages (id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       p.id,
@@ -51,10 +54,36 @@ async function insertPage(
       p.raw_md_path === undefined ? null : p.raw_md_path,
       p.show_source ?? 0,
       p.visibility ?? "public",
+      p.password_hash === undefined ? null : p.password_hash,
       isoNow(),
       isoNow(),
     )
     .run();
+}
+
+async function insertUnlock(db: D1Database, pageId: string, tokenHash: string) {
+  await db
+    .prepare(
+      "INSERT OR REPLACE INTO page_unlocks (page_id, token_hash, created_at) VALUES (?, ?, ?)",
+    )
+    .bind(pageId, tokenHash, isoNow())
+    .run();
+}
+
+async function unlockCount(db: D1Database, pageId: string): Promise<number> {
+  const row = await db
+    .prepare("SELECT COUNT(*) AS n FROM page_unlocks WHERE page_id = ?")
+    .bind(pageId)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+async function storedPasswordHash(db: D1Database, pageId: string): Promise<string | null> {
+  const row = await db
+    .prepare("SELECT password_hash FROM pages WHERE id = ?")
+    .bind(pageId)
+    .first<{ password_hash: string | null }>();
+  return row?.password_hash ?? null;
 }
 
 async function insertFile(
@@ -170,6 +199,7 @@ function makeAdminDeps(objectStore = createObjectStore(env.BUCKET)) {
     cacheService,
     config,
     verifiedIdentity: { email: "admin@example.com" },
+    unlocks: createUnlocksRepository(env.DB),
   };
 }
 
@@ -641,6 +671,258 @@ describe("S18 — edit & delete API", () => {
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.slug).toBe("x");
       expect(body.title).toBe("X");
+    });
+
+    it("S23: sets a password on an unprotected page — has_password true, hash stored, no rev bump, no leak", async () => {
+      const pageId = "page0000pw1";
+      await insertPage(db, { id: pageId, slug: "protected", title: "Protected", kind: "html" });
+      const token = await validToken();
+      const res = await fetchApi(
+        `/api/pages/${pageId}`,
+        "PATCH",
+        JSON.stringify({ password: "s3cret-word" }),
+        token,
+        { "Content-Type": "application/json" },
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.has_password).toBe(true);
+      expect(body.rev).toBe(1);
+      // R19: the hash and the raw password never appear in any response surface.
+      expect(body).not.toHaveProperty("password_hash");
+      expect(body).not.toHaveProperty("password");
+      expect(JSON.stringify(body)).not.toContain("pbkdf2");
+      expect(JSON.stringify(body)).not.toContain("s3cret-word");
+
+      const stored = await storedPasswordHash(db, pageId);
+      expect(stored).toMatch(/^pbkdf2\$10000\$/);
+      expect(stored).not.toBe("s3cret-word");
+      expect(await verifyPassword("s3cret-word", stored!)).toBe(true);
+      expect(await verifyPassword("wrong-password", stored!)).toBe(false);
+    });
+
+    it("S23: clears the password with an empty string", async () => {
+      const pageId = "page0000pw2";
+      await insertPage(db, {
+        id: pageId,
+        slug: "pw",
+        kind: "html",
+        password_hash: "pbkdf2$10000$old-salt$old-hash",
+      });
+      const token = await validToken();
+      const res = await fetchApi(
+        `/api/pages/${pageId}`,
+        "PATCH",
+        JSON.stringify({ password: "" }),
+        token,
+        { "Content-Type": "application/json" },
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.has_password).toBe(false);
+      expect(body.rev).toBe(1);
+      expect(body).not.toHaveProperty("password_hash");
+      expect(JSON.stringify(body)).not.toContain("pbkdf2");
+      expect(await storedPasswordHash(db, pageId)).toBeNull();
+    });
+
+    it("S23: clears the password with null", async () => {
+      const pageId = "page0000pw3";
+      await insertPage(db, {
+        id: pageId,
+        slug: "pw",
+        kind: "html",
+        password_hash: "pbkdf2$10000$old-salt$old-hash",
+      });
+      const token = await validToken();
+      const res = await fetchApi(
+        `/api/pages/${pageId}`,
+        "PATCH",
+        JSON.stringify({ password: null }),
+        token,
+        { "Content-Type": "application/json" },
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.has_password).toBe(false);
+      expect(await storedPasswordHash(db, pageId)).toBeNull();
+    });
+
+    it("S23: leaves the password untouched when the field is absent", async () => {
+      const pageId = "page0000pw4";
+      await insertPage(db, {
+        id: pageId,
+        slug: "pw",
+        kind: "html",
+        password_hash: "pbkdf2$10000$old-salt$old-hash",
+      });
+      const token = await validToken();
+      const res = await fetchApi(
+        `/api/pages/${pageId}`,
+        "PATCH",
+        JSON.stringify({ title: "New" }),
+        token,
+        { "Content-Type": "application/json" },
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.has_password).toBe(true);
+      expect(await storedPasswordHash(db, pageId)).toBe("pbkdf2$10000$old-salt$old-hash");
+    });
+
+    it("S23: returns 400 for a too-short password and leaves the stored hash untouched", async () => {
+      const pageId = "page0000pw5";
+      await insertPage(db, {
+        id: pageId,
+        slug: "pw",
+        kind: "html",
+        password_hash: "pbkdf2$10000$old-salt$old-hash",
+      });
+      const token = await validToken();
+      const res = await fetchApi(
+        `/api/pages/${pageId}`,
+        "PATCH",
+        JSON.stringify({ password: "1234" }),
+        token,
+        { "Content-Type": "application/json" },
+      );
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: "invalid_password",
+        message: "Password must be at least 5 characters.",
+      });
+      expect(await storedPasswordHash(db, pageId)).toBe("pbkdf2$10000$old-salt$old-hash");
+    });
+
+    it("S23: returns 400 for a too-long password and leaves the stored hash untouched", async () => {
+      const pageId = "page0000pw6";
+      await insertPage(db, {
+        id: pageId,
+        slug: "pw",
+        kind: "html",
+        password_hash: "pbkdf2$10000$old-salt$old-hash",
+      });
+      const token = await validToken();
+      const res = await fetchApi(
+        `/api/pages/${pageId}`,
+        "PATCH",
+        JSON.stringify({ password: "x".repeat(257) }),
+        token,
+        { "Content-Type": "application/json" },
+      );
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: "invalid_password",
+        message: "Password must be at most 256 characters.",
+      });
+      expect(await storedPasswordHash(db, pageId)).toBe("pbkdf2$10000$old-salt$old-hash");
+    });
+
+    it("S23: returns 400 for a non-string password", async () => {
+      const pageId = "page0000pw7";
+      await insertPage(db, { id: pageId, slug: "pw", kind: "html" });
+      const token = await validToken();
+      const res = await fetchApi(
+        `/api/pages/${pageId}`,
+        "PATCH",
+        JSON.stringify({ password: 123 }),
+        token,
+        { "Content-Type": "application/json" },
+      );
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: "invalid_password",
+        message: "Password must be a string.",
+      });
+    });
+
+    it("S23: returns 404 when patching a password on a missing page", async () => {
+      const token = await validToken();
+      const res = await fetchApi(
+        "/api/pages/Missing000",
+        "PATCH",
+        JSON.stringify({ password: "s3cret-word" }),
+        token,
+        { "Content-Type": "application/json" },
+      );
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: "not_found", message: "Page not found." });
+    });
+
+    it("S23: setting a password purges the page tag and revokes unlock tokens", async () => {
+      const pageId = "page0000pw8";
+      await insertPage(db, { id: pageId, slug: "pw", kind: "html" });
+      await insertUnlock(db, pageId, "hash-token-1");
+      await insertUnlock(db, pageId, "hash-token-2");
+      const objectStore = createObjectStore(bucket);
+      const cacheService = createTestCacheService();
+      const deps = {
+        ...makeAdminDeps(objectStore),
+        cacheService,
+        unlocks: createUnlocksRepository(db),
+      };
+      const req = new Request(`https://pages.example.com/api/pages/${pageId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ password: "s3cret-word" }),
+        headers: { "Content-Type": "application/json" },
+      });
+      const res = await handlePatchPage(req, ctx, deps);
+      expect(res.status).toBe(200);
+      expect(cacheService.getPurgeTags()).toContain(`page-${pageId}`);
+      expect(await unlockCount(db, pageId)).toBe(0);
+      const row = await db
+        .prepare("SELECT rev FROM pages WHERE id = ?")
+        .bind(pageId)
+        .first<{ rev: number }>();
+      expect(row?.rev).toBe(1);
+    });
+
+    it("S23: clearing a password purges the page tag and revokes unlock tokens", async () => {
+      const pageId = "page0000pw9";
+      await insertPage(db, {
+        id: pageId,
+        slug: "pw",
+        kind: "html",
+        password_hash: "pbkdf2$10000$old-salt$old-hash",
+      });
+      await insertUnlock(db, pageId, "hash-token-1");
+      const objectStore = createObjectStore(bucket);
+      const cacheService = createTestCacheService();
+      const deps = {
+        ...makeAdminDeps(objectStore),
+        cacheService,
+        unlocks: createUnlocksRepository(db),
+      };
+      const req = new Request(`https://pages.example.com/api/pages/${pageId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ password: "" }),
+        headers: { "Content-Type": "application/json" },
+      });
+      const res = await handlePatchPage(req, ctx, deps);
+      expect(res.status).toBe(200);
+      expect(cacheService.getPurgeTags()).toContain(`page-${pageId}`);
+      expect(await unlockCount(db, pageId)).toBe(0);
+    });
+
+    it("S23: preserves unlock tokens when the password is not part of the patch", async () => {
+      const pageId = "page0000pwa";
+      await insertPage(db, {
+        id: pageId,
+        slug: "pw",
+        kind: "html",
+        password_hash: "pbkdf2$10000$old-salt$old-hash",
+      });
+      await insertUnlock(db, pageId, "hash-token-1");
+      const objectStore = createObjectStore(bucket);
+      const deps = { ...makeAdminDeps(objectStore), unlocks: createUnlocksRepository(db) };
+      const req = new Request(`https://pages.example.com/api/pages/${pageId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ title: "New" }),
+        headers: { "Content-Type": "application/json" },
+      });
+      const res = await handlePatchPage(req, ctx, deps);
+      expect(res.status).toBe(200);
+      expect(await unlockCount(db, pageId)).toBe(1);
     });
 
     it("re-renders markdown when showSource toggles from true to false", async () => {
