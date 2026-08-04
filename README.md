@@ -120,11 +120,11 @@ The full index, including a short glossary of recurring terms, is at
 
 ## Status
 
-**v1.0.0 released.** The full publish/edit/delete flow, the admin UI, Cloudflare Access auth,
-and one-command provisioning are all implemented and covered by an automated local
-end-to-end test in addition to the unit suite. Run `npm test` for current results — it
-includes a gate that fails the build if the Worker bundle grows past the Workers free-tier
-size limit (see [`test/build-size.test.ts`](test/build-size.test.ts)).
+**v1.1.0 released.** Per-page password protection, multi-domain deployment support, and the
+full CI/CD branching workflow. All features are implemented and covered by the automated test
+suite — run `npm test` for current results. The suite includes a gate that fails the build if
+the Worker bundle grows past the Workers free-tier size limit (see
+[`test/build-size.test.ts`](test/build-size.test.ts)).
 
 ## Contributing
 
