@@ -1,8 +1,10 @@
 import { describe, expect, it, vi, type Mock } from "vitest";
 import {
+  checkDomainCollisions,
   deriveBucketName,
   deriveDbName,
   deriveKvName,
+  deriveWorkerName,
   normalizeDomain,
   parseAdminEmails,
   runSetup,
@@ -230,6 +232,26 @@ function makeCreateFirstRunResponder(ids: ResponderIds) {
   const aud = ids.aud ?? "aud-123";
 
   return apiResponder([
+    // Collision guard queries — no existing resources
+    {
+      match: (m, p) => m === "GET" && p.startsWith(`/accounts/${accountId}/workers/domains`),
+      response: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, result: [] }),
+      }),
+    },
+    {
+      match: (m, p) =>
+        m === "GET" &&
+        p.startsWith(`/accounts/${accountId}/r2/buckets/`) &&
+        p.endsWith("/domains/custom"),
+      response: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, result: { domains: [] } }),
+      }),
+    },
     {
       match: (m, p) => m === "GET" && p === `/accounts/${accountId}/access/apps`,
       response: async () => ({
@@ -389,6 +411,12 @@ describe("setup.mjs helpers", () => {
   it("deriveDbName and deriveKvName follow the same convention", () => {
     expect(deriveDbName("My Project")).toBe("my-project-db");
     expect(deriveKvName("My Project")).toBe("my-project-kv");
+  });
+
+  it("deriveWorkerName sanitizes project name without suffix", () => {
+    expect(deriveWorkerName("My Project")).toBe("my-project");
+    expect(deriveWorkerName("pagelively")).toBe("pagelively");
+    expect(deriveWorkerName("Hello_World!")).toBe("hello-world");
   });
 });
 
@@ -2138,6 +2166,50 @@ database_id = "00000000-0000-0000-0000-000000000000"
     expect(updated).not.toContain("old-kv-id");
   });
 
+  it("rewrites the top-level name field without touching bucket_name or database_name", () => {
+    const toml = `name = "pagelively"
+main = "src/index.ts"
+
+[mysection]
+name = "should-not-change"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "pagelively-assets"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pagelively-db"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[vars]
+ASSET_BASE_URL = "https://cdn.example.com"
+ACCESS_TEAM_DOMAIN = "yourteam.cloudflareaccess.com"
+ACCESS_AUD = "00000000000000000000000000000000000000000000000000"
+`;
+    const updated = updateWranglerToml(toml, {
+      workerName: "my-second-site",
+      bucketName: "my-second-site-assets",
+      dbName: "my-second-site-db",
+      dbId: "d1-new",
+      assetBaseUrl: "https://cdn.other.com",
+      accessTeamDomain: "other.cloudflareaccess.com",
+      accessAud: "aud-other",
+      workerDomain: "other.example.com",
+    });
+    // Top-level name is rewritten
+    expect(updated).toContain('name = "my-second-site"');
+    expect(updated).not.toContain('name = "pagelively"');
+    // bucket_name and database_name preserve their full TOML keys
+    expect(updated).toContain('bucket_name = "my-second-site-assets"');
+    expect(updated).toContain('database_name = "my-second-site-db"');
+    // The section-level `name` field (inside [mysection]) is NOT touched
+    // (only the top-level `name = "..."` at line-start is matched)
+    expect(updated).toContain('[mysection]\nname = "should-not-change"');
+    // Other fields unchanged
+    expect(updated).toContain('main = "src/index.ts"');
+  });
+
   it("does not interpret $ in replacement values as special regex patterns", () => {
     const toml = `name = "pagelively"\n[vars]\nASSET_BASE_URL = "https://cdn.example.com"\nACCESS_TEAM_DOMAIN = "yourteam.cloudflareaccess.com"\nACCESS_AUD = "00000000000000000000000000000000000000000000000000"\n`;
     const updated = updateWranglerToml(toml, {
@@ -2150,5 +2222,560 @@ database_id = "00000000-0000-0000-0000-000000000000"
     expect(updated).toContain(`ACCESS_TEAM_DOMAIN = "team$123.cloudflareaccess.com"`);
     expect(updated).toContain(`ACCESS_AUD = "aud$special"`);
     expect(updated).toContain(`pattern = "pages.example.com"`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// checkDomainCollisions (unit tests)
+// ---------------------------------------------------------------------------
+
+describe("checkDomainCollisions", () => {
+  type ApiCaller = (
+    method: string,
+    path: string,
+    body?: unknown,
+    opts?: unknown,
+  ) => Promise<{ ok: boolean; status: number; json: () => Promise<Record<string, unknown>> }>;
+
+  function ok(body: Record<string, unknown>) {
+    return { ok: true, status: 200, json: async () => ({ success: true, ...body }) };
+  }
+
+  function err(status: number) {
+    return { ok: false, status, json: async () => ({ success: false, errors: [] }) };
+  }
+
+  function makeCollisionApi(mockApi: ApiCaller) {
+    const calls: { method: string; path: string }[] = [];
+    const wrapped: ApiCaller = async (method, path, body, opts) => {
+      calls.push({ method, path });
+      return mockApi(method, path, body, opts);
+    };
+    return { api: wrapped, calls };
+  }
+
+  const BASE = {
+    accountId: "acc-123",
+    workerName: "pagelively",
+    workerDomain: "pages.example.com",
+    bucketName: "pagelively-assets",
+    cdnDomain: "cdn.pages.example.com",
+    allowRepoint: false,
+  };
+
+  it("passes when no Worker custom domains exist and no R2 custom domains exist", async () => {
+    const mockApi: ApiCaller = async () => ok({ result: [] });
+    const { api } = makeCollisionApi(mockApi);
+    const logs: string[] = [];
+    await expect(
+      checkDomainCollisions({ ...BASE, api, log: (m: string) => logs.push(m) }),
+    ).resolves.toBeUndefined();
+    expect(logs.length).toBe(0);
+  });
+
+  it("passes when the Worker custom domain matches workerDomain and the R2 custom domain matches cdnDomain", async () => {
+    const mockApi: ApiCaller = async (method, path) => {
+      if (path.includes("/workers/domains")) {
+        return ok({
+          result: [{ hostname: "pages.example.com", service: "pagelively" }],
+        });
+      }
+      if (path.includes("/r2/buckets")) {
+        return ok({
+          result: {
+            domains: [{ domain: "cdn.pages.example.com", enabled: true }],
+          },
+        });
+      }
+      throw new Error(`unexpected: ${method} ${path}`);
+    };
+    const { api } = makeCollisionApi(mockApi);
+    const logs: string[] = [];
+    await expect(
+      checkDomainCollisions({ ...BASE, api, log: (m: string) => logs.push(m) }),
+    ).resolves.toBeUndefined();
+    expect(logs.length).toBe(0);
+  });
+
+  it("throws with an actionable error when the Worker custom domain points to a different hostname", async () => {
+    const mockApi: ApiCaller = async (method, path) => {
+      if (path.includes("/workers/domains")) {
+        return ok({
+          result: [{ hostname: "blog.example.com", service: "pagelively" }],
+        });
+      }
+      if (path.includes("/r2/buckets")) {
+        return ok({ result: { domains: [] } });
+      }
+      throw new Error(`unexpected: ${method} ${path}`);
+    };
+    const { api } = makeCollisionApi(mockApi);
+    await expect(checkDomainCollisions({ ...BASE, api, log: () => {} })).rejects.toThrow(
+      /multi-domain collision/i,
+    );
+    await expect(checkDomainCollisions({ ...BASE, api, log: () => {} })).rejects.toThrow(
+      /pagelively/,
+    );
+    await expect(checkDomainCollisions({ ...BASE, api, log: () => {} })).rejects.toThrow(
+      /blog\.example\.com/,
+    );
+    await expect(checkDomainCollisions({ ...BASE, api, log: () => {} })).rejects.toThrow(
+      /pages\.example\.com/,
+    );
+    await expect(checkDomainCollisions({ ...BASE, api, log: () => {} })).rejects.toThrow(
+      /distinct project name/,
+    );
+  });
+
+  it("throws when the R2 bucket custom domain points to a different domain", async () => {
+    const mockApi: ApiCaller = async (method, path) => {
+      if (path.includes("/workers/domains")) {
+        return ok({ result: [] });
+      }
+      if (path.includes("/r2/buckets")) {
+        return ok({
+          result: {
+            domains: [{ domain: "cdn.other.com", enabled: true }],
+          },
+        });
+      }
+      throw new Error(`unexpected: ${method} ${path}`);
+    };
+    const { api } = makeCollisionApi(mockApi);
+    await expect(checkDomainCollisions({ ...BASE, api, log: () => {} })).rejects.toThrow(
+      /multi-domain collision/i,
+    );
+    await expect(checkDomainCollisions({ ...BASE, api, log: () => {} })).rejects.toThrow(
+      /pagelively-assets/,
+    );
+    await expect(checkDomainCollisions({ ...BASE, api, log: () => {} })).rejects.toThrow(
+      /cdn\.other\.com/,
+    );
+  });
+
+  it("ignores disabled R2 custom domains when checking for collisions", async () => {
+    const mockApi: ApiCaller = async (method, path) => {
+      if (path.includes("/workers/domains")) {
+        return ok({ result: [] });
+      }
+      if (path.includes("/r2/buckets")) {
+        return ok({
+          result: {
+            domains: [{ domain: "cdn.other.com", enabled: false }],
+          },
+        });
+      }
+      throw new Error(`unexpected: ${method} ${path}`);
+    };
+    const { api } = makeCollisionApi(mockApi);
+    const logs: string[] = [];
+    await expect(
+      checkDomainCollisions({ ...BASE, api, log: (m: string) => logs.push(m) }),
+    ).resolves.toBeUndefined();
+    expect(logs.length).toBe(0);
+  });
+
+  it("logs a warning and continues when the Workers domains API is unavailable (non-OK)", async () => {
+    const mockApi: ApiCaller = async (method, path) => {
+      if (path.includes("/workers/domains")) return err(403);
+      if (path.includes("/r2/buckets")) return ok({ result: { domains: [] } });
+      throw new Error(`unexpected: ${method} ${path}`);
+    };
+    const { api } = makeCollisionApi(mockApi);
+    const logs: string[] = [];
+    await expect(
+      checkDomainCollisions({ ...BASE, api, log: (m: string) => logs.push(m) }),
+    ).resolves.toBeUndefined();
+    expect(logs.some((m) => m.includes("Warning") && m.includes("Worker custom domain"))).toBe(
+      true,
+    );
+  });
+
+  it("treats a 404 on the R2 custom domains endpoint as expected (bucket not yet created) and continues", async () => {
+    const mockApi: ApiCaller = async (method, path) => {
+      if (path.includes("/workers/domains")) return ok({ result: [] });
+      if (path.includes("/r2/buckets")) return err(404);
+      throw new Error(`unexpected: ${method} ${path}`);
+    };
+    const { api } = makeCollisionApi(mockApi);
+    const logs: string[] = [];
+    await expect(
+      checkDomainCollisions({ ...BASE, api, log: (m: string) => logs.push(m) }),
+    ).resolves.toBeUndefined();
+    expect(logs.length).toBe(0);
+  });
+
+  it("does NOT fire when allowRepoint is true (no throw even on collision)", async () => {
+    // Same collision scenario as the Worker hostname test but with allowRepoint=true
+    const mockApi: ApiCaller = async (method, path) => {
+      if (path.includes("/workers/domains")) {
+        return ok({
+          result: [{ hostname: "blog.example.com", service: "pagelively" }],
+        });
+      }
+      if (path.includes("/r2/buckets")) return ok({ result: { domains: [] } });
+      throw new Error(`unexpected: ${method} ${path}`);
+    };
+    const { api } = makeCollisionApi(mockApi);
+    const logs: string[] = [];
+    await expect(
+      checkDomainCollisions({ ...BASE, allowRepoint: true, api, log: (m: string) => logs.push(m) }),
+    ).resolves.toBeUndefined();
+    // allowRepoint=true means the guard logs nothing and returns without throwing
+    expect(logs.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multi-domain collision guard integration tests (runSetup)
+// ---------------------------------------------------------------------------
+// These tests simulate the exact scenario that deploy.yml produces: a fresh
+// checkout (pristine wrangler.toml), two sequential headless runs for different
+// domains with the same projectName, and the collision guard catching it.
+
+describe("runSetup multi-domain collision guard", () => {
+  const ACCOUNT_ID = "acc-123";
+  const PROJECT_NAME = "pagelively";
+
+  const TEAM_DOMAIN = "team.cloudflareaccess.com";
+
+  // Pristine placeholder toml — exactly what a fresh actions/checkout produces
+  const PRISTINE_TOML = String.raw`name = "pagelively"
+main = "src/index.ts"
+compatibility_date = "2026-06-29"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "pagelively-assets"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pagelively-db"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+# Optional KV namespace
+# [[kv_namespaces]]
+# binding = "KV"
+# id = "00000000000000000000000000000000"
+
+[vars]
+ASSET_BASE_URL = "https://cdn.example.com"
+ACCESS_TEAM_DOMAIN = "yourteam.cloudflareaccess.com"
+ACCESS_AUD = "00000000000000000000000000000000000000000000000000"
+`;
+
+  type ApiResponse = {
+    ok: boolean;
+    status: number;
+    json: () => Promise<Record<string, unknown>>;
+  };
+  type ApiCaller = (method: string, path: string, body?: unknown) => Promise<ApiResponse>;
+
+  function ok(body: Record<string, unknown>): ApiResponse {
+    return { ok: true, status: 200, json: async () => ({ success: true, ...body }) };
+  }
+
+  /**
+   * Build a mutable "account state" that tracks what resources exist.
+   * Each call to the responder can read and update this state, simulating
+   * the Cloudflare account's persistent state across separate CI runs.
+   */
+  function makeAccountState() {
+    return {
+      workerDomain: undefined as string | undefined,
+      bucketDomain: undefined as string | undefined,
+      accessApps: [] as Record<string, unknown>[],
+      buckets: [] as string[],
+      databases: [] as { name: string; uuid: string }[],
+      kvNamespaces: [] as { title: string; id: string }[],
+      appCounter: 0,
+      dbCounter: 0,
+      kvCounter: 0,
+    };
+  }
+
+  type AccountState = ReturnType<typeof makeAccountState>;
+
+  /**
+   * A responder that simulates a Cloudflare account. It tracks resources
+   * across multiple setup runs. The collision guard queries:
+   *   GET /accounts/{id}/workers/domains?service={name}
+   *   GET /accounts/{id}/r2/buckets/{name}/domains/custom
+   * The first is simulated by checking `state.workerDomain` (if set, the
+   * Worker has that custom domain). The second by checking `state.bucketDomain`.
+   */
+  function makeAccountResponder(
+    state: AccountState,
+    existingWorkerDomain?: string,
+    existingBucketDomain?: string,
+  ): ApiCaller {
+    const WNAME = "pagelively";
+    return async (method: string, path: string, body?: unknown) => {
+      // --- Collision guard queries ---
+      if (method === "GET" && path.includes("/workers/domains")) {
+        // If the account has a worker domain set, return it
+        if (existingWorkerDomain) {
+          return ok({
+            result: [{ hostname: existingWorkerDomain, service: WNAME }],
+          });
+        }
+        return ok({ result: [] });
+      }
+
+      if (method === "GET" && path.includes("/r2/buckets/") && path.includes("/domains/custom")) {
+        if (existingBucketDomain) {
+          return ok({
+            result: {
+              domains: [{ domain: existingBucketDomain, enabled: true }],
+            },
+          });
+        }
+        return ok({ result: { domains: [] } });
+      }
+
+      // --- Access apps ---
+      if (method === "GET" && path.endsWith("/access/apps")) {
+        return ok({ result: state.accessApps });
+      }
+      if (method === "POST" && path.endsWith("/access/apps")) {
+        state.appCounter++;
+        const appId = `app-${state.appCounter}`;
+        const aud = `aud-${state.appCounter}`;
+        const workerHost = existingWorkerDomain || "pages.example.com";
+        const app = {
+          id: appId,
+          aud,
+          name: `${PROJECT_NAME} admin`,
+          domain: `${workerHost}/admin`,
+          destinations: [
+            { type: "public", uri: `${workerHost}/admin` },
+            { type: "public", uri: `${workerHost}/api` },
+          ],
+          type: "self_hosted",
+        };
+        state.accessApps.push(app);
+        return ok({ result: app });
+      }
+      // Handle PUT repair of an existing app
+      if (method === "PUT" && path.includes("/access/apps/")) {
+        const app = state.accessApps[0];
+        if (app) {
+          const workerHost = existingWorkerDomain || "pages.example.com";
+          Object.assign(app, {
+            domain: `${workerHost}/admin`,
+            destinations: [
+              { type: "public", uri: `${workerHost}/admin` },
+              { type: "public", uri: `${workerHost}/api` },
+            ],
+          });
+          return ok({ result: app });
+        }
+        return ok({ result: { id: "app-repaired", aud: "aud-repaired" } });
+      }
+      if (method === "GET" && path.includes("/access/apps/") && path.endsWith("/policies")) {
+        return ok({ result: [] });
+      }
+      if (method === "POST" && path.includes("/access/apps/") && path.endsWith("/policies")) {
+        return ok({ result: { id: "policy-1" } });
+      }
+      if (method === "GET" && path.includes("/access/apps/") && !path.includes("/policies")) {
+        const app = state.accessApps[0];
+        if (app) return ok({ result: app });
+        return ok({ result: { id: "app-1", aud: "aud-1" } });
+      }
+
+      // --- Zones ---
+      if (method === "GET" && path.startsWith("/zones")) {
+        return ok({ result: [{ id: "zone-123", name: "example.com" }] });
+      }
+
+      // --- R2 ---
+      if (method === "GET" && path.endsWith("/r2/buckets")) {
+        return ok({
+          result: {
+            buckets: state.buckets.map((name) => ({ name })),
+          },
+        });
+      }
+      if (method === "POST" && path.endsWith("/r2/buckets")) {
+        const b = (body as Record<string, unknown>)?.name as string;
+        if (!state.buckets.includes(b)) state.buckets.push(b);
+        return ok({ result: { name: b } });
+      }
+      if (method === "POST" && path.includes("/domains/custom")) {
+        return ok({ result: { domain: "cdn.pages.example.com", status: "active" } });
+      }
+
+      // --- D1 ---
+      if (method === "GET" && path.endsWith("/d1/database")) {
+        return ok({ result: state.databases });
+      }
+      if (method === "POST" && path.endsWith("/d1/database")) {
+        state.dbCounter++;
+        const db = { name: `${PROJECT_NAME}-db`, uuid: `d1-${state.dbCounter}` };
+        state.databases.push(db);
+        return ok({ result: db });
+      }
+
+      // --- KV ---
+      if (method === "GET" && path.endsWith("/storage/kv/namespaces")) {
+        return ok({ result: state.kvNamespaces });
+      }
+      if (method === "POST" && path.endsWith("/storage/kv/namespaces")) {
+        state.kvCounter++;
+        const kv = { title: `${PROJECT_NAME}-kv`, id: `kv-${state.kvCounter}` };
+        state.kvNamespaces.push(kv);
+        return ok({ result: kv });
+      }
+
+      throw new Error(`unexpected API call: ${method} ${path}`);
+    };
+  }
+
+  function makeDeps(apiImpl: ApiCaller) {
+    const calls = {
+      wrangler: [] as unknown[][],
+      api: [] as unknown[][],
+      writes: [] as { path: string; content: string }[],
+      logs: [] as string[],
+    };
+    return {
+      fs: {
+        readFile: vi.fn(async () => PRISTINE_TOML),
+        writeFile: vi.fn(async (path: string, content: string) => {
+          calls.writes.push({ path, content });
+        }),
+      },
+      api: vi.fn(async (...args: unknown[]) => {
+        calls.api.push(args);
+        return await apiImpl(...(args as [string, string, unknown]));
+      }),
+      wrangler: vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 })),
+      prompt: vi.fn(async () => ""),
+      confirm: vi.fn(async () => true),
+      log: vi.fn((message: string) => calls.logs.push(message)),
+      pause: vi.fn(async () => undefined),
+      env: { SETUP_ACCESS_TEAM_DOMAIN: TEAM_DOMAIN },
+      _calls: calls,
+    };
+  }
+
+  const RUN_OPTIONS_FIRST = {
+    headless: true,
+    accountId: ACCOUNT_ID,
+    apiToken: "token-123",
+    workerDomain: "pages.example.com",
+    cdnDomain: "cdn.pages.example.com",
+    projectName: PROJECT_NAME,
+    adminEmails: "admin@example.com",
+    createKv: true,
+  };
+
+  const RUN_OPTIONS_SECOND = {
+    headless: true,
+    accountId: ACCOUNT_ID,
+    apiToken: "token-123",
+    workerDomain: "other.example.com",
+    cdnDomain: "cdn.other.example.com",
+    projectName: PROJECT_NAME,
+    adminEmails: "admin@example.com",
+    createKv: true,
+  };
+
+  it("primary scenario: two sequential headless runs (same projectName, different domains) — second run fails with collision error", async () => {
+    const state = makeAccountState();
+
+    // First run: fresh account, provisions everything for pages.example.com
+    const responder1 = makeAccountResponder(state);
+    const deps1 = makeDeps(responder1);
+    await runSetup(RUN_OPTIONS_FIRST, deps1);
+    // First run succeeds
+    expect(deps1._calls.logs.some((m) => m.includes("Pagelively is live"))).toBe(true);
+    // "Collision" appears only as an error message, not in the "Checking for…" log line
+    expect(deps1._calls.logs.some((m) => m.includes("detected") && m.includes("collision"))).toBe(
+      false,
+    );
+
+    // Now simulate the state the first run left in the Cloudflare account:
+    // the Worker has a custom domain for pages.example.com
+    const stateAfterFirstRun = state;
+    const existingWorkerDomain = "pages.example.com";
+    const existingBucketDomain = "cdn.pages.example.com";
+
+    // Second run: fresh checkout (pristine toml), same projectName, different domains
+    const responder2 = makeAccountResponder(
+      stateAfterFirstRun,
+      existingWorkerDomain,
+      existingBucketDomain,
+    );
+    const deps2 = makeDeps(responder2);
+    await expect(runSetup(RUN_OPTIONS_SECOND, deps2)).rejects.toThrow(/multi-domain collision/i);
+    await expect(runSetup(RUN_OPTIONS_SECOND, deps2)).rejects.toThrow(/distinct project name/i);
+
+    // No deploy happened on the second run
+    const wranglerCallsSec: unknown[] = deps2.wrangler.mock.calls || [];
+    const wranglerCommandsSec = wranglerCallsSec
+      .filter((c): c is [string[]] => Array.isArray(c) && c.length > 0 && Array.isArray(c[0]))
+      .map((c) => (c[0] as string[]).join(" "));
+    expect(wranglerCommandsSec.filter((c) => c.includes("deploy"))).toHaveLength(0);
+    // No wrangler.toml was written
+    expect(deps2._calls.writes).toHaveLength(0);
+  });
+
+  it("guard does NOT fire when the second run uses the same domains (idempotent re-run)", async () => {
+    const state = makeAccountState();
+
+    // First run: fresh account, provisions everything for pages.example.com
+    const responder1 = makeAccountResponder(state);
+    const deps1 = makeDeps(responder1);
+    await runSetup(RUN_OPTIONS_FIRST, deps1);
+    expect(deps1._calls.logs.some((m) => m.includes("Pagelively is live"))).toBe(true);
+
+    // Simulate account state after first run
+    const existingWorkerDomain = "pages.example.com";
+    const existingBucketDomain = "cdn.pages.example.com";
+
+    // Second run: SAME domains, same projectName — should succeed (idempotent)
+    const responder2 = makeAccountResponder(state, existingWorkerDomain, existingBucketDomain);
+    const deps2 = makeDeps(responder2);
+    await runSetup(RUN_OPTIONS_FIRST, deps2);
+    expect(deps2._calls.logs.some((m) => m.includes("Pagelively is live"))).toBe(true);
+    // No collision ERROR message was logged (the "Checking for multi-domain
+    // collisions..." step line is not an error — it is the guard's informational log)
+    expect(deps2._calls.logs.some((m) => m.includes("detected") && m.includes("collision"))).toBe(
+      false,
+    );
+    // Deploy still happens
+    const wranglerCallsIdem: unknown[] = deps2.wrangler.mock.calls || [];
+    const wranglerCommandsIdem = wranglerCallsIdem
+      .filter((c): c is [string[]] => Array.isArray(c) && c.length > 0 && Array.isArray(c[0]))
+      .map((c) => (c[0] as string[]).join(" "));
+    expect(wranglerCommandsIdem.filter((c) => c.includes("deploy"))).toHaveLength(1);
+  });
+
+  it("SETUP_ALLOW_REPOINT override lets a second, different-domain call proceed deliberately", async () => {
+    const state = makeAccountState();
+
+    // First run: fresh account, provisions everything for pages.example.com
+    const responder1 = makeAccountResponder(state);
+    const deps1 = makeDeps(responder1);
+    await runSetup(RUN_OPTIONS_FIRST, deps1);
+    expect(deps1._calls.logs.some((m) => m.includes("Pagelively is live"))).toBe(true);
+
+    // Simulate account state after first run
+    const existingWorkerDomain = "pages.example.com";
+    const existingBucketDomain = "cdn.pages.example.com";
+
+    // Second run: different domains BUT with allowRepoint=true
+    const responder2 = makeAccountResponder(state, existingWorkerDomain, existingBucketDomain);
+    const deps2 = makeDeps(responder2);
+    await runSetup({ ...RUN_OPTIONS_SECOND, allowRepoint: true }, deps2);
+    // Succeeds because the explicit override opted out of the guard
+    expect(deps2._calls.logs.some((m) => m.includes("Pagelively is live"))).toBe(true);
+    const wranglerCallsRep: unknown[] = deps2.wrangler.mock.calls || [];
+    const wranglerCommandsRep = wranglerCallsRep
+      .filter((c): c is [string[]] => Array.isArray(c) && c.length > 0 && Array.isArray(c[0]))
+      .map((c) => (c[0] as string[]).join(" "));
+    expect(wranglerCommandsRep.filter((c) => c.includes("deploy"))).toHaveLength(1);
   });
 });

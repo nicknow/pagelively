@@ -77,6 +77,11 @@ function createFirstRunResponder(
   kvId = "kv-123",
 ): ApiCaller {
   return async (method: string, path: string) => {
+    // Collision guard queries — no existing resources
+    if (method === "GET" && path.includes("/workers/domains")) return ok({ result: [] });
+    if (method === "GET" && path.includes("/r2/buckets/") && path.includes("/domains/custom"))
+      return ok({ result: { domains: [] } });
+
     if (method === "GET" && path === `/accounts/${accountId}/access/apps`)
       return ok({ result: [] });
     if (method === "POST" && path === `/accounts/${accountId}/access/apps`)
@@ -199,6 +204,15 @@ describe("setup.mjs headless env mapping helpers", () => {
     expect(envToSetupOptions({ SETUP_CREATE_KV: "0" })).toMatchObject({ createKv: false });
   });
 
+  it("envToSetupOptions: SETUP_ALLOW_REPOINT maps to allowRepoint boolean", () => {
+    expect(envToSetupOptions({ SETUP_ALLOW_REPOINT: "1" })).toMatchObject({ allowRepoint: true });
+    expect(envToSetupOptions({ SETUP_ALLOW_REPOINT: "true" })).toMatchObject({
+      allowRepoint: true,
+    });
+    expect(envToSetupOptions({ SETUP_ALLOW_REPOINT: "0" })).toMatchObject({ allowRepoint: false });
+    expect(envToSetupOptions({})).not.toHaveProperty("allowRepoint");
+  });
+
   it("envToSetupOptions: unset create-kv leaves createKv undefined and headless false", () => {
     const opts = envToSetupOptions({});
     expect(opts.createKv).toBeUndefined();
@@ -294,6 +308,16 @@ describe("setup.mjs runSetup headless mode", () => {
   it("headless with Zero Trust not initialized prints the steps and throws instead of pausing", async () => {
     const accountId = "acc-123";
     const deps = makeDeps(async (method: string, path: string) => {
+      // Collision guard queries — no existing resources
+      if (method === "GET" && path.includes("/workers/domains"))
+        return { ok: true, status: 200, json: async () => ({ success: true, result: [] }) };
+      if (method === "GET" && path.includes("/r2/buckets/") && path.includes("/domains/custom"))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true, result: { domains: [] } }),
+        };
+
       if (method === "GET" && path === `/accounts/${accountId}/access/apps`) {
         return {
           ok: false,

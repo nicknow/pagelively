@@ -50,6 +50,7 @@ memory.
 | 0041 | [S23 per-page password protection — visitor gate, PBKDF2 at rest, no-store protected surface](0041-s23-password-protected-pages.md)             | Accepted (amended 2026-08-02)    |
 | 0042 | [S23-A implementation details — password/token primitives, unlock & asset routes, benchmark stop-and-report](0042-s23-a-password-primitives.md) | Accepted                         |
 | 0043 | [S23-B implementation details — schema migration 0002, password_hash mapping, unlocks repository](0043-s23-b-schema-repositories.md)            | Accepted                         |
+| 0044 | [Multi-domain collision guard in setup.mjs](0044-multi-domain-collision-guard.md)                                                                    | Accepted                         |
 
 > **Numbering note:** ADR numbers are assigned sequentially, but some numbers are intentionally
 > unused. 0034 was reserved for an OAuth fail-fast slice that was deferred; 0037 was reserved for

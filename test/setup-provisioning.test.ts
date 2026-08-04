@@ -170,6 +170,16 @@ function makeRunResponder(ids: RunIds, opts: RunResponderOptions = {}): ApiCalle
     ? opts.orgResponse
     : async () => ok({ result: opts.orgDomain ? { domain: opts.orgDomain } : {} });
   return async (method: string, path: string) => {
+    // Collision guard queries — no existing resources
+    if (method === "GET" && path.startsWith(`/accounts/${ids.accountId}/workers/domains`))
+      return ok({ result: [] });
+    if (
+      method === "GET" &&
+      path.startsWith(`/accounts/${ids.accountId}/r2/buckets/`) &&
+      path.endsWith("/domains/custom")
+    )
+      return ok({ result: { domains: [] } });
+
     if (method === "GET" && path === `/accounts/${ids.accountId}/access/apps`)
       return ok({
         result: [
