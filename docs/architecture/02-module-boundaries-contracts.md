@@ -157,6 +157,11 @@ type RevAction =
 // buildR2Key → "path_traversal"/400. Path normalization: `//` and `./` drop,
 // trailing slashes strip, non-escaping `..` pops; input is an already-decoded
 // string (`%`-sequences and `\` are literal). Details: ADR 0012.
+// NOTE — "invalid_rev" is deliberately dual-use: buildR2Key (rev.ts) throws it as a
+// 500-class internal-invariant guard (corrupt row / caller bug, ADR 0012), while
+// serveAsset's parseRev throws the SAME code as a 400 for client-supplied rev URL input
+// (ADR 0041 d8). Same code, two statuses — documented so the reuse reads as intended,
+// not as a typo.
 ```
 
 ## Router contract (pure)
@@ -363,7 +368,7 @@ interface VerifiedIdentity {
 
 ```ts
 // entry-serve.ts
-async function serveEntry(request: Request, deps: { config; pages; objects; cache });
+async function serveEntry(request: Request, deps: { config; pages; unlocks; objects; cache; markdown? });
 // returns entry HTML (injected base), or 301 for image/raw, or 404/500 via errors.ts
 // S23 gate (ADR 0041): after resolve, before kind dispatch —
 //   page.password_hash && no valid pl_unlock cookie ⇒ 200 prompt page
@@ -372,17 +377,23 @@ async function serveEntry(request: Request, deps: { config; pages; objects; cach
 //   image kind served as Worker image bytes (never 301-to-CDN); all headersFor("protected").
 
 // unlock.ts (S23) — public, no Access
-async function serveUnlock(request: Request, deps: { config; pages; unlocks; objects });
+async function serveUnlock(request: Request, deps: { config; pages; unlocks; cache });
 // POST /p/{id}/unlock[/]: wrong pw → 200 prompt + escaped inline error; invalid id → 400;
-// unknown OR unprotected page → 404; missing/blank pw → 400 invalid_password; correct →
+// unknown OR unprotected page → 404; missing/blank pw → 400 invalid_password; non-form or
+// malformed POST body → 400 invalid_form_data (never a generic 500, AC 8); correct →
 // Set-Cookie pl_unlock + upsert token hash + 303 /p/{id}/. GET → prompt or clean 404;
-// other methods → 405. All responses headersFor("protected").
+// other methods → 405. All responses headersFor("protected") — the `cache` dep supplies
+// headersFor; this surface never reads R2 (no `objects` dep).
 
 // asset-serve.ts (S23) — public, no Access
-async function serveAsset(request: Request, deps: { objects });
+async function serveAsset(request: Request, deps: { objects; cache });
 // GET /assets/pages/{id}/{rev}/{path…}: stored bytes + stored content type +
-// headersFor("protected"); write-side path rules (400), invalid id → 400, bad rev → 400
-// invalid_rev, missing object/malformed %-encoding → clean 404. No D1 read, no cookie check.
+// headersFor("protected") (the `cache` dep); path via the shared write-side rules
+// (validateStoredPath, 400), invalid id → 400, bad rev → 400 invalid_rev — client-supplied
+// URL input, the 400-class twin of buildR2Key's 500-class invariant guard (dual use, above);
+// leading-zero revs normalize ("01" → 1 — positive-integer-string rule, spec §8); the route
+// is read-only — method is not checked, any method serves bytes. Missing object / malformed
+// %-encoding → clean 404. No D1 read, no cookie check.
 
 // admin-api.ts — each handler: (request, ctx, deps) => Response
 async function handleListPages(...);    // GET  /api/pages

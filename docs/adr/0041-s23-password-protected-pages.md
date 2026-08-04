@@ -46,6 +46,15 @@ HttpOnly; SameSite=Lax; Secure`. At rest, `page_unlocks` (D1) stores only `token
    previous cookie). A protected page view costs exactly **one D1 PK lookup + one SHA-256 +
    one constant-time compare** — no PBKDF2 on the view path (R18). **No new server secret**;
    spec §12 holds; no Env/config/provisioning change.
+
+   > **Amendment (2026-08-03) — cookie parsing is total and first-wins.** The gate reads the
+   > raw `Cookie` header with a total named-cookie parser (`readCookie` in `src/unlock.ts`):
+   > split on `;`, trim, match the name exactly; parts without `=` are skipped, and an empty
+   > or garbage value simply fails the total `parseUnlockCookie` and behaves as absent.
+   > Duplicate `pl_unlock` names resolve to the **first** occurrence, deterministically.
+   > Parsing never throws — a hostile cookie can only ever produce "not unlocked", never a
+   > 500 (validator probe AC 11).
+
 2. **Password hashing (OQ-21): PBKDF2-HMAC-SHA256 via Web Crypto.** `hashPassword(pw)` uses
    `crypto.subtle.deriveBits` with **10,000 iterations** (default), a **random 16-byte salt
    per hash**, and a self-describing storage format
@@ -79,6 +88,21 @@ s23-a-benchmark.md`): `hashPassword` @ 100,000 iterations measured **~38–40 ms
    the prompt for that id, or a clean 404 when the page is unknown/unprotected. Other
    methods → 405 `method_not_allowed`. Every error goes through `toErrorResponse` with
    no-store headers.
+
+   > **Amendment (2026-08-03) — typed POST-body guard (AC 8).** The unlock POST body is read
+   > through a total `readUnlockForm` guard (`src/unlock.ts`): the Content-Type is normalized
+   > to the lowercase MIME type (`;`-params stripped) and any non-form MIME (`text/plain`,
+   > `application/json`, …) is rejected up-front with 400 `invalid_form_data`; then
+   > `request.formData()` is wrapped in try/catch so every parse failure — malformed
+   > urlencoded body, multipart boundary mismatch, missing Content-Type — becomes a typed
+   > 400, never the generic 500 (validator probes A–D). Two workerd specifics discovered by
+   > testing justify the guard: `formData()` **throws without a Content-Type header even for
+   > a null body** ("Parsing a Body as FormData requires a Content-Type header."), and
+   > **string request bodies synthesize `text/plain;charset=UTF-8`** — so a bodyless POST
+   > with no Content-Type hits the up-front reject path, while a null body with a form
+   > Content-Type parses as empty and falls through to the normal password checks
+   > (`invalid_password` "Password is required.").
+
 4. **Redirect (OQ-22).** A successful unlock responds **303 See Other to the canonical
    `/p/{id}/`**. No `next` parameter, no echo of any caller-controlled path — **zero
    open-redirect surface**. Visitors who arrived via a slug URL land on the id URL after
@@ -119,6 +143,16 @@ s23-a-benchmark.md`): `hashPassword` @ 100,000 iterations measured **~38–40 ms
    value); missing object or malformed percent-encoding → clean 404, never 500.
    `serveAsset` **does not resolve the page row and does not check the cookie** (one D1 read
    per page view, not per asset) — see the threat boundary in Consequences.
+
+   > **Clarification (2026-08-03) — read-side empty segments are unreachable on the wire.**
+   > The read-side "empty segments → 400" rule is defense-in-depth, not live behavior: the
+   > router already 404s `//` (empty internal segment) and `%2F` (encoded slash) at
+   > classification, and trailing slashes are stripped before classification
+   > (`/assets/pages/{id}/{rev}/` alone classifies `unknown` — a path segment is required),
+   > so no request can deliver a decoded empty segment to `serveAsset`. The write-side rule
+   > is unchanged: the shared `validateStoredPath` keeps the exact write checks, including
+   > empty → 400, and the read side inherits them (unit-tested).
+
 9. **`protected` cache class.** `CacheRouteClass` gains `protected` →
    `Cache-Control: no-store`, no `Cache-Tag`. Every response on the protected surface —
    prompt, unlocked entry, protected image bytes, asset bytes, unlock 303, unlock errors —
@@ -161,6 +195,14 @@ CASCADE);` — auto-applied to every test DB by the existing migration runner
     Wrong-password is not an error (200 + inline message). `invalid_rev` is 400 when the
     value is client-supplied via the asset route (the rev.ts internal-invariant 500 case is
     unchanged). **401 remains unused.**
+
+    > **Amendment (2026-08-03) — two new public codes.** The unlock surface now exposes
+    > **two** public codes: `invalid_password` (400) and `invalid_form_data` (400).
+    > Rationale: non-form or malformed unlock POST bodies are rejected with a **typed 400,
+    > never a generic 500** (validator probes A–D); `invalid_form_data` was already the S17
+    > multipart-parse code and is now public on the unlock surface too. Wrong-password is
+    > still not an error (200 + inline message); the `invalid_rev` client-400 vs
+    > internal-500 dual use stands unchanged (architecture 05). **401 remains unused.**
 
 ## Consequences
 
