@@ -13,7 +13,6 @@ import {
   ACCESS_AUD,
   createMockFetch,
   generateKeyPair,
-  signJwt,
   TEAM_DOMAIN,
 } from "./jwt-test-helpers";
 
@@ -340,7 +339,6 @@ describe("admin-api handlers", () => {
 
 describe("WI-5: worker-level auth gate (403 without JWT)", () => {
   const db = env.DB;
-  let privateKey: CryptoKey;
   let fetchMock: ReturnType<typeof createMockFetch>;
 
   function makeEnv(overrides: Record<string, unknown> = {}): Env {
@@ -361,7 +359,6 @@ describe("WI-5: worker-level auth gate (403 without JWT)", () => {
 
   beforeEach(async () => {
     const keys = await generateKeyPair("access-key-1");
-    privateKey = keys.privateKey;
     fetchMock = createMockFetch({ keys: [keys.jwk] });
     vi.stubGlobal("fetch", fetchMock.fetchFn);
     await clearFilesAndPages(db);
