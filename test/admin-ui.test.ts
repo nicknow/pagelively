@@ -882,6 +882,31 @@ describe("index.ts — admin UI", () => {
     expect(text).not.toContain("<script>alert(1)</script>");
   });
 
+  it("WI-1: edit view escapes HTML in slug containing double quotes", async () => {
+    const db = env.DB;
+    const pageId = "page000xss4";
+    await insertPage(db, {
+      id: pageId,
+      slug: 'test"onclick="evil',
+      title: "Quoted Slug Edit",
+      kind: "html",
+    });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "index.html",
+      r2_key: `pages/${pageId}/1/index.html`,
+      content_type: "text/html; charset=utf-8",
+      size: 100,
+    });
+
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // The slug value must be HTML-entity-escaped in the input value attribute
+    expect(text).toContain("&quot;");
+    expect(text).not.toContain('test"onclick=');
+  });
+
   // ── WI-11: empty-id-segment edge case for /admin/edit/ ───────────────────
 
   it("WI-11: GET /admin/edit/ (empty segment) returns 404 (unknown admin path — trailing slash stripped to /admin/edit)", async () => {

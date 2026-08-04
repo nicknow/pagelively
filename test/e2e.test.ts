@@ -303,7 +303,7 @@ describe("S22 — full local end-to-end journey", () => {
     );
   });
 
-  it("step 8: publish an image-kind page (single image file) and serve it via 301 redirect to the CDN", async () => {
+  it("step 8: publish an image-kind page; worker redirects to CDN (image pages are never served directly by the Worker per spec §6); stored bytes verified from R2", async () => {
     const form = new FormData();
     form.append("manifest", JSON.stringify({ slug: "photo", title: "Photo" }));
     appendFile(form, "sunset.jpg", makeFile("sunset.jpg", "FAKE-JPEG-BYTES", "image/jpeg"));
@@ -322,12 +322,17 @@ describe("S22 — full local end-to-end journey", () => {
     expect(imageId).toMatch(/^[A-Za-z0-9_-]{8,10}$/);
 
     // The image object is stored under the rev folder with upload-time metadata.
+    // This is the authoritative byte-level verification — the Worker only
+    // redirects to the CDN for image pages (spec §6), so body bytes and
+    // content-type cannot be asserted through the Worker response path.
     const stored = await env.BUCKET.get(`pages/${imageId}/1/sunset.jpg`);
     expect(stored).not.toBeNull();
     expect(await new Response(stored!.body).text()).toBe("FAKE-JPEG-BYTES");
     expect(stored!.httpMetadata).toMatchObject({ contentType: "image/jpeg" });
 
     // The public slug URL 301s to the CDN object (spec §6: image pages redirect).
+    // The Worker never returns the image body directly — that's the CDN's job
+    // in production. The Location header pin is the coverage for the redirect.
     const serve = await fetchPublic("/photo/");
     expect(serve.status).toBe(301);
     expect(serve.headers.get("Location")).toBe(
