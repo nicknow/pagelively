@@ -52,7 +52,7 @@ import { hashPassword, validatePassword } from "./password";
  * has_password: boolean. Every page JSON surface uses this so the hash
  * never leaks (R19).
  */
-function toPageJson(record: PageRecord): Record<string, unknown> {
+export function toPageJson(record: PageRecord): Record<string, unknown> {
   const { password_hash, ...rest } = record;
   return { ...rest, has_password: password_hash !== null };
 }
@@ -660,8 +660,8 @@ export async function handlePatchPage(
       throw cleaned.error;
     }
     if (cleaned.slug !== page.slug) {
-      /* istanbul ignore next -- reason: cleanSlug returned ok=true => validateSlug already passed (slug.ts:162) */
       const validation = validateSlug(cleaned.slug);
+      /* istanbul ignore next -- reason: cleanSlug returned ok=true => validateSlug already passed (slug.ts:162) */
       if (!validation.ok) {
         throw validation.error;
       }

@@ -107,6 +107,24 @@ describe("serveAsset", () => {
     }
   });
 
+  it("extended invalid-rev matrix: +1, 1e0, and 24-digit overflow also rejected", async () => {
+    for (const rev of ["+1", "1e0", "999999999999999999999999"]) {
+      await expect(
+        serveAsset(new Request(assetUrl("page100001", rev, "index.html")), makeDeps()),
+      ).rejects.toMatchObject({ code: "invalid_rev", status: 400 });
+    }
+  });
+
+  it("leading-zero rev '01' is accepted and treated as rev 1", async () => {
+    await objects.put("page100001", 1, "index.html", "rev-1-content", "text/html");
+    const res = await serveAsset(
+      new Request(assetUrl("page100001", "01", "index.html")),
+      makeDeps(),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("rev-1-content");
+  });
+
   it("decoded ../ with a forward slash never reaches serveAsset → clean 404, sibling key never served", async () => {
     // Two shapes: "%2e%2e%2f" (encoded dots + encoded slash) is rejected by the
     // router's encoded-slash rule (unknown → 404); "%2e%2e/" (encoded dots +
@@ -129,6 +147,23 @@ describe("serveAsset", () => {
     ).rejects.toMatchObject({ code: "path_traversal", status: 400 });
   });
 
+  it("raw path traversal foo/../sibling.html resolves to the correct root-level sibling (URL parser normalization)", async () => {
+    // foo/../sibling.html in a URL is normalized to sibling.html by the URL
+    // parser BEFORE the Worker sees it. The normalized path must serve the
+    // root-level sibling, never the nested foo/sibling.html.
+    await objects.put("page100001", 1, "sibling.html", "ROOT-SIBLING", "text/html");
+    await objects.put("page100001", 1, "foo/sibling.html", "FOO-SIBLING", "text/html");
+
+    const res = await serveAsset(
+      new Request(assetUrl("page100001", "1", "foo/../sibling.html")),
+      makeDeps(),
+    );
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toBe("ROOT-SIBLING");
+    expect(text).not.toContain("FOO-SIBLING");
+  });
+
   it("rejects a decoded backslash with path_traversal (400)", async () => {
     await expect(
       serveAsset(new Request(assetUrl("page100001", "1", "a%5Cb.html")), makeDeps()),
@@ -142,11 +177,24 @@ describe("serveAsset", () => {
   });
 
   it("returns a clean 404 for malformed percent-encoding (never 500)", async () => {
+    for (const path of ["bad%2.html", "bad%zz.html", "a%2", "%"]) {
+      const res = await serveAsset(
+        new Request(assetUrl("page100001", "1", path)),
+        makeDeps(),
+      );
+      expect(res.status, `path=${path}`).toBe(404);
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+      expect(await res.text()).toContain("Not Found");
+    }
+  });
+
+  it("encoded slash a%2Fb.html is classified as unknown → clean 404", async () => {
+    // %2F in a URL path is decoded to a literal "/" by the URL parser, changing
+    // the path structure so it no longer matches the asset route pattern.
     const res = await serveAsset(
-      new Request(assetUrl("page100001", "1", "bad%2.html")),
+      new Request(assetUrl("page100001", "1", "a%2Fb.html")),
       makeDeps(),
     );
-
     expect(res.status).toBe(404);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
     expect(await res.text()).toContain("Not Found");

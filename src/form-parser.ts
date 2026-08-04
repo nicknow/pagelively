@@ -216,7 +216,8 @@ export async function parsePublishForm(request: Request): Promise<ParsedPublishF
     let detail: string;
     if (error instanceof Error) {
       detail = error.message;
-    } /* istanbul ignore next */ else {
+    } else {
+      /* istanbul ignore next -- unreachable: formData() always throws TypeError */
       detail = String(error);
     }
     throw new AppError("invalid_form_data", 400, "Could not parse multipart form data.", detail);
@@ -265,7 +266,8 @@ export async function parseFileUpdateForm(request: Request): Promise<ParsedPubli
     let detail: string;
     if (error instanceof Error) {
       detail = error.message;
-    } /* istanbul ignore next */ else {
+    } else {
+      /* istanbul ignore next -- unreachable: formData() always throws TypeError */
       detail = String(error);
     }
     throw new AppError("invalid_form_data", 400, "Could not parse multipart form data.", detail);
