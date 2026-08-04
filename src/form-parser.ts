@@ -14,6 +14,7 @@ export interface ParsedPublishForm {
     showSource?: boolean;
     entry?: string;
     visibility?: "public" | "unlisted";
+    password?: string;
   };
   files: Array<{
     path: string;
@@ -117,6 +118,12 @@ function parseManifestField(raw: string): ParsedPublishForm["manifest"] {
     if ("visibility" in parsed && typeof parsed.visibility === "string") {
       manifest.visibility = parsed.visibility as "public" | "unlisted";
     }
+    if ("password" in parsed) {
+      if (typeof parsed.password !== "string") {
+        throw new AppError("invalid_password", 400, "Password must be a string if provided.");
+      }
+      manifest.password = parsed.password;
+    }
     return manifest;
   } catch (error) {
     if (error instanceof AppError) {
@@ -173,6 +180,12 @@ export async function parsePublishJson(request: Request): Promise<ParsedPublishF
   }
   if ("visibility" in body && typeof body.visibility === "string") {
     manifest.visibility = body.visibility as "public" | "unlisted";
+  }
+  if ("password" in body) {
+    if (typeof body.password !== "string") {
+      throw new AppError("invalid_password", 400, "Password must be a string if provided.");
+    }
+    manifest.password = body.password;
   }
 
   const files: ParsedPublishForm["files"] = [
