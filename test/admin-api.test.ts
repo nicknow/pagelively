@@ -9,12 +9,7 @@ import { createUnlocksRepository } from "../src/unlocks-repository";
 import { createObjectStore } from "../src/object-store";
 import { createTestCacheService } from "../src/cache-service";
 import { createConfig } from "../src/config";
-import {
-  ACCESS_AUD,
-  createMockFetch,
-  generateKeyPair,
-  TEAM_DOMAIN,
-} from "./jwt-test-helpers";
+import { ACCESS_AUD, createMockFetch, generateKeyPair, TEAM_DOMAIN } from "./jwt-test-helpers";
 
 // S15 — Admin API list & detail handlers.
 

@@ -178,10 +178,7 @@ describe("serveAsset", () => {
 
   it("returns a clean 404 for malformed percent-encoding (never 500)", async () => {
     for (const path of ["bad%2.html", "bad%zz.html", "a%2", "%"]) {
-      const res = await serveAsset(
-        new Request(assetUrl("page100001", "1", path)),
-        makeDeps(),
-      );
+      const res = await serveAsset(new Request(assetUrl("page100001", "1", path)), makeDeps());
       expect(res.status, `path=${path}`).toBe(404);
       expect(res.headers.get("Cache-Control")).toBe("no-store");
       expect(await res.text()).toContain("Not Found");

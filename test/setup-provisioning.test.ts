@@ -812,9 +812,7 @@ function ORG_OK(domain: string): ApiResponse {
 }
 
 /** Simplified zone-list responder for the CDN-missing test (avoids full provisioning mock). */
-function zonelistResponder(
-  zones: Record<string, { id: string; name: string }>,
-): ApiCaller {
+function zonelistResponder(zones: Record<string, { id: string; name: string }>): ApiCaller {
   return async (method: string, path: string) => {
     // Collision guard queries
     if (method === "GET" && path.startsWith("/accounts/acc-123/workers/domains"))
@@ -829,15 +827,25 @@ function zonelistResponder(
     if (method === "GET" && path === "/accounts/acc-123/access/apps")
       return ok({
         result: [
-          { id: "app-123", aud: "aud-123", name: "Pagelively Admin", domain: "n.3a8r.com/admin",
-            destinations: [{ type: "public", uri: "n.3a8r.com/admin" }, { type: "public", uri: "n.3a8r.com/api" }],
-            type: "self_hosted" },
+          {
+            id: "app-123",
+            aud: "aud-123",
+            name: "Pagelively Admin",
+            domain: "n.3a8r.com/admin",
+            destinations: [
+              { type: "public", uri: "n.3a8r.com/admin" },
+              { type: "public", uri: "n.3a8r.com/api" },
+            ],
+            type: "self_hosted",
+          },
         ],
       });
     if (method === "GET" && path === "/accounts/acc-123/access/organizations")
       return ok({ result: { domain: "team.cloudflareaccess.com" } });
     if (method === "POST" && path === "/accounts/acc-123/access/apps")
-      return ok({ result: { id: "app-123", aud: "aud-123", name: "Pagelively admin", type: "self_hosted" } });
+      return ok({
+        result: { id: "app-123", aud: "aud-123", name: "Pagelively admin", type: "self_hosted" },
+      });
     if (method === "GET" && path === "/accounts/acc-123/access/apps/app-123/policies")
       return ok({ result: [] });
     if (method === "POST" && path === "/accounts/acc-123/access/apps/app-123/policies")
@@ -853,8 +861,7 @@ function zonelistResponder(
       return ok({ result: { name: "pagelively-assets" } });
     if (method === "POST" && path.includes("/domains/custom"))
       return ok({ result: { domain: "cdn.pages.example.com", status: "active" } });
-    if (method === "GET" && path === "/accounts/acc-123/d1/database")
-      return ok({ result: [] });
+    if (method === "GET" && path === "/accounts/acc-123/d1/database") return ok({ result: [] });
     if (method === "POST" && path === "/accounts/acc-123/d1/database")
       return ok({ result: { uuid: "d1-123", name: "pagelively-db" } });
     if (method === "GET" && path === "/accounts/acc-123/storage/kv/namespaces")
@@ -880,8 +887,11 @@ describe("resolveTeamDomain: org response shape edge cases (validator)", () => {
 
   it("org non-JSON body (json() throws) falls through to the prompt", async () => {
     const api = vi.fn<ApiCaller>(async () => ({
-      ok: true, status: 200,
-      json: async () => { throw new Error("no body"); },
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new Error("no body");
+      },
     }));
     const prompt = vi.fn(async () => "prompted.cloudflareaccess.com");
     const result = await resolveTeamDomain({ accountId: "acc-1", api, prompt });
@@ -889,7 +899,9 @@ describe("resolveTeamDomain: org response shape edge cases (validator)", () => {
   });
 
   it("api() itself throwing is swallowed and falls through to the prompt", async () => {
-    const api = vi.fn<ApiCaller>(async () => { throw new Error("network down"); });
+    const api = vi.fn<ApiCaller>(async () => {
+      throw new Error("network down");
+    });
     const prompt = vi.fn(async () => "prompted.cloudflareaccess.com");
     const result = await resolveTeamDomain({ accountId: "acc-1", api, prompt });
     expect(result).toBe("prompted.cloudflareaccess.com");
@@ -910,7 +922,9 @@ describe("resolveTeamDomain: org response shape edge cases (validator)", () => {
     const api = vi.fn<ApiCaller>(async () => ORG_OK("org.cloudflareaccess.com"));
     const result = await resolveTeamDomain({
       env: { SETUP_ACCESS_TEAM_DOMAIN: "   " },
-      accountId: "acc-1", api, prompt: noopPrompt,
+      accountId: "acc-1",
+      api,
+      prompt: noopPrompt,
     });
     expect(result).toBe("org.cloudflareaccess.com");
   });
@@ -927,7 +941,9 @@ describe("resolveTeamDomain: org response shape edge cases (validator)", () => {
 
   it("org body with BOTH `domain` and `auth_domain` prefers `domain` (documented precedence)", async () => {
     const api = vi.fn<ApiCaller>(async () =>
-      ok({ result: { domain: "domain.cloudflareaccess.com", auth_domain: "auth.cloudflareaccess.com" } }),
+      ok({
+        result: { domain: "domain.cloudflareaccess.com", auth_domain: "auth.cloudflareaccess.com" },
+      }),
     );
     const prompt = vi.fn(async () => "prompted.cloudflareaccess.com");
     const result = await resolveTeamDomain({ accountId: "acc-1", api, prompt });
@@ -1014,7 +1030,9 @@ describe("runSetup: CDN zone missing while worker zone resolves (validator)", ()
         (m) => m.includes("cdn.example.org") && m.includes("not found in this Cloudflare account"),
       ),
     ).toBe(true);
-    expect(deps._calls.logs.some((m) => m.includes("Resolved zone for cdn.example.org"))).toBe(false);
+    expect(deps._calls.logs.some((m) => m.includes("Resolved zone for cdn.example.org"))).toBe(
+      false,
+    );
 
     const deployCalls = deps.wrangler.mock.calls.filter((c) => c[0].includes("deploy"));
     expect(deployCalls).toHaveLength(0);

@@ -820,7 +820,7 @@ describe("index.ts — admin UI", () => {
 
   it("WI-1: dashboard escapes HTML in page title (XSS prevention)", async () => {
     const db = env.DB;
-    const maliciousTitle = '<script>alert(1)</script>';
+    const maliciousTitle = "<script>alert(1)</script>";
     await insertPage(db, {
       id: "page000xss1",
       slug: "xss-test",
@@ -859,7 +859,7 @@ describe("index.ts — admin UI", () => {
 
   it("WI-1: edit view escapes HTML in page title (XSS prevention)", async () => {
     const db = env.DB;
-    const maliciousTitle = '<script>alert(1)</script>';
+    const maliciousTitle = "<script>alert(1)</script>";
     const pageId = "page000xss3";
     await insertPage(db, {
       id: pageId,

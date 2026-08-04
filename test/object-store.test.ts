@@ -126,7 +126,13 @@ describe("createObjectStore", () => {
 
     it("fully replaces an existing object at the same key (overwrite idempotency)", async () => {
       await store.put(TEST_ID, TEST_REV, "overwrite.txt", "first-body", "text/plain");
-      await store.put(TEST_ID, TEST_REV, "overwrite.txt", "second-body", "text/html; charset=utf-8");
+      await store.put(
+        TEST_ID,
+        TEST_REV,
+        "overwrite.txt",
+        "second-body",
+        "text/html; charset=utf-8",
+      );
       const obj = await store.get(TEST_ID, TEST_REV, "overwrite.txt");
       expect(obj).not.toBeNull();
       expect(await textFromStream(obj!.body)).toBe("second-body");
