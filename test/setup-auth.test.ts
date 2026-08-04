@@ -481,6 +481,14 @@ function fullFetchResponder(ids: ResponderIds): FetchImpl {
       json: async () => data,
     });
 
+    if (method === "GET" && p.startsWith(`/accounts/${ids.accountId}/workers/domains`))
+      return respond(true, 200, { success: true, result: [] });
+    if (
+      method === "GET" &&
+      p.startsWith(`/accounts/${ids.accountId}/r2/buckets/`) &&
+      p.endsWith("/domains/custom")
+    )
+      return respond(true, 200, { success: true, result: { domains: [] } });
     if (method === "GET" && p === `/accounts/${ids.accountId}/access/apps`)
       return respond(true, 200, { success: true, result: [] });
     if (method === "POST" && p === `/accounts/${ids.accountId}/access/apps`)

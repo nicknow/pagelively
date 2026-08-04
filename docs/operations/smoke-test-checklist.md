@@ -234,6 +234,9 @@ The setup script is unit-tested with mocks, but these human-run checks verify th
 - [ ] The R2 bucket is connected to the CDN domain (`cdn.pages.example.com`) under the bucket's Custom Domains settings.
 - [ ] Re-running `npm run setup` is idempotent: no new resources are created, no errors, and it still deploys.
 - [ ] If the target zone is removed, re-running `npm run setup` logs a clear "zone not found" error and exits before deploying.
+- [ ] **Multi-domain isolation (v1.1.0):** after deploying a second domain with a distinct `projectName`, verify that the two deployments are fully independent: navigate to both admin dashboards and publish a test page on each; confirm each domain serves its own content, has its own R2 bucket (check the Cloudflare dashboard → R2), and has its own Access application (Cloudflare dashboard → Zero Trust → Access → Applications). A page published on one domain must not appear on the other.
+- [ ] **Collision guard triggers correctly:** run `npm run setup` with the same `projectName` as an existing deployment but a different `workerDomain`/`cdnDomain`. The script must abort with the multi-domain collision error before modifying any resources.
+- [ ] **`SETUP_ALLOW_REPOINT` override:** run the same collision-test scenario with `SETUP_ALLOW_REPOINT=1` set; the script must proceed and repoint the existing resources at the new domain.
 - [ ] **Covering-zone resolution:** a subdomain worker/CDN domain (e.g. `n.3a8r.com` /
       `cdn.n.3a8r.com` under the `3a8r.com` zone) provisions successfully and setup logs
       `Resolved zone for <domain>: 3a8r.com`. A domain with no covering zone in the account

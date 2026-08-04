@@ -143,9 +143,58 @@ is never triggered by push or pull requests — deploying stays a human action w
 operator's own token. See the README quickstart for the token scopes, listed verbatim, and
 `docs/adr/0030-s21-github-actions-deploy.md` for the headless setup design.
 
+## Deploying to multiple domains
+
+Pagelively supports running multiple independent deployments (Worker, R2 bucket, D1 database, KV namespace, Access application) from a single Cloudflare account, each on its own domain. **The key requirement is a distinct `projectName` per domain.** Resource names (Worker script, bucket, database, KV) are derived from `projectName`, and shared project names mean shared resources.
+
+### Local path
+
+1. Clone the repo once per domain (or use a separate working directory per domain with a `git checkout`).
+2. Run `npm run setup` with a **different `projectName`** for each domain:
+   ```bash
+   # For the first domain
+   export CLOUDFLARE_API_TOKEN="your-token"
+   npm run setup
+   # When prompted, enter project name: "my-first-site"
+
+   # For the second domain (separate clone or working directory)
+   npm run setup
+   # When prompted, enter project name: "my-second-site"
+   ```
+3. Each clone's `wrangler.toml` is written with that domain's resource IDs and URLs. **Do not commit** `wrangler.toml` — keep it local to each clone.
+
+### GitHub Actions path
+
+The `.github/workflows/deploy.yml` workflow accepts a `project-name` input. The default is `pagelively`, which is the correct value for the **first** domain you deploy from this repo. For a **second** domain:
+
+1. Go to **Actions → Deploy Pagelively to Cloudflare → Run workflow**.
+2. **Change the `project-name` input** to a distinct value (e.g. `my-second-site`). The prefilled default (`pagelively`) is a trap when deploying a second domain from the same workflow — leaving it unchanged triggers the collision guard (see below).
+3. Enter the second domain's Worker domain, CDN domain, and other inputs.
+4. Run the workflow.
+
+The workflow runs `setup.mjs` headless against a fresh checkout. Because the project name is different, the script creates a separate Worker script, R2 bucket, D1 database, and Access application — completely independent from the first deployment.
+
+### Collision guard
+
+Starting with v1.1.0, `setup.mjs` includes a **remote-state collision guard** (ADR 0044) that runs before any resources are created or modified. The guard queries two Cloudflare API endpoints:
+
+- `GET /accounts/{id}/workers/domains?service={workerName}` — checks whether the Worker script already has a custom domain pointing to a **different** hostname than the one you specified.
+- `GET /accounts/{id}/r2/buckets/{name}/domains/custom` — checks whether the R2 bucket already has an enabled custom domain for a **different** CDN hostname.
+
+If either endpoint returns a foreign-domain association, setup aborts with a clear error listing every conflict and the two ways to proceed:
+
+1. **Use a distinct project name** (recommended) — create separate resources for the new domain.
+2. **Set `SETUP_ALLOW_REPOINT=1`** — deliberately repoint the existing project name at the new domain (appropriate only when migrating an existing deployment from one domain to another).
+
+The guard fires in **both interactive and headless modes**. Idempotent re-runs (same `projectName`, same domains) are silently safe because the guard finds the matching domains and continues.
+
 ## Idempotency
 
-Re-running is safe. The script lists existing resources by name and skips create calls for anything that already exists. If a previous run failed partway through, run it again and it will continue from where it left off. The one resource that can be **changed** on a re-run is the Access application: if it exists but protects the whole worker domain (the pre-2026-08-01 bug), setup fixes its scope to exactly `/admin` and `/api` in place — other resources are only ever created or skipped, never modified.
+Re-running is safe. The script lists existing resources by name and skips create calls for anything that already exists. If a previous run failed partway through, run it again and it will continue from where it left off.
+
+**New in v1.1.0 — multi-domain collision guard:** If you re-run with the same `projectName` but **different** `workerDomain`/`cdnDomain`, the collision guard (see "Deploying to multiple domains" above) detects that the Worker script or R2 bucket is already associated with the original domain and **aborts with an error** before modifying anything. This prevents the silent corruption that would otherwise occur from sharing resources across domains. To re-run for a new domain, either use a distinct `projectName`, or pass `SETUP_ALLOW_REPOINT=1` if you are deliberately repointing the existing resources to the new domain.
+
+The one resource that can be **changed** on a re-run is the Access application: if it exists but protects the whole worker domain (the pre-2026-08-01 bug), setup fixes its scope to exactly `/admin` and `/api` in place — other resources are only ever created or skipped, never modified.
 
 ## After provisioning
 

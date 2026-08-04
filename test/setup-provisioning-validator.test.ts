@@ -309,6 +309,16 @@ const IDS = {
 
 function makeRunResponder(zones: Record<string, { id: string; name: string }>): ApiCaller {
   return async (method: string, path: string) => {
+    // Collision guard queries
+    if (method === "GET" && path.startsWith(`/accounts/${IDS.accountId}/workers/domains`))
+      return ok({ result: [] });
+    if (
+      method === "GET" &&
+      path.startsWith(`/accounts/${IDS.accountId}/r2/buckets/`) &&
+      path.endsWith("/domains/custom")
+    )
+      return ok({ result: { domains: [] } });
+
     if (method === "GET" && path === `/accounts/${IDS.accountId}/access/apps`)
       return ok({
         result: [
@@ -389,10 +399,15 @@ describe("runSetup: CDN zone missing while worker zone resolves (validator)", ()
     );
 
     // No deploy, no wrangler.toml write, no R2/D1 provisioning beyond zone step.
+    // The collision guard makes GET /r2/buckets/{name}/domains/custom which IS
+    // allowed — only actual provisioning POSTs should be absent.
     const deployCalls = deps.wrangler.mock.calls.filter((c) => c[0].includes("deploy"));
     expect(deployCalls).toHaveLength(0);
     expect(deps._calls.writes).toHaveLength(0);
-    expect(deps.api.mock.calls.some((c) => c[1].includes("/r2/buckets"))).toBe(false);
+    const r2ProvisioningCalls = deps.api.mock.calls.filter(
+      (c) => c[0] === "POST" && String(c[1]).includes("/r2/buckets"),
+    );
+    expect(r2ProvisioningCalls).toHaveLength(0);
   });
 });
 

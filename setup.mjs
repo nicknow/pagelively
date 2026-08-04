@@ -32,6 +32,7 @@ export function parseTruthy(value) {
 
 export function envToSetupOptions(env = {}) {
   const createKv = parseTruthy(env.SETUP_CREATE_KV);
+  const allowRepoint = parseTruthy(env.SETUP_ALLOW_REPOINT);
   const options = {
     workerDomain: env.SETUP_WORKER_DOMAIN || undefined,
     cdnDomain: env.SETUP_CDN_DOMAIN || undefined,
@@ -40,6 +41,7 @@ export function envToSetupOptions(env = {}) {
     headless: parseTruthy(env.SETUP_NON_INTERACTIVE) === true,
   };
   if (createKv !== undefined) options.createKv = createKv;
+  if (allowRepoint !== undefined) options.allowRepoint = allowRepoint;
   if (env.SETUP_ACCESS_TEAM_DOMAIN) options.accessTeamDomain = env.SETUP_ACCESS_TEAM_DOMAIN;
   return options;
 }
@@ -102,8 +104,20 @@ export function deriveKvName(projectName) {
   return `${sanitizeName(projectName)}-kv`;
 }
 
+export function deriveWorkerName(projectName) {
+  return sanitizeName(projectName);
+}
+
 export function updateWranglerToml(content, values) {
   let updated = content;
+
+  if (values.workerName) {
+    // Rewrite the top-level `name = "..."` field only. Uses a multiline regex
+    // anchored at start-of-line so `bucket_name`, `database_name`, etc. are
+    // never matched. A worker name of the same value as placeholder is a no-op
+    // replacement (harmless) and avoids the "Did you mean" warning.
+    updated = updated.replace(/^name = "[^"]*"/m, () => `name = "${values.workerName}"`);
+  }
 
   if (values.bucketName) {
     updated = updated.replace(
@@ -438,6 +452,126 @@ async function isAccessNotInitializedError(response) {
   return { notInitialized, data };
 }
 
+// --- Multi-domain collision guard -------------------------------------------
+// Before touching any Cloudflare resources, check whether the derived Worker
+// name or R2 bucket are already associated with a different domain on this
+// account. This prevents silent corruption when setup is re-run with the same
+// projectName but different workerDomain/cdnDomain (the scenario that occurs
+// when the operator leaves the default project name unchanged while deploying
+// a second domain — see ADR 0044).
+//
+// The Worker Custom Domains API
+//   GET /accounts/{accountId}/workers/domains?service={workerName}
+// returns result[] with { hostname, service, ... } fields (verified:
+// https://developers.cloudflare.com/api/resources/workers/subresources/domains/
+// methods/list/). If the Worker has a custom domain whose hostname !== our
+// workerDomain, another domain is using this Worker script.
+//
+// The R2 bucket custom domains API
+//   GET /accounts/{accountId}/r2/buckets/{bucketName}/domains/custom
+// returns result.domains[] with { domain, enabled, ... } fields (verified:
+// https://developers.cloudflare.com/api/resources/r2/subresources/buckets/
+// subresources/domains/subresources/custom/methods/list/). If the bucket has a
+// custom domain whose domain !== our cdnDomain, another domain is using it.
+//
+// D1 and KV have no domain-level binding — they are referenced only by ID in
+// wrangler.toml, so no per-resource check is needed for them (the guard runs
+// before the D1/KV step, so a detected Worker/R2 collision aborts before they
+// are ever looked up).
+//
+// In headless mode the collision message IS the error (no prompt to continue).
+// The guard fires identically regardless of mode; operators must pass
+// SETUP_ALLOW_REPOINT / opts.allowRepoint to deliberately repoint an existing
+// project name at a new domain.
+
+export async function checkDomainCollisions({
+  accountId,
+  workerName,
+  workerDomain,
+  bucketName,
+  cdnDomain,
+  api,
+  allowRepoint,
+  log,
+}) {
+  // When allowRepoint is explicitly true, skip the collision check entirely —
+  // the operator has deliberately opted in to repointing resources (see ADR 0044).
+  if (allowRepoint) return;
+
+  const conflicts = [];
+
+  // Check Worker custom domains
+  const workerDomainsRes = await api(
+    "GET",
+    `/accounts/${accountId}/workers/domains?service=${encodeURIComponent(workerName)}`,
+  );
+  if (workerDomainsRes.ok) {
+    const workerDomainsData = await workerDomainsRes.json();
+    const workerDomains = (workerDomainsData && workerDomainsData.result) || [];
+    for (const entry of workerDomains) {
+      if (entry && entry.hostname && entry.hostname !== workerDomain) {
+        conflicts.push(
+          `Worker "${workerName}" is already attached to hostname "${entry.hostname}" ` +
+            `(expected "${workerDomain}")`,
+        );
+      }
+    }
+  } else {
+    // If the domains endpoint is unavailable (e.g. token lacks permission),
+    // log a warning and continue — this is a best-effort guard, not a gate
+    // that blocks provisioning when the API is unreachable.
+    log(
+      "Warning: could not check Worker custom domain collisions " +
+        `(HTTP ${workerDomainsRes.status}); proceeding without this check.`,
+    );
+  }
+
+  // Check R2 bucket custom domains
+  const r2DomainsRes = await api(
+    "GET",
+    `/accounts/${accountId}/r2/buckets/${bucketName}/domains/custom`,
+  );
+  if (r2DomainsRes.ok) {
+    const r2DomainsData = await r2DomainsRes.json();
+    const r2Domains = (r2DomainsData && r2DomainsData.result && r2DomainsData.result.domains) || [];
+    for (const entry of r2Domains) {
+      if (entry && entry.domain && entry.enabled !== false && entry.domain !== cdnDomain) {
+        conflicts.push(
+          `R2 bucket "${bucketName}" already has a custom domain "${entry.domain}" ` +
+            `(expected "${cdnDomain}")`,
+        );
+      }
+    }
+  } else {
+    // If the R2 domains endpoint is unavailable (e.g. bucket doesn't exist yet),
+    // a 404 is expected and not a collision. Other errors are warnings.
+    if (r2DomainsRes.status !== 404) {
+      log(
+        "Warning: could not check R2 bucket custom domain collisions " +
+          `(HTTP ${r2DomainsRes.status}); proceeding without this check.`,
+      );
+    }
+  }
+
+  if (conflicts.length > 0) {
+    const message =
+      `Multi-domain collision detected for project "${workerName}" (derived Worker/` +
+      `resource name). The following collisions were found:\n` +
+      conflicts.map((c) => `  - ${c}`).join("\n") +
+      `\n\nThis account already has resources named by this project assigned to ` +
+      `different domains. Re-running setup with the same project name but different ` +
+      `domains silently corrupts the existing deployment.\n\n` +
+      `To proceed safely, choose one of:\n` +
+      `  1. Use a distinct project name for the new domain (recommended) — e.g. ` +
+      `"my-second-site" instead of "${workerName}". This creates separate Worker ` +
+      `script, R2 bucket, D1 database, and KV namespace.\n` +
+      `  2. If you intentionally want to repoint this project name at the new ` +
+      `domain (e.g. migrating from an old domain), re-run with ` +
+      `SETUP_ALLOW_REPOINT=1 set in the environment.`;
+    throw new Error(message);
+  }
+}
+
 export async function runSetup(options, deps) {
   const { fs, wrangler, api, prompt, confirm, log, pause } = deps;
   const opts = { ...DEFAULTS, ...options };
@@ -555,12 +689,28 @@ export async function runSetup(options, deps) {
   const bucketName = opts.bucketName || deriveBucketName(projectName);
   const dbName = opts.dbName || deriveDbName(projectName);
   const kvName = opts.kvName || deriveKvName(projectName);
+  const workerName = deriveWorkerName(projectName);
+
+  // --- 5. Multi-domain collision guard (before mutating any resources) ----
+  // Runs before Access, R2, D1, KV — a detected collision aborts before any
+  // resource is created or modified. See ADR 0044 for the full rationale.
+  log("Checking for multi-domain collisions...");
+  await checkDomainCollisions({
+    accountId,
+    workerName,
+    workerDomain,
+    bucketName,
+    cdnDomain,
+    api,
+    allowRepoint: opts.allowRepoint === true,
+    log,
+  });
 
   const assetBaseUrl = `https://${cdnDomain}`;
 
   log(`\nProvisioning project "${projectName}" for ${workerDomain} (CDN: ${cdnDomain})...\n`);
 
-  // --- 5. Cloudflare Access / Zero Trust check ----------------------------
+  // --- 6. Cloudflare Access / Zero Trust check ----------------------------
   log("Checking Cloudflare Access / Zero Trust...");
   const accessAppsRes = await api("GET", `/accounts/${accountId}/access/apps`);
   const { notInitialized: accessNotInitialized, data: accessAppsData } =
@@ -582,7 +732,7 @@ export async function runSetup(options, deps) {
   }
   const accessApps = accessAppsData?.result || [];
 
-  // --- 6. Find or create Access application -------------------------------
+  // --- 8. Find or create Access application -------------------------------
   const appName = `${projectName} admin`;
 
   // The Access application must protect EXACTLY `${host}/admin` and `${host}/api`
@@ -740,7 +890,7 @@ export async function runSetup(options, deps) {
     prompt: promptFn,
   });
 
-  // --- 7. Create or reuse Access policy -----------------------------------
+  // --- 9. Create or reuse Access policy -----------------------------------
   const appPoliciesRes = await api("GET", `/accounts/${accountId}/access/apps/${appId}/policies`);
   if (!appPoliciesRes.ok) {
     throw new Error(await describeApiError(appPoliciesRes, "Failed to list Access policies"));
@@ -772,7 +922,7 @@ export async function runSetup(options, deps) {
     log("Access policy already exists; skipping create.");
   }
 
-  // --- 8. Verify zones ----------------------------------------------------
+  // --- 10. Verify zones ----------------------------------------------------
   // GET /zones?name= is an exact match, so subdomains are resolved to their
   // covering zone by stripping leftmost labels (n.3a8r.com -> 3a8r.com).
   log("Looking up Cloudflare zones...");
@@ -802,7 +952,7 @@ export async function runSetup(options, deps) {
 
   const cdnZoneId = cdnZone.id;
 
-  // --- 9. Ensure R2 bucket exists -----------------------------------------
+  // --- 11. Ensure R2 bucket exists -----------------------------------------
   log("Checking R2 bucket...");
   const bucketsRes = await api("GET", `/accounts/${accountId}/r2/buckets`);
   if (!bucketsRes.ok) {
@@ -828,7 +978,7 @@ export async function runSetup(options, deps) {
     log("R2 bucket already exists; skipping create.");
   }
 
-  // --- 10. Connect R2 bucket to CDN domain -------------------------------
+  // --- 12. Connect R2 bucket to CDN domain -------------------------------
   // Body fields verified against the official API schema
   // (developers.cloudflare.com/api/resources/r2/subresources/buckets/
   // subresources/domains/subresources/custom/methods/create/): `zoneId`
@@ -852,7 +1002,7 @@ export async function runSetup(options, deps) {
     log("R2 custom domain already connected; skipping create.");
   }
 
-  // --- 11. Ensure D1 database exists -------------------------------------
+  // --- 13. Ensure D1 database exists -------------------------------------
   log("Checking D1 database...");
   const dbsRes = await api("GET", `/accounts/${accountId}/d1/database`);
   if (!dbsRes.ok) {
@@ -876,7 +1026,7 @@ export async function runSetup(options, deps) {
     log("D1 database already exists; skipping create.");
   }
 
-  // --- 12. Ensure KV namespace exists (optional) -------------------------
+  // --- 14. Ensure KV namespace exists (optional) -------------------------
   let kvId = null;
   if (createKv) {
     log("Checking KV namespace...");
@@ -904,11 +1054,12 @@ export async function runSetup(options, deps) {
     kvId = kv.id;
   }
 
-  // --- 13. Write resource IDs to wrangler.toml ---------------------------
+  // --- 15. Write resource IDs to wrangler.toml ---------------------------
   log("Updating wrangler.toml...");
   const tomlPath = opts.wranglerToml || DEFAULTS.wranglerToml;
   const tomlContent = await fs.readFile(tomlPath, "utf8");
   const updatedToml = updateWranglerToml(tomlContent, {
+    workerName,
     bucketName,
     dbName,
     dbId: db.uuid || db.id || db.database_id,
@@ -920,21 +1071,21 @@ export async function runSetup(options, deps) {
   });
   await fs.writeFile(tomlPath, updatedToml);
 
-  // --- 14. Apply D1 migrations -------------------------------------------
+  // --- 16. Apply D1 migrations -------------------------------------------
   log("Applying D1 migrations...");
   const migrateResult = await wrangler(["d1", "migrations", "apply", dbName, "--remote"]);
   if (migrateResult.exitCode !== 0) {
     throw new Error(`D1 migrations failed: ${migrateResult.stderr || migrateResult.stdout}`);
   }
 
-  // --- 15. Deploy Worker ---------------------------------------------------
+  // --- 17. Deploy Worker ---------------------------------------------------
   log("Deploying Worker...");
   const deployResult = await wrangler(["deploy"]);
   if (deployResult.exitCode !== 0) {
     throw new Error(`wrangler deploy failed: ${deployResult.stderr || deployResult.stdout}`);
   }
 
-  // --- 16. Print final URLs ----------------------------------------------
+  // --- 18. Print final URLs ----------------------------------------------
   log("");
   log("Pagelively is live!");
   log(`  Worker URL:  https://${workerDomain}/`);

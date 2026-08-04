@@ -24,7 +24,7 @@ The workflow that I really wanted to satisfy was: I'm on my computer or phone wo
 
 My first inclination was to simply build a poster/editor tool that would write to a Github repo. Then I could connect the Github repo to Cloudflare Pages and let a workflow handle the publishing. I still like that idea and may go back and work on it in the future. **But**, that would mean having to wait for a publish cycle to complete each time _and_ it would mean setting up both a Github repo and hosting on Cloudflare.
 
-Pagelively is the answer to my requirements. I don't think it's perfect. I can't guarantee it'll work for everyone. But it meets my requirements and has made it relatively easy for me to setup this service on multiple domains (you can setup as many instances as you want on a single domain so long as each has it's own subdomain.)
+Pagelively is the answer to my requirements. I don't think it's perfect. I can't guarantee it'll work for everyone. But it meets my requirements and has made it relatively easy for me to setup this service on multiple domains (you can setup as many instances as you want on a single domain so long as each has it's own subdomain. See [Deploying to multiple domains](docs/operations/README.md#deploying-to-multiple-domains) for instructions.)
 
 ### Building Pagelively
 
