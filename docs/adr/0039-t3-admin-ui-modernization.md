@@ -1,6 +1,6 @@
 # 0039: T3 admin UI modernization — buildless overhaul
 
-- Status: accepted
+- Status: accepted (amended by 0045)
 - Date: 2026-08-02
 
 ## Context

@@ -1,6 +1,6 @@
 # 0028: S19 admin UI — buildless HTML dashboard wired behind the Access JWT gate
 
-- Status: accepted
+- Status: accepted (amended by 0045)
 - Date: 2026-08-01
 
 ## Context

@@ -44,6 +44,7 @@ function pageTitle(config: AppConfig): string {
 
 const DESIGN_SYSTEM_CSS = `
 :root {
+  color-scheme: light;
   --color-bg: #f8fafc;
   --color-surface: #ffffff;
   --color-surface-raised: #f1f5f9;
@@ -76,6 +77,83 @@ const DESIGN_SYSTEM_CSS = `
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --max-width: 1100px;
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.2s ease;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-bg: #0b1220;
+    --color-surface: #16213a;
+    --color-surface-raised: #1e293b;
+    --color-text: #f1f5f9;
+    --color-text-muted: #94a3b8;
+    --color-primary: #3b82f6;
+    --color-primary-hover: #60a5fa;
+    --color-primary-bg: rgba(59, 130, 246, 0.16);
+    --color-danger: #f87171;
+    --color-danger-hover: #fca5a5;
+    --color-danger-bg: rgba(220, 38, 38, 0.18);
+    --color-success: #4ade80;
+    --color-warning: #facc15;
+    --color-border: #2b3a55;
+    --color-focus: #60a5fa;
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.4);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.5);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: #0b1220;
+  --color-surface: #16213a;
+  --color-surface-raised: #1e293b;
+  --color-text: #f1f5f9;
+  --color-text-muted: #94a3b8;
+  --color-primary: #3b82f6;
+  --color-primary-hover: #60a5fa;
+  --color-primary-bg: rgba(59, 130, 246, 0.16);
+  --color-danger: #f87171;
+  --color-danger-hover: #fca5a5;
+  --color-danger-bg: rgba(220, 38, 38, 0.18);
+  --color-success: #4ade80;
+  --color-warning: #facc15;
+  --color-border: #2b3a55;
+  --color-focus: #60a5fa;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.5);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-bg: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-raised: #f1f5f9;
+  --color-text: #0f172a;
+  --color-text-muted: #64748b;
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-bg: #eff6ff;
+  --color-danger: #dc2626;
+  --color-danger-hover: #b91c1c;
+  --color-danger-bg: #fef2f2;
+  --color-success: #16a34a;
+  --color-warning: #ca8a04;
+  --color-border: #e2e8f0;
+  --color-focus: #3b82f6;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 * { box-sizing: border-box; }
@@ -109,6 +187,8 @@ textarea:focus-visible {
   display: none !important;
 }
 
+.icon { vertical-align: middle; flex-shrink: 0; }
+
 header {
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
@@ -119,7 +199,16 @@ header {
   z-index: 100;
 }
 
-.header-inner,
+.header-inner {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 var(--space-4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
 .container {
   max-width: var(--max-width);
   margin: 0 auto;
@@ -131,11 +220,18 @@ header h1 {
   font-size: 1.25rem;
   font-weight: 700;
   letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 header .identity {
   color: var(--color-text-muted);
   font-size: 0.875rem;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 200px;
 }
 
 main {
@@ -189,7 +285,7 @@ main {
   line-height: 1.25;
   text-decoration: none;
   cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .button-primary {
@@ -233,6 +329,7 @@ main {
 .badge {
   display: inline-flex;
   align-items: center;
+  gap: var(--space-1);
   padding: var(--space-1) var(--space-3);
   border-radius: 9999px;
   font-size: 0.75rem;
@@ -254,6 +351,24 @@ main {
   background: var(--color-danger-bg);
   color: var(--color-danger);
 }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .kind-html { background: rgba(30, 64, 175, 0.25); color: #93c5fd; }
+  :root:not([data-theme="light"]) .kind-markdown { background: rgba(22, 101, 52, 0.25); color: #86efac; }
+  :root:not([data-theme="light"]) .kind-image { background: rgba(107, 33, 168, 0.25); color: #c4b5fd; }
+  :root:not([data-theme="light"]) .kind-bundle { background: rgba(154, 52, 18, 0.25); color: #fdba74; }
+  :root:not([data-theme="light"]) .visibility-public { background: rgba(22, 101, 52, 0.25); color: #86efac; }
+  :root:not([data-theme="light"]) .visibility-unlisted { background: rgba(71, 85, 105, 0.25); color: #cbd5e1; }
+  :root:not([data-theme="light"]) .protected { background: rgba(220, 38, 38, 0.25); color: #fca5a5; }
+}
+
+:root[data-theme="dark"] .kind-html { background: rgba(30, 64, 175, 0.25); color: #93c5fd; }
+:root[data-theme="dark"] .kind-markdown { background: rgba(22, 101, 52, 0.25); color: #86efac; }
+:root[data-theme="dark"] .kind-image { background: rgba(107, 33, 168, 0.25); color: #c4b5fd; }
+:root[data-theme="dark"] .kind-bundle { background: rgba(154, 52, 18, 0.25); color: #fdba74; }
+:root[data-theme="dark"] .visibility-public { background: rgba(22, 101, 52, 0.25); color: #86efac; }
+:root[data-theme="dark"] .visibility-unlisted { background: rgba(71, 85, 105, 0.25); color: #cbd5e1; }
+:root[data-theme="dark"] .protected { background: rgba(220, 38, 38, 0.25); color: #fca5a5; }
 
 .empty {
   text-align: center;
@@ -304,6 +419,10 @@ main {
   border-bottom: none;
 }
 
+.page-table tbody tr:hover {
+  background: var(--color-surface-raised);
+}
+
 .page-table td .title {
   font-weight: 500;
   color: var(--color-text);
@@ -345,7 +464,7 @@ textarea {
   font-size: 0.9375rem;
   background: var(--color-surface);
   color: var(--color-text);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 input[type="text"]:focus,
@@ -427,7 +546,7 @@ input[type="file"] {
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   border-radius: var(--radius-md) var(--radius-md) 0 0;
-  transition: color 0.15s ease, background-color 0.15s ease;
+  transition: color var(--transition-fast), background-color var(--transition-fast);
 }
 
 .tab:hover {
@@ -593,6 +712,60 @@ input[type="file"] {
     gap: var(--space-3);
   }
 }
+
+.dropzone {
+  position: relative;
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-8);
+  text-align: center;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+  margin-bottom: var(--space-5);
+}
+
+.dropzone:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-bg);
+}
+
+.dropzone.drag-active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-bg);
+}
+
+.dropzone .dz-label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: var(--space-2);
+  color: var(--color-text);
+}
+
+.dropzone .dz-hint {
+  display: block;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  margin-top: var(--space-1);
+}
+
+.folder-toggle {
+  display: inline-block;
+  margin-top: var(--space-2);
+  font-size: 0.875rem;
+  color: var(--color-primary);
+  cursor: pointer;
+  text-decoration: underline;
+  border: none;
+  background: none;
+  padding: 0;
+}
+
+.folder-toggle:hover {
+  color: var(--color-primary-hover);
+}
+
+.folder-dropzone-wrapper { display: none; }
+
+.folder-dropzone-wrapper.visible { display: block; }
 `;
 
 const SHARED_JS = `<script>
@@ -604,7 +777,19 @@ const SHARED_JS = `<script>
     toast.className = 'toast toast-' + type;
     toast.setAttribute('role', 'status');
     toast.setAttribute('aria-live', 'polite');
-    toast.textContent = message;
+    toast.innerHTML = '';
+    var iconSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    iconSvg.setAttribute('class', 'icon');
+    iconSvg.setAttribute('width', '18');
+    iconSvg.setAttribute('height', '18');
+    iconSvg.setAttribute('aria-hidden', 'true');
+    var use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    use.setAttributeNS('http://www.w3.org/1999/xlink', 'href', '#icon-' + (type === 'success' ? 'check-circle' : 'alert-circle'));
+    iconSvg.appendChild(use);
+    toast.appendChild(iconSvg);
+    var msgSpan = document.createElement('span');
+    msgSpan.textContent = message;
+    toast.appendChild(msgSpan);
     container.appendChild(toast);
     requestAnimationFrame(function() { toast.classList.add('show'); });
     setTimeout(function() {
@@ -628,7 +813,84 @@ const SHARED_JS = `<script>
     updateSlugPreview(input, preview);
     input.addEventListener('input', function() { updateSlugPreview(input, preview); });
   }
+
+  function toggleTheme() {
+    var current = document.documentElement.getAttribute('data-theme');
+    var isDark = current === 'dark' || (!current && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    var next = isDark ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('pl-theme', next);
+    document.querySelectorAll('[data-theme-toggle]').forEach(function(btn) {
+      btn.setAttribute('aria-pressed', next === 'dark' ? 'true' : 'false');
+      btn.innerHTML = '<svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-' + (next === 'dark' ? 'moon' : 'sun') + '"></use></svg>';
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    var btn = document.querySelector('[data-theme-toggle]');
+    if (btn) {
+      var current = document.documentElement.getAttribute('data-theme');
+      var isDark = current === 'dark' || (!current && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      btn.setAttribute('aria-pressed', isDark ? 'true' : 'false');
+      btn.innerHTML = '<svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-' + (isDark ? 'sun' : 'moon') + '"></use></svg>';
+      btn.addEventListener('click', toggleTheme);
+    }
+  });
 </script>`;
+
+const ICON_SPRITE = `<svg style="display:none" aria-hidden="true">
+  <symbol id="icon-brand-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="6" y="4" width="12" height="16" rx="2" /><rect x="8" y="6" width="8" height="12" rx="1" />
+  </symbol>
+  <symbol id="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+  </symbol>
+  <symbol id="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+  </symbol>
+  <symbol id="icon-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M12 3v12M9 6l3-3 3 3" />
+  </symbol>
+  <symbol id="icon-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+  </symbol>
+  <symbol id="icon-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" />
+  </symbol>
+  <symbol id="icon-file-html" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /><path d="M9 14l-2 2 2 2M15 14l2 2-2 2M12 13l-1 4" />
+  </symbol>
+  <symbol id="icon-file-markdown" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /><path d="M9 15l2-3 2 3M13 15v-4" />
+  </symbol>
+  <symbol id="icon-file-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /><circle cx="10" cy="12" r="1.5" /><path d="M7 18l3-4 2 2 2-2 3 4" />
+  </symbol>
+  <symbol id="icon-file-bundle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /><rect x="9" y="12" width="6" height="2" /><rect x="9" y="16" width="4" height="2" />
+  </symbol>
+  <symbol id="icon-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
+  </symbol>
+  <symbol id="icon-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z" />
+  </symbol>
+  <symbol id="icon-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+  </symbol>
+  <symbol id="icon-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+  </symbol>
+  <symbol id="icon-check-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="10" /><polyline points="8 12 11 15 16 9" />
+  </symbol>
+  <symbol id="icon-alert-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+  </symbol>
+  <symbol id="icon-inbox" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+  </symbol>
+</svg>`;
 
 function layout(config: AppConfig, verifiedIdentity: VerifiedIdentity, content: string): string {
   const email = escapeHtml(verifiedIdentity.email ?? "unknown");
@@ -637,6 +899,7 @@ function layout(config: AppConfig, verifiedIdentity: VerifiedIdentity, content: 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>(function(){try{var t=localStorage.getItem('pl-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})()</script>
   <title>${escapeHtml(pageTitle(config))}</title>
   <style>
 ${DESIGN_SYSTEM_CSS}
@@ -647,8 +910,11 @@ ${DESIGN_SYSTEM_CSS}
   <div id="toast-container" class="toast-container" role="status" aria-live="polite"></div>
   <header>
     <div class="header-inner">
-      <h1>${escapeHtml(config.siteName)}</h1>
+      <h1><svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-brand-mark"></use></svg>${escapeHtml(config.siteName)}</h1>
       <span class="identity">${email}</span>
+      <button data-theme-toggle class="button button-small" type="button" aria-label="Toggle color theme" aria-pressed="false" style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;padding:0;flex-shrink:0;">
+        <svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-sun"></use></svg>
+      </button>
     </div>
   </header>
   <main>
@@ -656,6 +922,7 @@ ${DESIGN_SYSTEM_CSS}
       ${content}
     </div>
   </main>
+  ${ICON_SPRITE}
 </body>
 </html>`;
 }
@@ -667,11 +934,19 @@ function dashboardContent(config: AppConfig, pages: PageRecord[], requestUrl: UR
       const viewUrl = page.slug ? `/${page.slug}/` : `/p/${page.id}/`;
       const editUrl = `/admin/edit/${page.id}`;
       const deleteUrl = `/api/pages/${page.id}`;
+      const kindIconMap: Record<string, string> = {
+        html: "file-html",
+        markdown: "file-markdown",
+        image: "file-image",
+        bundle: "file-bundle",
+      };
+      const kindIcon = kindIconMap[page.kind] ?? "file";
+      const kindSvg = `<svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-${kindIcon}"></use></svg>`;
       return `<tr>
         <td class="title-cell">
           <div class="title">${escapeHtml(page.title)}</div>
         </td>
-        <td data-label="Kind"><span class="badge kind-${escapeHtml(page.kind)}">${escapeHtml(page.kind)}</span></td>
+        <td data-label="Kind"><span class="badge kind-${escapeHtml(page.kind)}">${kindSvg}${escapeHtml(page.kind)}</span></td>
         <td data-label="Visibility"><span class="badge visibility-${escapeHtml(page.visibility)}">${escapeHtml(page.visibility)}</span></td>
         <td data-label="Created">${escapeHtml(page.created_at)}</td>
         <td class="actions-cell" data-label="Actions">
@@ -688,6 +963,7 @@ function dashboardContent(config: AppConfig, pages: PageRecord[], requestUrl: UR
   const table =
     pages.length === 0
       ? `<div class="empty">
+        <svg class="icon" width="48" height="48" aria-hidden="true" style="color:var(--color-text-muted);margin-bottom:var(--space-4)"><use href="#icon-inbox"></use></svg>
         <p>No pages yet.</p>
         <p class="hint">Create your first page to get started.</p>
         <a class="button button-primary" href="${escapeHtml(uploadUrl)}">Upload your first page</a>
@@ -710,7 +986,7 @@ function dashboardContent(config: AppConfig, pages: PageRecord[], requestUrl: UR
   return `<div class="card">
     <header>
       <h2>Pages</h2>
-      <a class="button button-primary" href="${escapeHtml(uploadUrl)}">Upload</a>
+      <a class="button button-primary" href="${escapeHtml(uploadUrl)}"><svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-upload"></use></svg>Upload</a>
     </header>
     ${table}
   </div>
@@ -758,14 +1034,25 @@ function uploadContent(): string {
       <!-- Multipart convention: manifest JSON field + file:<path> file parts -->
       <form id="upload-form" action="/api/pages" method="POST" enctype="multipart/form-data">
         <div class="form-group">
-          <label class="field-label" for="files">Files</label>
-          <input type="file" name="files" id="files" multiple>
-          <span class="hint">Choose one or more loose files.</span>
+          <label class="field-label">Files</label>
+          <div class="dropzone" id="files-dropzone">
+            <input type="file" name="files" id="files" multiple style="position:absolute;inset:0;opacity:0;cursor:pointer;">
+            <svg class="icon" width="48" height="48" aria-hidden="true" style="color:var(--color-text-muted);margin-bottom:var(--space-3)"><use href="#icon-upload"></use></svg>
+            <span class="dz-label">Drag files here or click to browse</span>
+            <span class="dz-hint">Choose one or more loose files.</span>
+          </div>
         </div>
         <div class="form-group">
-          <label class="field-label" for="folder">Folder upload</label>
-          <input type="file" name="folder" id="folder" multiple webkitdirectory>
-          <span class="hint">Preserves relative paths inside the selected folder.</span>
+          <label class="field-label">Folder upload</label>
+          <div class="folder-dropzone-wrapper" id="folder-dropzone-wrapper">
+            <div class="dropzone" id="folder-dropzone">
+              <input type="file" name="folder" id="folder" multiple webkitdirectory style="position:absolute;inset:0;opacity:0;cursor:pointer;">
+              <svg class="icon" width="48" height="48" aria-hidden="true" style="color:var(--color-text-muted);margin-bottom:var(--space-3)"><use href="#icon-folder"></use></svg>
+              <span class="dz-label">Upload entire folder</span>
+              <span class="dz-hint">Preserves relative paths inside the selected folder.</span>
+            </div>
+          </div>
+          <button type="button" class="folder-toggle" id="folder-toggle">Uploading a folder instead?</button>
         </div>
         <div class="form-group">
           <label class="field-label" for="slug">Slug <span class="hint">(optional)</span></label>
@@ -958,6 +1245,47 @@ function uploadContent(): string {
       filesInput.addEventListener('change', updateEntryPicker);
       folderInput.addEventListener('change', updateEntryPicker);
 
+      // Wire up dropzone drag/drop
+      function initDropzone(dropzoneId, inputId) {
+        var dz = document.getElementById(dropzoneId);
+        var input = document.getElementById(inputId);
+        if (!dz || !input) return;
+        dz.addEventListener('dragover', function(e) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+          dz.classList.add('drag-active');
+        });
+        dz.addEventListener('dragleave', function(e) {
+          e.preventDefault();
+          dz.classList.remove('drag-active');
+        });
+        dz.addEventListener('drop', function(e) {
+          e.preventDefault();
+          dz.classList.remove('drag-active');
+          if (e.dataTransfer.files.length > 0) {
+            var dt = new DataTransfer();
+            for (var i = 0; i < e.dataTransfer.files.length; i++) {
+              dt.items.add(e.dataTransfer.files[i]);
+            }
+            input.files = dt.files;
+            updateEntryPicker();
+          }
+        });
+      }
+
+      // Folder toggle
+      var folderToggleEl = document.getElementById('folder-toggle');
+      var folderWrapper = document.getElementById('folder-dropzone-wrapper');
+      if (folderToggleEl && folderWrapper) {
+        folderToggleEl.addEventListener('click', function() {
+          var isVisible = folderWrapper.classList.toggle('visible');
+          folderToggleEl.textContent = isVisible ? 'Hide folder upload' : 'Uploading a folder instead?';
+        });
+      }
+
+      initDropzone('files-dropzone', 'files');
+      initDropzone('folder-dropzone', 'folder');
+
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
         errorBox.classList.remove('visible');
@@ -1053,6 +1381,32 @@ async function loadPageDetail(
   return { page, files };
 }
 
+function fileKindIcon(filename: string): string {
+  const lower = filename.toLowerCase();
+  let icon: string;
+  if (lower.endsWith(".html") || lower.endsWith(".htm")) {
+    icon = "file-html";
+  } else if (lower.endsWith(".md") || lower.endsWith(".markdown")) {
+    icon = "file-markdown";
+  } else if (/\.(png|jpg|jpeg|gif|webp|svg|avif)$/.test(lower)) {
+    icon = "file-image";
+  } else {
+    icon = "file";
+  }
+  return `<svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-${icon}"></use></svg>`;
+}
+
+function pageKindIcon(kind: string): string {
+  const kindIconMap: Record<string, string> = {
+    html: "file-html",
+    markdown: "file-markdown",
+    image: "file-image",
+    bundle: "file-bundle",
+  };
+  const icon = kindIconMap[kind] ?? "file";
+  return `<svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-${icon}"></use></svg>`;
+}
+
 function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): string {
   const backUrl = new URL("/admin", requestUrl).pathname;
   const pageApiUrl = `/api/pages/${page.id}`;
@@ -1069,10 +1423,14 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
       const deleteButton = isProtected
         ? ""
         : `<button class="button button-danger button-small" type="button" data-delete-file="${escapeHtml(deleteUrl)}">Delete</button>`;
+      const kindSvg = fileKindIcon(file.path);
+      const protectedBadge = isProtected
+        ? `<span class="badge protected"><svg class="icon" width="14" height="14" aria-hidden="true"><use href="#icon-lock"></use></svg>Protected</span>`
+        : "";
       return `<li class="file-row">
         <div class="file-meta">
-          <code class="file-path">${escapeHtml(file.path)}</code>
-          ${isProtected ? '<span class="badge protected">Protected</span>' : ""}
+          ${kindSvg}<code class="file-path">${escapeHtml(file.path)}</code>
+          ${protectedBadge}
         </div>
         ${deleteButton}
       </li>`;
@@ -1084,10 +1442,11 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
   const publicChecked = page.visibility === "public" ? "checked" : "";
   const unlistedChecked = page.visibility === "unlisted" ? "checked" : "";
   const showSourceChecked = page.show_source === 1 ? "checked" : "";
+  const kindSvg = pageKindIcon(page.kind);
 
   return `<div class="card">
     <header>
-      <h2>Edit ${escapeHtml(page.title)} <span class="badge kind-${escapeHtml(page.kind)}">${escapeHtml(page.kind)}</span> <span class="badge visibility-${escapeHtml(page.visibility)}">${escapeHtml(page.visibility)}</span></h2>
+      <h2>Edit ${escapeHtml(page.title)} <span class="badge kind-${escapeHtml(page.kind)}">${kindSvg}${escapeHtml(page.kind)}</span> <span class="badge visibility-${escapeHtml(page.visibility)}">${escapeHtml(page.visibility)}</span></h2>
       <button class="button button-danger" type="button" id="delete-page" data-delete="${escapeHtml(pageApiUrl)}">Delete page</button>
     </header>
     <form id="edit-form" data-api="${escapeHtml(pageApiUrl)}">

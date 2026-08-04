@@ -36,7 +36,7 @@ memory.
 | 0025 | [S15 admin API — list & detail](0025-s15-admin-api-list-detail.md)                                                                              | Accepted                         |
 | 0026 | [S17 upload & publish API — multipart path convention and page kind detection](0026-s17-upload-publish-api.md)                                  | Accepted                         |
 | 0027 | [S18 edit & delete API — file-delete rev bump + entry-file protection](0027-s18-edit-delete-api.md)                                             | Accepted                         |
-| 0028 | [S19 admin UI — buildless HTML dashboard wired behind the Access JWT gate](0028-s19-admin-ui.md)                                                | Accepted                         |
+| 0028 | [S19 admin UI — buildless HTML dashboard wired behind the Access JWT gate](0028-s19-admin-ui.md)                                                | Accepted (amended by 0045)       |
 | 0029 | [S20 — setup.mjs provisioning script](0029-s20-setup-script.md)                                                                                 | Accepted                         |
 | 0030 | [S21 — GitHub Actions deploy workflow and headless setup](0030-s21-github-actions-deploy.md)                                                    | Accepted                         |
 | 0031 | [S22 — end-to-end smoke journey, build-size gate, and closeout findings](0031-s22-e2e-smoke-build-size-gate.md)                                 | Accepted                         |
@@ -45,12 +45,19 @@ memory.
 | 0035 | [setup.mjs provisioning — team domain, covering zone, R2/D1 error mapping](0035-setup-provisioning-team-domain-zone.md)                         | Accepted                         |
 | 0036 | [OQ-15 — slug auto-clean and actionable error messages (T1)](0036-oq15-slug-cleaning-and-error-messages.md)                                     | Accepted                         |
 | 0038 | [OQ-17 — paste content API shape (T4)](0038-paste-content-api.md)                                                                               | Accepted                         |
-| 0039 | [T3 admin UI modernization — buildless overhaul](0039-t3-admin-ui-modernization.md)                                                             | Accepted                         |
+| 0039 | [T3 admin UI modernization — buildless overhaul](0039-t3-admin-ui-modernization.md)                                                             | Accepted (amended by 0045)       |
 | 0040 | [In-page fragment links: point the injected `<base>` at the entry file](0040-base-href-entry-file.md)                                           | Accepted                         |
+| 0045 | [Admin UI CDN resource policy — pinned, judicious external resources permitted](0045-admin-ui-cdn-resource-policy.md)                           | Accepted                         |
+| 0046 | [CSS design tokens — dark palette, reduced motion, transition tokens](0046-css-design-tokens-dark-palette-reduced-motion.md)                    | Accepted                         |
+| 0047 | [Inline SVG Icon Sprite for Admin UI](0047-inline-svg-icon-sprite.md)                                                                           | Accepted                         |
+| 0048 | [Dark mode toggle — early inline script + toggle behavior + header button](0048-dark-mode-toggle.md)                                            | Accepted                         |
+| 0049 | [S6 dropzone upload UI — drag-and-drop file upload with styled dropzones](0049-dropzone-upload-ui.md)                                           | Accepted                         |
+| 0051 | [Password prompt CSS polish — centered card, admin-palette matching](0051-password-prompt-css-polish.md)                                        | Accepted                         |
 | 0041 | [S23 per-page password protection — visitor gate, PBKDF2 at rest, no-store protected surface](0041-s23-password-protected-pages.md)             | Accepted (amended 2026-08-02)    |
 | 0042 | [S23-A implementation details — password/token primitives, unlock & asset routes, benchmark stop-and-report](0042-s23-a-password-primitives.md) | Accepted                         |
 | 0043 | [S23-B implementation details — schema migration 0002, password_hash mapping, unlocks repository](0043-s23-b-schema-repositories.md)            | Accepted                         |
 | 0044 | [Multi-domain collision guard in setup.mjs](0044-multi-domain-collision-guard.md)                                                               | Accepted                         |
+| 0050 | [S7 edit page visual enhancements — kind icons, lock icon, kind badge icon](0050-s7-edit-page-visual-enhancements.md)                           | Accepted                         |
 
 > **Numbering note:** ADR numbers are assigned sequentially, but some numbers are intentionally
 > unused. 0034 was reserved for an OAuth fail-fast slice that was deferred; 0037 was reserved for
