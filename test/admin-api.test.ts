@@ -1,6 +1,7 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { env } from "cloudflare:workers";
 import { createExecutionContext } from "cloudflare:test";
+import worker from "../src/index";
 import { handleListPages, handleGetPage } from "../src/admin-api";
 import { createPagesRepository } from "../src/pages-repository";
 import { createFilesRepository } from "../src/files-repository";
@@ -8,6 +9,13 @@ import { createUnlocksRepository } from "../src/unlocks-repository";
 import { createObjectStore } from "../src/object-store";
 import { createTestCacheService } from "../src/cache-service";
 import { createConfig } from "../src/config";
+import {
+  ACCESS_AUD,
+  createMockFetch,
+  generateKeyPair,
+  signJwt,
+  TEAM_DOMAIN,
+} from "./jwt-test-helpers";
 
 // S15 — Admin API list & detail handlers.
 
@@ -325,5 +333,56 @@ describe("admin-api handlers", () => {
       expect(body.has_password).toBe(false);
       expect(body).not.toHaveProperty("password_hash");
     });
+  });
+});
+
+// ── WI-5: full-worker auth-gate tests ──────────────────────────────────
+
+describe("WI-5: worker-level auth gate (403 without JWT)", () => {
+  const db = env.DB;
+  let privateKey: CryptoKey;
+  let fetchMock: ReturnType<typeof createMockFetch>;
+
+  function makeEnv(overrides: Record<string, unknown> = {}): Env {
+    return { ...env, ...overrides } as Env;
+  }
+
+  async function fetchApiNoAuth(path: string): Promise<Response> {
+    const customEnv = makeEnv({
+      ACCESS_TEAM_DOMAIN: TEAM_DOMAIN,
+      ACCESS_AUD: ACCESS_AUD,
+    });
+    return worker.fetch(
+      new Request(`https://pages.example.com${path}`),
+      customEnv,
+      createExecutionContext(),
+    );
+  }
+
+  beforeEach(async () => {
+    const keys = await generateKeyPair("access-key-1");
+    privateKey = keys.privateKey;
+    fetchMock = createMockFetch({ keys: [keys.jwk] });
+    vi.stubGlobal("fetch", fetchMock.fetchFn);
+    await clearFilesAndPages(db);
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await clearFilesAndPages(db);
+  });
+
+  it("GET /api/pages returns 403 when unauthenticated", async () => {
+    const res = await fetchApiNoAuth("/api/pages");
+    expect(res.status).toBe(403);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(await res.json()).toEqual({ error: "Forbidden", message: "Forbidden" });
+  });
+
+  it("GET /api/pages/:id returns 403 when unauthenticated", async () => {
+    const res = await fetchApiNoAuth("/api/pages/someid00001");
+    expect(res.status).toBe(403);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(await res.json()).toEqual({ error: "Forbidden", message: "Forbidden" });
   });
 });

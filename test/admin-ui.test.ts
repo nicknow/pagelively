@@ -815,4 +815,128 @@ describe("index.ts — admin UI", () => {
     expect(editCall).toBeGreaterThan(-1);
     expect(editHelperDef).toBeLessThan(editCall);
   });
+
+  // ── WI-1: HTML escaping adversarial test coverage ────────────────────────
+
+  it("WI-1: dashboard escapes HTML in page title (XSS prevention)", async () => {
+    const db = env.DB;
+    const maliciousTitle = '<script>alert(1)</script>';
+    await insertPage(db, {
+      id: "page000xss1",
+      slug: "xss-test",
+      title: maliciousTitle,
+      kind: "html",
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    });
+
+    const res = await fetchAdmin("/admin", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // Must contain the escaped form, not the raw tag
+    expect(text).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(text).not.toContain("<script>alert(1)</script>");
+  });
+
+  it("WI-1: dashboard escapes HTML in slug containing double quotes", async () => {
+    const db = env.DB;
+    await insertPage(db, {
+      id: "page000xss2",
+      slug: 'test"onclick="evil',
+      title: "Quoted Slug",
+      kind: "html",
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    });
+
+    const res = await fetchAdmin("/admin", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // The slug value should be entity-escaped in the rendered HTML
+    expect(text).toContain("&quot;");
+    expect(text).not.toContain('test"onclick=');
+  });
+
+  it("WI-1: edit view escapes HTML in page title (XSS prevention)", async () => {
+    const db = env.DB;
+    const maliciousTitle = '<script>alert(1)</script>';
+    const pageId = "page000xss3";
+    await insertPage(db, {
+      id: pageId,
+      slug: "xss-edit",
+      title: maliciousTitle,
+      kind: "html",
+    });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "index.html",
+      r2_key: `pages/${pageId}/1/index.html`,
+      content_type: "text/html; charset=utf-8",
+      size: 100,
+    });
+
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(text).not.toContain("<script>alert(1)</script>");
+  });
+
+  // ── WI-11: empty-id-segment edge case for /admin/edit/ ───────────────────
+
+  it("WI-11: GET /admin/edit/ (empty segment) returns 404 (unknown admin path — trailing slash stripped to /admin/edit)", async () => {
+    const res = await fetchAdmin("/admin/edit/", await validToken());
+    // The router strips the trailing slash, producing /admin/edit which does not
+    // match the startsWith("/admin/edit/") guard in index.ts, so it falls through
+    // to the "unknown admin path" handler that returns a clean 404.
+    expect(res.status).toBe(404);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  // ── WI-19: null-slug rendering in admin UI ───────────────────────────────
+
+  it("WI-19: dashboard renders a page with null slug without error", async () => {
+    const db = env.DB;
+    await insertPage(db, {
+      id: "page000null",
+      slug: null,
+      title: "Null Slug Page",
+      kind: "html",
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    });
+
+    const res = await fetchAdmin("/admin", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // Page title should be rendered
+    expect(text).toContain("Null Slug Page");
+    // Null slug → view URL should use the /p/:id/ fallback (not a slug-based URL)
+    expect(text).toContain("/p/page000null/");
+  });
+
+  it("WI-19: edit view renders a page with null slug without error", async () => {
+    const db = env.DB;
+    const pageId = "page000null2";
+    await insertPage(db, {
+      id: pageId,
+      slug: null,
+      title: "Null Slug Edit",
+      kind: "html",
+    });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "index.html",
+      r2_key: `pages/${pageId}/1/index.html`,
+      content_type: "text/html; charset=utf-8",
+      size: 100,
+    });
+
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("Null Slug Edit");
+    // Slug value attribute should be empty (null → "" fallback)
+    expect(text).toContain('value=""');
+  });
 });
