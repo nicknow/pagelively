@@ -660,6 +660,7 @@ export async function handlePatchPage(
       throw cleaned.error;
     }
     if (cleaned.slug !== page.slug) {
+      /* istanbul ignore next -- reason: cleanSlug returned ok=true => validateSlug already passed (slug.ts:162) */
       const validation = validateSlug(cleaned.slug);
       if (!validation.ok) {
         throw validation.error;
@@ -681,6 +682,7 @@ export async function handlePatchPage(
 
   if (needsReRender) {
     const rawMdPath = page.raw_md_path;
+    /* istanbul ignore next -- reason: guarded by needsReRender (page.raw_md_path !== null) */
     if (rawMdPath === null) {
       throw new AppError("entry_not_found", 404, "Source file not found.");
     }

@@ -129,7 +129,7 @@ export default {
         };
 
         if (route.type === "admin") {
-          const adminPath = url.pathname.replace(/\/+$/, "") || "/admin";
+          const adminPath = url.pathname.replace(/\/+$/, "");
           if (adminPath === "/admin" || adminPath === "/admin/") {
             return await handleAdminDashboard(request, ctx, adminDeps);
           }

@@ -159,6 +159,7 @@ export function cleanSlug(input: string): SlugifyResult {
     return invalidSlug(reservedNameMessage(slug));
   }
 
+  /* istanbul ignore next -- reason: validateSlug cannot fail after cleanSlug steps 3-5 (lowercase, charset, truncation, reserved re-check) */
   const validation = validateSlug(slug);
   if (!validation.ok) {
     return { ok: false, error: validation.error };

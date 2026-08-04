@@ -229,6 +229,7 @@ export async function parsePublishForm(request: Request): Promise<ParsedPublishF
 
     if (name.startsWith("file:")) {
       const file = await parseFilePart(name, value);
+      /* istanbul ignore next -- parseFilePart always throws or returns a file, never null */
       if (file) {
         files.push(file);
       }
@@ -260,6 +261,7 @@ export async function parseFileUpdateForm(request: Request): Promise<ParsedPubli
   for (const [name, value] of formData) {
     if (name.startsWith("file:")) {
       const file = await parseFilePart(name, value);
+      /* istanbul ignore next -- parseFilePart always throws or returns a file, never null */
       if (file) {
         files.push(file);
       }
