@@ -52,7 +52,20 @@ function stripLeadingBom(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer as ArrayBuffer;
 }
 
-function validateFilePath(path: string, filename: string): void {
+/**
+ * Shared stored-path rule (write side S17, read side S23-C; ADR 0012).
+ *
+ * The publish parser rejects `%` in filenames and `../` / absolute paths before
+ * they reach the R2 key builder. The S23-C worker-side asset route applies the
+ * SAME rule to the decoded URL path (architecture 02: serveAsset validates
+ * BEFORE buildR2Key), so a path accepted here can never produce a key outside
+ * the page prefix.
+ *
+ * The path is treated as an ALREADY-DECODED string: the URL layer
+ * (decodeURIComponent in serveAsset) runs first, so `%`-sequences and `\` are
+ * literal here — never decoded or reinterpreted.
+ */
+export function validateStoredPath(path: string): void {
   if (path === "") {
     throw new AppError("invalid_path", 400, "File path must not be empty.");
   }
@@ -62,7 +75,18 @@ function validateFilePath(path: string, filename: string): void {
   if (path.includes("../") || path.includes("\\")) {
     throw new AppError("path_traversal", 400, `Path traversal is not allowed: "${path}".`);
   }
-  if (path.includes("%") || filename.includes("%")) {
+  if (path.includes("%")) {
+    throw new AppError(
+      "invalid_filename",
+      400,
+      `Percent signs are not allowed in filenames: "${path}".`,
+    );
+  }
+}
+
+function validateFilePath(path: string, filename: string): void {
+  validateStoredPath(path);
+  if (filename.includes("%")) {
     throw new AppError(
       "invalid_filename",
       400,

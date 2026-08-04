@@ -23,6 +23,9 @@ import { createPagesRepository } from "./pages-repository";
 import { createFilesRepository } from "./files-repository";
 import { createObjectStore } from "./object-store";
 import { serveEntry } from "./entry-serve";
+import { serveUnlock } from "./unlock";
+import { serveAsset } from "./asset-serve";
+import { createUnlocksRepository } from "./unlocks-repository";
 import { createAccessVerifier } from "./access-verify";
 import { createJwksProvider } from "./jwks-provider";
 import {
@@ -45,6 +48,7 @@ export default {
       const pages = createPagesRepository(env.DB);
       const filesRepository = createFilesRepository(env.DB);
       const objects = createObjectStore(env.BUCKET);
+      const unlocks = createUnlocksRepository(env.DB);
       const jwksProvider = createJwksProvider({
         teamDomainUrl: config.access.teamDomainUrl,
         kv: env.KV,
@@ -62,6 +66,7 @@ export default {
         cache,
         accessVerifier,
         filesRepository,
+        unlocks,
       };
 
       const url = new URL(request.url);
@@ -84,11 +89,27 @@ export default {
         if (home.type === "404") {
           return clean404Response(url);
         }
-        return await serveEntry(new Request(new URL(`/${home.slug}/`, url)), deps);
+        // S23-C: forward the original request headers so a home-mode protected
+        // page can see the pl_unlock cookie (the new request below would
+        // otherwise drop it).
+        const target = new URL(`/${home.slug}/`, url);
+        return await serveEntry(new Request(target, { headers: request.headers }), deps);
       }
 
       if (route.type === "slug" || route.type === "id") {
         return await serveEntry(request, deps);
+      }
+
+      // S23 public surface (ADR 0041 decision 6): unlock and asset routes are
+      // dispatched BEFORE the Access gate — they must never require an admin
+      // JWT. They are also exempt from the trailing-slash 301 (S08 only touches
+      // slug/id routes), so the 303 Location and asset paths are canonical.
+      if (route.type === "unlock") {
+        return await serveUnlock(request, deps);
+      }
+
+      if (route.type === "asset") {
+        return await serveAsset(request, deps);
       }
 
       if (route.type === "admin" || route.type === "api") {
