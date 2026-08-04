@@ -445,6 +445,64 @@ describe("createPagesRepository", () => {
         status: 500,
       });
     });
+
+    it("throws db_write_failed (500) when the slug already exists (UNIQUE constraint)", async () => {
+      await insertPage(db, { id: "slugdup001", slug: "dup-slug" });
+      const now = isoNow();
+      await expect(
+        repo.create({
+          id: "slugdup002",
+          slug: "dup-slug",
+          title: "Duplicate Slug",
+          kind: "html",
+          rev: 1,
+          entry_path: "index.html",
+          raw_md_path: null,
+          show_source: 0,
+          visibility: "public",
+          created_at: now,
+          updated_at: now,
+        }),
+      ).rejects.toMatchObject({
+        code: "db_write_failed",
+        status: 500,
+      });
+    });
+
+    it("throws db_write_failed (500) when the id already exists (PRIMARY KEY violation)", async () => {
+      const now = isoNow();
+      await repo.create({
+        id: "iddup00001",
+        slug: "first",
+        title: "First",
+        kind: "html",
+        rev: 1,
+        entry_path: "index.html",
+        raw_md_path: null,
+        show_source: 0,
+        visibility: "public",
+        created_at: now,
+        updated_at: now,
+      });
+      await expect(
+        repo.create({
+          id: "iddup00001",
+          slug: "second",
+          title: "Second",
+          kind: "html",
+          rev: 1,
+          entry_path: "index.html",
+          raw_md_path: null,
+          show_source: 0,
+          visibility: "public",
+          created_at: now,
+          updated_at: now,
+        }),
+      ).rejects.toMatchObject({
+        code: "db_write_failed",
+        status: 500,
+      });
+    });
   });
 
   // --- updateMeta ---
@@ -898,27 +956,30 @@ describe("createPagesRepository", () => {
     });
 
     it("throws db_read_failed (500) for invalid rev values in the database row", async () => {
-      const badRow = makeMockRow({ rev: 0 });
-      const badRepo = createPagesRepository(makeMockDb(badRow));
-      await expect(badRepo.getById("validId000")).rejects.toMatchObject({
+      const id = "corruptrev01";
+      await insertPage(db, { id, slug: "corrupt-rev", rev: 1 });
+      await db.prepare("UPDATE pages SET rev = 0 WHERE id = ?").bind(id).run();
+      await expect(repo.getById(id)).rejects.toMatchObject({
         code: "db_read_failed",
         status: 500,
       });
     });
 
     it("throws db_read_failed (500) for invalid show_source values", async () => {
-      const badRow = makeMockRow({ show_source: 2 });
-      const badRepo = createPagesRepository(makeMockDb(badRow));
-      await expect(badRepo.getById("validId000")).rejects.toMatchObject({
+      const id = "corruptsrc01";
+      await insertPage(db, { id, slug: "corrupt-src", show_source: 0 });
+      await db.prepare("UPDATE pages SET show_source = 2 WHERE id = ?").bind(id).run();
+      await expect(repo.getById(id)).rejects.toMatchObject({
         code: "db_read_failed",
         status: 500,
       });
     });
 
     it("throws db_read_failed (500) for invalid visibility values", async () => {
-      const badRow = makeMockRow({ visibility: "private" });
-      const badRepo = createPagesRepository(makeMockDb(badRow));
-      await expect(badRepo.getById("validId000")).rejects.toMatchObject({
+      const id = "corruptvis01";
+      await insertPage(db, { id, slug: "corrupt-vis", visibility: "public" });
+      await db.prepare("UPDATE pages SET visibility = 'private' WHERE id = ?").bind(id).run();
+      await expect(repo.getById(id)).rejects.toMatchObject({
         code: "db_read_failed",
         status: 500,
       });

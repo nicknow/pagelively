@@ -123,6 +123,16 @@ describe("createObjectStore", () => {
       const head = await bucket.head("pages/A1b2C3d4E5/1/style.css");
       expect(head).not.toBeNull();
     });
+
+    it("fully replaces an existing object at the same key (overwrite idempotency)", async () => {
+      await store.put(TEST_ID, TEST_REV, "overwrite.txt", "first-body", "text/plain");
+      await store.put(TEST_ID, TEST_REV, "overwrite.txt", "second-body", "text/html; charset=utf-8");
+      const obj = await store.get(TEST_ID, TEST_REV, "overwrite.txt");
+      expect(obj).not.toBeNull();
+      expect(await textFromStream(obj!.body)).toBe("second-body");
+      expect(obj!.contentType).toBe("text/html; charset=utf-8");
+      expect(obj!.size).toBe("second-body".length);
+    });
   });
 
   describe("get", () => {
