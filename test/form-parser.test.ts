@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseFileUpdateForm, parsePublishForm, parsePublishJson } from "../src/form-parser";
+import {
+  parseFileUpdateForm,
+  parsePublishForm,
+  parsePublishJson,
+  validateStoredPath,
+} from "../src/form-parser";
 
 // S17 — form-parser direct unit tests (covers uncovered branches in src/form-parser.ts).
 
@@ -446,5 +451,47 @@ describe("parsePublishJson", () => {
     );
     const text = new TextDecoder().decode(result.files[0].content);
     expect(text).toBe("# Title");
+  });
+});
+
+// S23-C — validateStoredPath is the shared read/write path rule extracted from
+// the write-side form parser (behavior-preserving: same codes, same statuses).
+describe("validateStoredPath", () => {
+  it("accepts relative, clean paths", () => {
+    expect(() => validateStoredPath("index.html")).not.toThrow();
+    expect(() => validateStoredPath("assets/css/style.css")).not.toThrow();
+    expect(() => validateStoredPath("pages/2/photo.jpg")).not.toThrow();
+  });
+
+  it("rejects an empty path with invalid_path (400)", () => {
+    expect(() => validateStoredPath("")).toThrowError(
+      expect.objectContaining({ code: "invalid_path", status: 400 }),
+    );
+  });
+
+  it("rejects an absolute path with path_traversal (400)", () => {
+    expect(() => validateStoredPath("/etc/passwd")).toThrowError(
+      expect.objectContaining({ code: "path_traversal", status: 400 }),
+    );
+  });
+
+  it("rejects ../ anywhere with path_traversal (400)", () => {
+    for (const path of ["../etc/passwd", "a/../b"]) {
+      expect(() => validateStoredPath(path)).toThrowError(
+        expect.objectContaining({ code: "path_traversal", status: 400 }),
+      );
+    }
+  });
+
+  it("rejects backslashes with path_traversal (400)", () => {
+    expect(() => validateStoredPath("a\\b.html")).toThrowError(
+      expect.objectContaining({ code: "path_traversal", status: 400 }),
+    );
+  });
+
+  it("rejects percent signs with invalid_filename (400)", () => {
+    expect(() => validateStoredPath("bad%file.html")).toThrowError(
+      expect.objectContaining({ code: "invalid_filename", status: 400 }),
+    );
   });
 });
