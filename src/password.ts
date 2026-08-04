@@ -165,6 +165,7 @@ export async function verifyPassword(password: string, stored: string): Promise<
   return constantTimeEqual(new Uint8Array(derived), expected);
 }
 
+// Constant-time is verified by code inspection and logical-equivalence tests only, not by timing measurement.
 /**
  * Constant-time byte-array equality: xor-accumulates over the longer input
  * with no early exit, and folds the length mismatch into the accumulator
