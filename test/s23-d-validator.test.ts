@@ -738,11 +738,6 @@ describe("S23-D validator adversarial probes", () => {
   // PROBE J — toPageJson defensive copy (no mutation)
   // ─────────────────────────────────────────────────────────────────────────
   it("PROBE J: toPageJson does not mutate the original record", async () => {
-    // We test this by examining the admin-api.ts toPageJson implementation.
-    // toPageJson destructures { password_hash, ...rest } — this creates a new
-    // object, so the original record is not mutated. Let's verify at the DB level
-    // that password_hash survives round trips.
-
     const pageId = "prob0000j";
     await insertPage(db, {
       id: pageId,
@@ -752,8 +747,15 @@ describe("S23-D validator adversarial probes", () => {
       password_hash: "pbkdf2$10000$test-salt$test-hash",
     });
 
-    // Fetch through handleGetPage (which uses toPageJson)
+    // Capture the page record BEFORE the API call, so we can verify it
+    // survives toPageJson without mutation.
     const deps = makeAdminDeps();
+    const pageBefore = await deps.pagesRepository.getById(pageId);
+    expect(pageBefore).not.toBeNull();
+    expect(pageBefore!.password_hash).toBe("pbkdf2$10000$test-salt$test-hash");
+
+    // Fetch through handleGetPage (which internally calls
+    // pagesRepository.getById → toPageJson on that record)
     const res = await handleGetPage(
       new Request(`https://pages.example.com/api/pages/${pageId}`),
       ctx,
@@ -764,7 +766,12 @@ describe("S23-D validator adversarial probes", () => {
     expect(body.has_password).toBe(true);
     expect(body).not.toHaveProperty("password_hash");
 
-    // Verify the DB still has the hash (toPageJson didn't mutate the source)
+    // The captured record must still have password_hash (was not mutated).
+    // toPageJson destructures { password_hash, ...rest } — this creates a new
+    // object without deleting the original field.
+    expect(pageBefore!.password_hash).toBe("pbkdf2$10000$test-salt$test-hash");
+
+    // Verify the DB still has the hash (toPageJson didn't mutate the source).
     const hash = await storedPasswordHash(db, pageId);
     expect(hash).toBe("pbkdf2$10000$test-salt$test-hash");
   });
