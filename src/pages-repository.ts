@@ -182,7 +182,7 @@ export function createPagesRepository(db: D1Database): PagesRepository {
       try {
         const row = await db
           .prepare(
-            `SELECT id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, created_at, updated_at
+            `SELECT id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, match_tags, created_at, updated_at
              FROM pages
              WHERE slug = ?`,
           )
@@ -198,7 +198,7 @@ export function createPagesRepository(db: D1Database): PagesRepository {
       try {
         const result = await db
           .prepare(
-            `SELECT id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, created_at, updated_at
+            `SELECT id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, match_tags, created_at, updated_at
              FROM pages
              ORDER BY created_at DESC, id DESC`,
           )
@@ -351,7 +351,7 @@ export function createPagesRepository(db: D1Database): PagesRepository {
             `UPDATE pages
              SET rev = ?, entry_path = ?, raw_md_path = ?, updated_at = ?
              WHERE id = ?
-             RETURNING id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, created_at, updated_at`,
+             RETURNING id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, match_tags, created_at, updated_at`,
           )
           .bind(rev, entryPath, rawMdPath, new Date().toISOString(), id)
           .first<Record<string, unknown>>();

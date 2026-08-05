@@ -179,16 +179,17 @@ export async function serveEntry(
       return new Response(null, { status: 301, headers });
     }
 
-    const stored = await deps.objects.get(page.id, page.rev, page.entry_path);
-    if (!stored) {
-      return clean404Response(url);
-    }
-
-    const html = await new Response(stored.body).text();
-    const body = injectBase(html, baseHref);
-    // Listing pages: render a dynamic list of pages matching configured tags
-    if (page.kind === "listing" && page.match_tags && deps.tagsRepository) {
-      const matchTagList = page.match_tags
+    // Listing pages: render a dynamic list of pages matching configured tags.
+    // Must check BEFORE the R2 entry read — listing pages have no uploaded files.
+    if (page.kind === "listing") {
+      const matchTags = page.match_tags;
+      if (!matchTags || !deps.tagsRepository) {
+        const headers = deps.cache.headersFor("entry", page.id);
+        headers.set("Content-Type", "text/html; charset=utf-8");
+        const emptyListing = renderListingPage(page, [], deps.config);
+        return new Response(emptyListing, { headers });
+      }
+      const matchTagList = matchTags
         .split(",")
         .map((t) => t.trim().toLowerCase())
         .filter(Boolean);
@@ -202,6 +203,14 @@ export async function serveEntry(
       headers.set("Content-Type", "text/html; charset=utf-8");
       return new Response(listingHtml, { headers });
     }
+
+    const stored = await deps.objects.get(page.id, page.rev, page.entry_path);
+    if (!stored) {
+      return clean404Response(url);
+    }
+
+    const html = await new Response(stored.body).text();
+    const body = injectBase(html, baseHref);
 
     const headers =
       page.password_hash !== null
