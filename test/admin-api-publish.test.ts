@@ -10,6 +10,7 @@ import { createFilesRepository } from "../src/files-repository";
 import { createUnlocksRepository } from "../src/unlocks-repository";
 import { verifyPassword } from "../src/password";
 import { createObjectStore } from "../src/object-store";
+import { createSettingsRepository } from "../src/settings-repository";
 import type { ObjectStore } from "../src/object-store";
 import { AppError } from "../src/errors";
 import {
@@ -1038,6 +1039,7 @@ describe("S17 — POST /api/pages (publish)", () => {
         config,
         verifiedIdentity: { email: "admin@example.com" },
         unlocks: createUnlocksRepository(env.DB),
+        settingsRepository: createSettingsRepository(env.DB),
       };
     }
 

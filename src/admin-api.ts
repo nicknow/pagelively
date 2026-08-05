@@ -34,6 +34,8 @@ import type { AppConfig } from "./config";
 import type { VerifiedIdentity } from "./access-verify";
 import type { ObjectStore } from "./object-store";
 
+import type { SettingsRepository } from "./settings-repository";
+
 export interface AdminApiDeps {
   pagesRepository: PagesRepository;
   filesRepository: FilesRepository;
@@ -42,6 +44,7 @@ export interface AdminApiDeps {
   config: AppConfig;
   verifiedIdentity: VerifiedIdentity;
   unlocks: UnlocksRepository;
+  settingsRepository?: SettingsRepository;
 }
 
 import type { UnlocksRepository } from "./unlocks-repository";
@@ -936,4 +939,46 @@ export async function handleDeletePage(
   await cacheService.purgePage(ctx, id);
 
   return new Response(null, { status: 204, headers: adminJsonHeaders(cacheService) });
+}
+
+export async function handleGetSettings(
+  _request: Request,
+  _ctx: ExecutionContext,
+  deps: AdminApiDeps,
+): Promise<Response> {
+  const { cacheService, settingsRepository } = deps;
+  const settings = await settingsRepository!.getAll();
+  const headers = adminJsonHeaders(cacheService);
+  return Response.json(settings, { headers });
+}
+
+export async function handlePatchSettings(
+  request: Request,
+  _ctx: ExecutionContext,
+  deps: AdminApiDeps,
+): Promise<Response> {
+  const { cacheService, settingsRepository } = deps;
+
+  let body: Record<string, string | null>;
+  try {
+    body = (await request.json()) as Record<string, string | null>;
+  } catch {
+    throw new AppError("invalid_json", 400, "Request body must be valid JSON.");
+  }
+
+  const repo = settingsRepository!;
+  for (const [key, value] of Object.entries(body)) {
+    if (value === null) {
+      // null = delete the setting (restore default)
+      await repo.set(key, "");
+    } else if (typeof value === "string") {
+      await repo.set(key, value);
+    } else {
+      throw new AppError("invalid_setting", 400, `Invalid value for setting "${key}".`);
+    }
+  }
+
+  const settings = await repo.getAll();
+  const headers = adminJsonHeaders(cacheService);
+  return Response.json(settings, { headers });
 }
