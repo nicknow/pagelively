@@ -874,6 +874,17 @@ const SHARED_JS = `<script>
     input.addEventListener('input', function() { updateSlugPreview(input, preview); });
   }
 
+  function formatDateTime(isoString) {
+    try {
+      var d = new Date(isoString);
+      if (isNaN(d.getTime())) return isoString;
+      return d.toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      });
+    } catch(e) { return isoString; }
+  }
+
   function toggleTheme() {
     var current = document.documentElement.getAttribute('data-theme');
     var isDark = current === 'dark' || (!current && window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -895,6 +906,9 @@ const SHARED_JS = `<script>
       btn.innerHTML = '<svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-' + (isDark ? 'sun' : 'moon') + '"></use></svg>';
       btn.addEventListener('click', toggleTheme);
     }
+    document.querySelectorAll('time[datetime]').forEach(function(el) {
+      el.textContent = formatDateTime(el.getAttribute('datetime'));
+    });
   });
 </script>`;
 
@@ -1011,7 +1025,7 @@ function dashboardContent(config: AppConfig, pages: PageRecord[], requestUrl: UR
         </td>
         <td data-label="Kind"><span class="badge kind-${escapeHtml(page.kind)}">${kindSvg}${escapeHtml(page.kind)}</span></td>
         <td data-label="Visibility"><span class="badge visibility-${escapeHtml(page.visibility)}">${escapeHtml(page.visibility)}</span></td>
-        <td data-label="Created">${escapeHtml(page.created_at)}</td>
+        <td data-label="Created"><time datetime="${escapeHtml(page.created_at)}">${escapeHtml(page.created_at)}</time></td>
         <td class="actions-cell" data-label="Actions">
           <div class="actions">
             <a class="button button-secondary button-small" href="${escapeHtml(viewUrl)}">View</a>
