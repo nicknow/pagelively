@@ -446,9 +446,84 @@ describe("index.ts — admin UI", () => {
     // AC4: the inline script reads the UNION of both pickers, not #files alone.
     expect(text).toContain("getElementById('files')");
     expect(text).toContain("getElementById('folder')");
-    expect(text).toContain("concat(Array.from(folderInput.files || []))");
+    expect(text).toContain("syncManagedFiles()");
     // Empty-union guard message is regression-pinned (now unified with paste).
     expect(text).toContain("Provide either files or paste content.");
+  });
+
+  // ── Slice 8: File chips below dropzone with remove capability ──────────────
+
+  it("S8: upload page has .file-chips container in the DOM (one per dropzone)", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // Each dropzone should have a file-chips container
+    expect(text).toContain('id="upload-chips"');
+    expect(text).toContain('id="folder-chips"');
+    const containers = text.match(/class="file-chips"/g);
+    expect(containers).not.toBeNull();
+    expect(containers!.length).toBe(2);
+  });
+
+  it("S8: upload page JS references managedFiles array", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("var managedFiles = []");
+    expect(text).toContain("managedFiles");
+  });
+
+  it("S8: upload page JS has renderChips function", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("function renderChips(");
+    expect(text).toContain("data-chip-index");
+    expect(text).toContain("container.querySelectorAll('.chip-remove')");
+    expect(text).toContain("managedFiles.splice(idx, 1)");
+  });
+
+  it("S8: upload page JS has syncManagedFiles function", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("function syncManagedFiles()");
+    expect(text).toContain("webkitRelativePath");
+    expect(text).toContain("renderChips('upload-chips'");
+    expect(text).toContain("renderChips('folder-chips'");
+  });
+
+  it("S8: upload page JS has .chip-remove with trash icon", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // The chip-remove button should reference #icon-trash
+    expect(text).toContain('class="chip-remove"');
+    expect(text).toContain('href="#icon-trash"');
+    expect(text).toContain("aria-label=");
+  });
+
+  it("S8: upload form submit uses managedFiles (not filesInput.files) for FormData", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // The form submit should iterate managedFiles, not read from filesInput.files directly
+    expect(text).toContain("managedFiles.forEach");
+    expect(text).toContain("item.path");
+    expect(text).toContain("item.file");
+    // Should NOT reference filesInput.files in the submit handler
+    const submitBlock = text.match(/form\.addEventListener\('submit',[\s\S]*?}\);/)?.[0] ?? "";
+    expect(submitBlock).not.toContain("filesInput.files");
+  });
+
+  it("S8: CSS has .file-chips, .file-chip, .chip-remove rules", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    const styleBlock = text.match(/<style>[\s\S]*?<\/style>/)?.[0] ?? "";
+    expect(styleBlock).toMatch(/\.file-chips\s*\{/);
+    expect(styleBlock).toMatch(/\.file-chip\s*\{/);
+    expect(styleBlock).toMatch(/\.chip-remove\s*\{/);
   });
 
   it("dashboard displays the verified email from the Access token", async () => {

@@ -55,7 +55,13 @@ inset: 0; opacity: 0`), so clicking anywhere on the dropzone opens the OS file p
   relative paths). It is hidden by default and revealed when the user clicks the
   "Uploading a folder instead?" toggle link. The two pickers are split because `webkitdirectory`
   on the same input as `multiple` forces directory-only selection; the inline JS reads the union
-  of both inputs and keys file parts by `webkitRelativePath || name`.
+  of both inputs via `syncManagedFiles()` and keys file parts by `webkitRelativePath || name`.
+- **File chips** below each dropzone (`.file-chips` containers `#upload-chips` and `#folder-chips`):
+  each selected file is shown as a chip with a file-type icon, the filename/path, and a red X
+  (trash icon) remove button. The inline JS maintains a `managedFiles` array of
+  `{ file: File, path: string }` objects which replace the earlier `selectedFiles()` native
+  `FileList` concatenation — this allows individual file removal before submit. The remove button
+  calls `managedFiles.splice()` and re-renders the chips and entry picker.
 - Slug input with a live preview of the resulting URL (e.g., `URL: /my-page/`).
 - Optional title input (auto-generated from the filename if omitted).
 - Visibility radio buttons (`public` / `unlisted`, default `public`).
@@ -125,5 +131,5 @@ See `docs/api/admin-api.md` for request/response shapes and error codes.
 
 ## Cross-references
 
-- ADRs: 0024 (S16 JWT gate), 0025 (S15 admin API), 0026 (S17 upload), 0027 (S18 edit/delete), 0028 (S19 admin UI), 0039 (T3 buildless overhaul), 0048 (dark mode toggle).
+- ADRs: 0024 (S16 JWT gate), 0025 (S15 admin API), 0026 (S17 upload), 0027 (S18 edit/delete), 0028 (S19 admin UI), 0039 (T3 buildless overhaul), 0048 (dark mode toggle), 0049 (dropzone upload UI), 0052 (file chips with managed file array).
 - Code: `src/admin-ui.ts`, `src/index.ts`, `src/admin-api.ts`.

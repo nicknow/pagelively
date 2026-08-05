@@ -766,6 +766,42 @@ input[type="file"] {
 .folder-dropzone-wrapper { display: none; }
 
 .folder-dropzone-wrapper.visible { display: block; }
+
+.file-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+}
+
+.file-chip .chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--color-danger);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  padding: 0;
+}
+
+.file-chip .chip-remove:hover {
+  color: var(--color-danger-hover);
+  background: var(--color-danger-bg);
+}
 `;
 
 const SHARED_JS = `<script>
@@ -1041,6 +1077,7 @@ function uploadContent(): string {
             <span class="dz-label">Drag files here or click to browse</span>
             <span class="dz-hint">Choose one or more loose files.</span>
           </div>
+          <div class="file-chips" id="upload-chips"></div>
         </div>
         <div class="form-group">
           <label class="field-label">Folder upload</label>
@@ -1051,6 +1088,7 @@ function uploadContent(): string {
               <span class="dz-label">Upload entire folder</span>
               <span class="dz-hint">Preserves relative paths inside the selected folder.</span>
             </div>
+            <div class="file-chips" id="folder-chips"></div>
           </div>
           <button type="button" class="folder-toggle" id="folder-toggle">Uploading a folder instead?</button>
         </div>
@@ -1190,8 +1228,10 @@ function uploadContent(): string {
         t.addEventListener('click', function() { showTab(t.dataset.tab); });
       });
 
+      var managedFiles = [];
+
       function selectedFiles() {
-        return Array.from(filesInput.files || []).concat(Array.from(folderInput.files || []));
+        return managedFiles;
       }
 
       function isDocument(name) {
@@ -1204,9 +1244,54 @@ function uploadContent(): string {
         return /\\.(png|jpg|jpeg|gif|webp|svg|avif)$/.test(lower);
       }
 
+      function escapeHtml(str) {
+        var div = document.createElement('div');
+        div.appendChild(document.createTextNode(str));
+        return div.innerHTML;
+      }
+
+      function renderChips(containerId, source) {
+        var container = document.getElementById(containerId);
+        if (!container) return;
+        if (source.length === 0) { container.innerHTML = ''; return; }
+        container.innerHTML = source.map(function(item, index) {
+          var icon = 'file';
+          var lower = item.path.toLowerCase();
+          if (lower.endsWith('.html') || lower.endsWith('.htm')) icon = 'file-html';
+          else if (lower.endsWith('.md') || lower.endsWith('.markdown')) icon = 'file-markdown';
+          else if (lower.match(/\\.(png|jpg|jpeg|gif|webp|svg|avif)$/)) icon = 'file-image';
+          return '<span class="file-chip">' +
+            '<svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-' + icon + '"></use></svg> ' +
+            escapeHtml(item.path) +
+            '<button type="button" class="chip-remove" data-chip-index="' + index + '" aria-label="Remove ' + escapeHtml(item.path) + '">' +
+            '<svg class="icon" width="14" height="14" aria-hidden="true"><use href="#icon-trash"></use></svg></button></span>';
+        }).join('');
+        container.querySelectorAll('.chip-remove').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            var idx = parseInt(btn.dataset.chipIndex, 10);
+            managedFiles.splice(idx, 1);
+            updateEntryPicker();
+            renderChips(containerId, managedFiles);
+            renderChips('folder-chips', []);
+          });
+        });
+      }
+
+      function syncManagedFiles() {
+        managedFiles = [];
+        var seen = new Set();
+        var addFn = function(f) {
+          var path = f.webkitRelativePath || f.name;
+          if (!seen.has(path)) { seen.add(path); managedFiles.push({ file: f, path: path }); }
+        };
+        Array.from(filesInput.files || []).forEach(addFn);
+        Array.from(folderInput.files || []).forEach(addFn);
+        renderChips('upload-chips', managedFiles);
+        renderChips('folder-chips', []);
+      }
+
       function buildManifest() {
         const files = selectedFiles();
-        const relative = f => f.webkitRelativePath || f.name;
         const pwd = document.getElementById('password').value;
         const manifest = {
           slug: document.getElementById('slug').value || undefined,
@@ -1221,9 +1306,8 @@ function uploadContent(): string {
 
       function updateEntryPicker() {
         const files = selectedFiles();
-        const relative = f => f.webkitRelativePath || f.name;
-        const docs = files.filter(f => isDocument(relative(f))).map(relative);
-        const images = files.filter(f => isImage(relative(f))).map(relative);
+        const docs = files.filter(f => isDocument(f.path)).map(f => f.path);
+        const images = files.filter(f => isImage(f.path)).map(f => f.path);
         const all = docs.length + images.length;
         if (docs.length === 1 && files.length === 1) {
           entryField.classList.add('hidden');
@@ -1242,8 +1326,8 @@ function uploadContent(): string {
         }
       }
 
-      filesInput.addEventListener('change', updateEntryPicker);
-      folderInput.addEventListener('change', updateEntryPicker);
+      filesInput.addEventListener('change', function() { syncManagedFiles(); updateEntryPicker(); });
+      folderInput.addEventListener('change', function() { syncManagedFiles(); updateEntryPicker(); });
 
       // Wire up dropzone drag/drop
       function initDropzone(dropzoneId, inputId) {
@@ -1268,6 +1352,7 @@ function uploadContent(): string {
               dt.items.add(e.dataTransfer.files[i]);
             }
             input.files = dt.files;
+            syncManagedFiles();
             updateEntryPicker();
           }
         });
@@ -1303,8 +1388,9 @@ function uploadContent(): string {
           return;
         }
         const formData = new FormData();
-        const relative = f => f.webkitRelativePath || f.name;
-        files.forEach(f => formData.append('file:' + relative(f), f, relative(f)));
+        managedFiles.forEach(function(item) {
+          formData.append('file:' + item.path, item.file, item.path);
+        });
         formData.append('manifest', buildManifest());
         const res = await fetch('/api/pages', { method: 'POST', body: formData });
         if (res.ok) {
