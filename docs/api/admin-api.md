@@ -121,9 +121,11 @@ Upload and publish a page. The endpoint accepts **either** `multipart/form-data`
 - One `.md`/`.markdown` document (with optional assets) → `markdown`, rendered to
   `index.html`, raw stored as `source.md`.
 - One image, no documents → `image`, stored under its original filename.
-- Multiple documents, multiple images, or a manifest entry → `bundle`, paths preserved.
+- Multiple documents, multiple images, or a manifest entry → `bundle`, paths preserved — except
+  the entry file itself, which follows the rule below.
 - A bundle whose entry is Markdown is rendered like a Markdown page but `kind` stays `bundle`
-  (OQ-05).
+  (OQ-05): stored as `index.html` + `source.md`, and `entry_path` is `"index.html"` (not the
+  original upload path — that path is never written to R2 under its own name).
 
 **Slug handling (OQ-15/T1, ADR 0036):** a user-supplied `manifest.slug` is cleaned before
 validation and storage: surrounding whitespace and case are normalized (`"  My Post "` →

@@ -41,16 +41,20 @@ straightforward to construct in tests. The form parser rejects:
 Files are classified as **documents** (`.html`, `.htm`, `.md`, `.markdown`) or **images**
 (`isImageContentType`). All other files are treated as assets.
 
-| Upload shape                                                                                       | Kind       | Entry path                                               |
-| -------------------------------------------------------------------------------------------------- | ---------- | -------------------------------------------------------- |
-| Exactly one `.html` / `.htm` document (any number of non-document assets, including images)        | `html`     | `index.html`                                             |
-| Exactly one `.md` / `.markdown` document (any number of non-document assets, including images)     | `markdown` | `index.html` (raw stored as `source.md`)                 |
-| Exactly one image and no documents                                                                 | `image`    | the image filename                                       |
-| Anything else: multiple documents, an image with other assets, no clear entry, or a manifest entry | `bundle`   | manifest `entry` (or the single non-ambiguous candidate) |
+| Upload shape                                                                                       | Kind       | Entry path                                                                                                 |
+| -------------------------------------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------- |
+| Exactly one `.html` / `.htm` document (any number of non-document assets, including images)        | `html`     | `index.html`                                                                                               |
+| Exactly one `.md` / `.markdown` document (any number of non-document assets, including images)     | `markdown` | `index.html` (raw stored as `source.md`)                                                                   |
+| Exactly one image and no documents                                                                 | `image`    | the image filename                                                                                         |
+| Anything else: multiple documents, an image with other assets, no clear entry, or a manifest entry | `bundle`   | manifest `entry` (or the single non-ambiguous candidate) — `index.html` if that entry is `.md`/`.markdown` |
 
 A bundle whose entry is a `.md` file is rendered through the same markdown pipeline as a
 `markdown` page, but `kind` stays `bundle` (OQ-05). The rendered HTML is stored as
-`index.html` and the raw Markdown as `source.md`.
+`index.html` and the raw Markdown as `source.md` — and the page's stored `entry_path` is
+`index.html` too, exactly as it is for the top-level `markdown` kind, since that's the only
+path R2 actually holds the served bytes under. (A bug fixed 2026-08-04 stored `entry_path` as
+the original upload path instead, e.g. `site/index.md`, which is never written to R2 — every
+such page 404'd when visited.)
 
 ### 3. R2-then-D1 write sequence with best-effort rollback
 

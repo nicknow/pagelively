@@ -376,9 +376,16 @@ export async function handleCreatePage(
     size: file.size,
   }));
 
+  // A bundle whose entry is Markdown is rendered and stored as index.html by
+  // buildR2Files, just like the top-level "markdown" kind — entry_path must
+  // point there too, not at the original upload path (never written to R2
+  // under that name), or the entry object lookup at serve time 404s.
   const rawMdPath: string | null =
     kind === "markdown" || (kind === "bundle" && isMarkdownPath(entry)) ? "source.md" : null;
-  const entryPath = kind === "html" || kind === "markdown" ? "index.html" : entry;
+  const entryPath =
+    kind === "html" || kind === "markdown" || (kind === "bundle" && isMarkdownPath(entry))
+      ? "index.html"
+      : entry;
 
   const newPage: NewPage = {
     id,

@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- Publishing a multi-file bundle whose entry is a Markdown file (e.g. multiple `.md` files, or
+  a `.md` file alongside images/assets) stored the page's `entry_path` at the original upload
+  path (e.g. `site/index.md`) instead of `index.html` — the path R2 actually stores the
+  rendered entry under. Every such page 404'd when visited. `entry_path` now matches the stored
+  object for bundle pages with a Markdown entry, consistent with the top-level `markdown` kind.
+
 ## [1.1.0] — Password protection & multi-domain support
 
 ### Added

@@ -396,6 +396,13 @@ them and that the dashboard surface exists to watch them.
       all existing files to `pages/{id}/{newRev}/`.
 - [ ] `POST /api/pages/{id}/files` replacing a Markdown entry re-renders `index.html` +
       `source.md` at the new rev.
+- [ ] **Known defect (found 2026-08-04, not yet fixed):** `POST /api/pages/{id}/files`
+      replacing `source.md` on a **bundle**-kind page whose entry is Markdown does NOT
+      re-render `index.html` — the new Markdown is saved but the old rendered HTML keeps
+      serving (silent staleness). `isEntryReplacement`/`prepareEntryFiles` in `src/admin-api.ts`
+      key off `page.entry_path`/`isMarkdownPath(page.entry_path)` instead of
+      `page.raw_md_path !== null` (the check `servedEntryPath` already uses correctly). Confirm
+      this is fixed before relying on bundle+Markdown entry replacement in production.
 - [ ] `DELETE /api/pages/{id}/files/{path}` with a valid token removes a file, bumps `rev`, and
       copies remaining files to the new rev.
 - [ ] `DELETE /api/pages/{id}/files/index.html` returns `400`
