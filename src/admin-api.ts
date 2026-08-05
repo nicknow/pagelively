@@ -35,6 +35,7 @@ import type { VerifiedIdentity } from "./access-verify";
 import type { ObjectStore } from "./object-store";
 
 import type { SettingsRepository } from "./settings-repository";
+import type { TagsRepository } from "./tags-repository";
 
 export interface AdminApiDeps {
   pagesRepository: PagesRepository;
@@ -45,6 +46,7 @@ export interface AdminApiDeps {
   verifiedIdentity: VerifiedIdentity;
   unlocks: UnlocksRepository;
   settingsRepository?: SettingsRepository;
+  tagsRepository?: TagsRepository;
 }
 
 import type { UnlocksRepository } from "./unlocks-repository";
@@ -279,20 +281,34 @@ function buildR2Files(
   return r2Files;
 }
 
+async function loadTags(
+  tagsRepository: TagsRepository | undefined,
+  pageId: string,
+): Promise<string[]> {
+  if (!tagsRepository) return [];
+  return tagsRepository.getByPageId(pageId);
+}
+
 export async function handleListPages(
   _request: Request,
   _ctx: ExecutionContext,
   deps: AdminApiDeps,
 ): Promise<Response> {
-  const { pagesRepository, cacheService, config, verifiedIdentity } = deps;
+  const { pagesRepository, cacheService, config, verifiedIdentity, tagsRepository } = deps;
   // Read-only endpoints do not consume identity/config yet, but reference them
   // so the unused-parameter lint rule stays happy and the contract is explicit.
   void config;
   void verifiedIdentity;
 
   const pages = await pagesRepository.list();
+  const pageJsonList = await Promise.all(
+    pages.map(async (page) => ({
+      ...toPageJson(page),
+      tags: await loadTags(tagsRepository, page.id),
+    })),
+  );
   const headers = adminJsonHeaders(cacheService);
-  return Response.json(pages.map(toPageJson), { headers });
+  return Response.json(pageJsonList, { headers });
 }
 
 export async function handleGetPage(
@@ -316,8 +332,9 @@ export async function handleGetPage(
   }
 
   const files = await filesRepository.listForPage(id);
+  const tags = await loadTags(deps.tagsRepository, id);
   const headers = adminJsonHeaders(cacheService);
-  return Response.json({ ...toPageJson(page), files }, { headers });
+  return Response.json({ ...toPageJson(page), files, tags }, { headers });
 }
 
 export async function handleCreatePage(
@@ -356,6 +373,7 @@ export async function handleCreatePage(
 
   const slug = await resolveSlug(cleanedSlug, title, pagesRepository, id);
   const showSource = manifest.showSource === true ? 1 : 0;
+  const tags = manifest.tags ?? [];
 
   // S23: password validation before any side effects
   let passwordHash: string | undefined;
@@ -418,6 +436,9 @@ export async function handleCreatePage(
   try {
     createdPage = await pagesRepository.create(newPage);
     await filesRepository.replaceAll(id, rev, fileRecords);
+    if (deps.tagsRepository && tags.length > 0) {
+      await deps.tagsRepository.setForPage(id, tags);
+    }
   } catch (error) {
     await objectStore.deletePageObjects(id);
     await pagesRepository.delete(id).catch(() => {});
@@ -428,7 +449,7 @@ export async function handleCreatePage(
 
   const headers = adminJsonHeaders(cacheService);
   return Response.json(
-    { ...toPageJson(createdPage), files: fileRecords },
+    { ...toPageJson(createdPage), files: fileRecords, tags },
     { status: 201, headers },
   );
 }
@@ -534,6 +555,7 @@ function validatePatchBody(body: Record<string, unknown>): {
   visibility?: "public" | "unlisted";
   show_source?: 0 | 1;
   password?: string | null;
+  tags?: string[];
 } {
   const patch: {
     slug?: string | null;
@@ -541,6 +563,7 @@ function validatePatchBody(body: Record<string, unknown>): {
     visibility?: "public" | "unlisted";
     show_source?: 0 | 1;
     password?: string | null;
+    tags?: string[];
   } = {};
 
   if ("slug" in body) {
@@ -579,6 +602,12 @@ function validatePatchBody(body: Record<string, unknown>): {
       throw new AppError("invalid_password", 400, "Password must be a string.");
     }
     patch.password = body.password as string | null;
+  }
+  if ("tags" in body) {
+    if (!Array.isArray(body.tags)) {
+      throw new AppError("invalid_tags", 400, "Tags must be an array of strings.");
+    }
+    patch.tags = body.tags.filter((t: unknown) => typeof t === "string");
   }
 
   return patch;
@@ -739,6 +768,10 @@ export async function handlePatchPage(
     delete (patch as Record<string, unknown>).password;
   }
 
+  // Extract tags from the patch (handled separately via TagsRepository, not MetaPatch)
+  const tagsPatch = "tags" in patch ? patch.tags : undefined;
+  delete (patch as Record<string, unknown>).tags;
+
   if (Object.keys(patch).length > 0) {
     try {
       const result = await pagesRepository.updateMeta(id, patch);
@@ -755,6 +788,11 @@ export async function handlePatchPage(
     }
   }
 
+  // Handle tags update (not via MetaPatch)
+  if (tagsPatch !== undefined && deps.tagsRepository) {
+    await deps.tagsRepository.setForPage(id, tagsPatch);
+  }
+
   if (!updatedPage) {
     // No changes at all (empty patch); re-fetch
     const result = await pagesRepository.getById(id);
@@ -764,7 +802,8 @@ export async function handlePatchPage(
 
   const files = await filesRepository.listForPage(id);
   const headers = adminJsonHeaders(cacheService);
-  return Response.json({ ...toPageJson(updatedPage), files }, { headers });
+  const tags = await loadTags(deps.tagsRepository, id);
+  return Response.json({ ...toPageJson(updatedPage), files, tags }, { headers });
 }
 
 export async function handleAddFiles(

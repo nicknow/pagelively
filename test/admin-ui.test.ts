@@ -2110,4 +2110,86 @@ describe("index.ts — admin UI", () => {
     const res = await fetchAdmin("/admin/settings");
     expect(res.status).toBe(403);
   });
+
+  // ── Tags in admin UI ───────────────────────────────────────────────────
+
+  it("upload page has a tags input field", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('id="tags"');
+    expect(text).toContain("comma-separated");
+  });
+
+  it("paste form has a tags input field", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('id="paste-tags"');
+    expect(text).toContain("comma-separated");
+  });
+
+  it("upload form JS has a parseTags function", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("function parseTags(");
+    expect(text).toContain("manifest.tags = tags");
+  });
+
+  it("paste form JS includes tags in the payload", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("pasteTags.length > 0");
+    expect(text).toContain("payload.tags = pasteTags");
+  });
+
+  it("edit page has a tags input field", async () => {
+    const db = env.DB;
+    const pageId = "page00tagedit";
+    await insertPage(db, {
+      id: pageId,
+      slug: "tag-edit",
+      title: "Tag Edit",
+      kind: "html",
+    });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "index.html",
+      r2_key: `pages/${pageId}/1/index.html`,
+      content_type: "text/html; charset=utf-8",
+      size: 100,
+    });
+
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('id="edit-tags"');
+    expect(text).toContain("comma-separated");
+  });
+
+  it("edit form JS includes tags in the PATCH body", async () => {
+    const db = env.DB;
+    const pageId = "page00tagpatch";
+    await insertPage(db, {
+      id: pageId,
+      slug: "tag-patch",
+      title: "Tag Patch",
+      kind: "html",
+    });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "index.html",
+      r2_key: `pages/${pageId}/1/index.html`,
+      content_type: "text/html; charset=utf-8",
+      size: 100,
+    });
+
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("body.tags = parseTags(");
+    expect(text).toContain("body.tags = []");
+  });
 });

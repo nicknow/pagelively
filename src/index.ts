@@ -29,6 +29,7 @@ import { createUnlocksRepository } from "./unlocks-repository";
 import { createAccessVerifier } from "./access-verify";
 import { createJwksProvider } from "./jwks-provider";
 import { createSettingsRepository } from "./settings-repository";
+import { createTagsRepository } from "./tags-repository";
 import {
   handleListPages,
   handleGetPage,
@@ -67,6 +68,7 @@ export default {
         jwksProvider,
       });
       const settingsRepository = createSettingsRepository(env.DB);
+      const tagsRepository = createTagsRepository(env.DB);
       const deps = {
         config,
         pages,
@@ -77,6 +79,7 @@ export default {
         filesRepository,
         unlocks,
         settingsRepository,
+        tagsRepository,
       };
 
       const url = new URL(request.url);
