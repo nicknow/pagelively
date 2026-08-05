@@ -2062,4 +2062,52 @@ describe("index.ts — admin UI", () => {
     // The DOMContentLoaded handler in SHARED_JS should call formatDateTime
     expect(text).toContain("formatDateTime");
   });
+
+  // ── Settings page ──────────────────────────────────────────────────────
+
+  it("dashboard has a Settings button linking to /admin/settings", async () => {
+    const res = await fetchAdmin("/admin", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('href="/admin/settings"');
+    expect(text).toContain("Settings");
+  });
+
+  it("GET /admin/settings returns the settings page HTML", async () => {
+    const res = await fetchAdmin("/admin/settings", await validToken());
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+    const text = await res.text();
+    expect(text).toContain("Settings");
+    expect(text).toContain("Default page");
+    expect(text).toContain("Save settings");
+    expect(text).toContain("/api/settings");
+  });
+
+  it("GET /admin/settings has back navigation to dashboard", async () => {
+    const res = await fetchAdmin("/admin/settings", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+
+    const mainContent = text.match(/<main>[\s\S]*<\/main>/)?.[0] ?? "";
+    const backLinkPos = mainContent.indexOf('href="/admin"');
+    const firstCardPos = mainContent.indexOf('<div class="card"');
+    expect(backLinkPos).toBeGreaterThan(-1);
+    expect(firstCardPos).toBeGreaterThan(-1);
+    expect(backLinkPos).toBeLessThan(firstCardPos);
+  });
+
+  it("settings page has a slug preview for the default page input", async () => {
+    const res = await fetchAdmin("/admin/settings", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("initSlugPreview('settings-default-page'");
+    expect(text).toContain('id="settings-default-page"');
+  });
+
+  it("GET /admin/settings without a token returns 403", async () => {
+    const res = await fetchAdmin("/admin/settings");
+    expect(res.status).toBe(403);
+  });
 });

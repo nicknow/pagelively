@@ -11,6 +11,7 @@ import { createFilesRepository } from "../src/files-repository";
 import { createUnlocksRepository } from "../src/unlocks-repository";
 import { verifyPassword } from "../src/password";
 import { createObjectStore } from "../src/object-store";
+import { createSettingsRepository } from "../src/settings-repository";
 import {
   ACCESS_AUD,
   createMockFetch,
@@ -200,6 +201,7 @@ function makeAdminDeps(objectStore = createObjectStore(env.BUCKET)) {
     config,
     verifiedIdentity: { email: "admin@example.com" },
     unlocks: createUnlocksRepository(env.DB),
+    settingsRepository: createSettingsRepository(env.DB),
   };
 }
 

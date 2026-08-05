@@ -18,6 +18,7 @@ import type { PagesRepository, PageRecord } from "./pages-repository";
 import type { FilesRepository, FileRecord } from "./files-repository";
 import type { ObjectStore } from "./object-store";
 import type { VerifiedIdentity } from "./access-verify";
+import type { SettingsRepository } from "./settings-repository";
 
 export interface AdminUiDeps {
   config: AppConfig;
@@ -26,6 +27,7 @@ export interface AdminUiDeps {
   filesRepository: FilesRepository;
   objectStore: ObjectStore;
   verifiedIdentity: VerifiedIdentity;
+  settingsRepository?: SettingsRepository;
 }
 
 function adminHtmlHeaders(cacheService: CacheService): Headers {
@@ -964,6 +966,9 @@ const ICON_SPRITE = `<svg style="display:none" aria-hidden="true">
   <symbol id="icon-arrow-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
   </symbol>
+  <symbol id="icon-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </symbol>
   <symbol id="icon-inbox" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
   </symbol>
@@ -1063,7 +1068,10 @@ function dashboardContent(config: AppConfig, pages: PageRecord[], requestUrl: UR
   return `<div class="card">
     <header>
       <h2>Pages</h2>
-      <a class="button button-primary" href="${escapeHtml(uploadUrl)}"><svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-upload"></use></svg>Upload</a>
+      <div class="toolbar">
+        <a class="button button-secondary button-small" href="/admin/settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg>Settings</a>
+        <a class="button button-primary" href="${escapeHtml(uploadUrl)}"><svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-upload"></use></svg>Upload</a>
+      </div>
     </header>
     ${table}
   </div>
@@ -1776,6 +1784,71 @@ export async function handleAdminEdit(
     throw new AppError("not_found", 404, "Page not found.");
   }
   const content = editContent(detail.page, detail.files, url);
+  const body = layout(config, verifiedIdentity, content);
+  return htmlResponse(cacheService, body);
+}
+
+function settingsContent(settings: Record<string, string>): string {
+  const defaultPage = settings.default_page ?? "";
+  return `<div class="page-nav">
+    <a href="/admin"><svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-arrow-left"></use></svg>Dashboard</a>
+  </div>
+  <div class="card">
+    <header>
+      <h2>Settings</h2>
+    </header>
+    <form id="settings-form">
+      <div class="error-box" id="settings-error" role="alert"></div>
+      <div class="form-group">
+        <label class="field-label" for="settings-default-page">Default page <span class="hint">The page slug to serve at the root URL (e.g. "my-home-page"). Leave empty to use the configured HOME_MODE.</span></label>
+        <input type="text" name="default_page" id="settings-default-page" value="${escapeHtml(defaultPage)}" placeholder="my-home-page">
+        <span class="slug-preview" id="settings-slug-preview"></span>
+      </div>
+      <div class="toolbar">
+        <button type="submit" class="button button-primary">Save settings</button>
+      </div>
+    </form>
+  </div>
+  <script>
+    (function() {
+      initSlugPreview('settings-default-page', 'settings-slug-preview');
+      var form = document.getElementById('settings-form');
+      var errorBox = document.getElementById('settings-error');
+      form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        errorBox.classList.remove('visible');
+        var defaultPage = document.getElementById('settings-default-page').value.trim();
+        var body = {};
+        if (defaultPage) {
+          body.default_page = defaultPage;
+        } else {
+          body.default_page = '';
+        }
+        var res = await fetch('/api/settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          showToast('Settings saved.', 'success');
+        } else {
+          var data = await res.json().catch(function() { return { error: 'Save failed' }; });
+          errorBox.textContent = data.message || data.error || 'Save failed';
+          errorBox.classList.add('visible');
+        }
+      });
+    })();
+  </script>`;
+}
+
+export async function handleAdminSettings(
+  _request: Request,
+  _ctx: ExecutionContext,
+  deps: AdminUiDeps,
+): Promise<Response> {
+  const { cacheService, config, verifiedIdentity, settingsRepository } = deps;
+  const settings = await settingsRepository!.getAll();
+  const content = settingsContent(settings);
   const body = layout(config, verifiedIdentity, content);
   return htmlResponse(cacheService, body);
 }
