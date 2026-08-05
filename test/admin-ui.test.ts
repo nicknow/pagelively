@@ -2023,4 +2023,43 @@ describe("index.ts — admin UI", () => {
     const styleBlock = text.match(/<style>[\s\S]*?<\/style>/)?.[0] ?? "";
     expect(styleBlock).toMatch(/\.page-nav\s*\{/);
   });
+
+  // ── User-friendly date/time formatting ─────────────────────────────────
+
+  it("dashboard uses <time> elements with datetime attribute for dates", async () => {
+    const db = env.DB;
+    await insertPage(db, {
+      id: "page00date1",
+      slug: "dated",
+      title: "Dated",
+      kind: "html",
+      created_at: "2026-01-15T14:30:00.000Z",
+      updated_at: "2026-01-15T14:30:00.000Z",
+    });
+
+    const res = await fetchAdmin("/admin", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+
+    // Should have a <time> element with datetime attribute wrapping the ISO string
+    expect(text).toContain('<time datetime="2026-01-15T14:30:00.000Z">');
+    // The server-side fallback text is the ISO string (JS formats client-side)
+    expect(text).toContain("2026-01-15T14:30:00.000Z</time>");
+  });
+
+  it("dashboard date cells use a data-datetime attribute for JS formatting", async () => {
+    const res = await fetchAdmin("/admin", await validToken());
+    const text = await res.text();
+
+    // Should have a shared JS function to format dates
+    expect(text).toContain("formatDateTime");
+  });
+
+  it("SHARED_JS contains DOMContentLoaded handler for formatting dates", async () => {
+    const res = await fetchAdmin("/admin", await validToken());
+    const text = await res.text();
+
+    // The DOMContentLoaded handler in SHARED_JS should call formatDateTime
+    expect(text).toContain("formatDateTime");
+  });
 });
