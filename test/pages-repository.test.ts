@@ -19,6 +19,7 @@ function pageRecord(
     show_source: 0,
     visibility: "public",
     password_hash: null,
+    match_tags: null,
     created_at: "2026-01-01T00:00:00.000Z",
     updated_at: "2026-01-01T00:00:00.000Z",
     ...overrides,
@@ -413,7 +414,7 @@ describe("createPagesRepository", () => {
         updated_at: now,
       };
       const created = await repo.create(page);
-      expect(created).toEqual({ ...page, password_hash: null });
+      expect(created).toEqual({ ...page, password_hash: null, match_tags: null });
 
       const row = await db.prepare("SELECT * FROM pages WHERE id = ?").bind(page.id).first();
       expect(row).toMatchObject({ id: page.id, slug: page.slug, title: page.title });
@@ -1002,6 +1003,7 @@ function makeMockRow(overrides: Partial<Record<string, unknown>> = {}): Record<s
     show_source: 0,
     visibility: "public",
     password_hash: null,
+    match_tags: null,
     created_at: "2026-01-01T00:00:00.000Z",
     updated_at: "2026-01-01T00:00:00.000Z",
     ...overrides,

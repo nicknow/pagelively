@@ -17,7 +17,7 @@ import { AppError } from "./errors";
 import { validateId } from "./ids";
 import { validateSlug } from "./slug";
 
-type PageKind = "image" | "html" | "markdown" | "bundle";
+type PageKind = "image" | "html" | "markdown" | "bundle" | "listing";
 type Visibility = "public" | "unlisted";
 
 export interface PageRecord {
@@ -34,6 +34,9 @@ export interface PageRecord {
   // (unprotected). Never serialized to API responses — surfaces as
   // `has_password: boolean` only.
   password_hash: string | null;
+  // For listing pages: comma-separated tags to match (e.g. "blog,tech").
+  // NULL or absent for non-listing pages.
+  match_tags: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -50,6 +53,8 @@ export interface NewPage {
   visibility: Visibility;
   // S23: optional on create — absent/empty = unprotected (architecture 02).
   passwordHash?: string | null;
+  // For listing pages: comma-separated tags to match.
+  matchTags?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -61,6 +66,7 @@ export interface MetaPatch {
   show_source?: 0 | 1;
   // S23 tri-state: undefined = unchanged, null = clear, string = set.
   passwordHash?: string | null;
+  matchTags?: string | null;
 }
 
 export interface PagesRepository {
@@ -122,6 +128,8 @@ function toPageRecord(row: Record<string, unknown>): PageRecord {
       row.password_hash === null || row.password_hash === undefined
         ? null
         : String(row.password_hash),
+    match_tags:
+      row.match_tags === null || row.match_tags === undefined ? null : String(row.match_tags),
     created_at: String(row.created_at),
     updated_at: String(row.updated_at),
   };
@@ -157,7 +165,7 @@ export function createPagesRepository(db: D1Database): PagesRepository {
       try {
         const row = await db
           .prepare(
-            `SELECT id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, created_at, updated_at
+            `SELECT id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, match_tags, created_at, updated_at
              FROM pages
              WHERE id = ?`,
           )
@@ -224,8 +232,8 @@ export function createPagesRepository(db: D1Database): PagesRepository {
       try {
         await db
           .prepare(
-            `INSERT INTO pages (id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO pages (id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, match_tags, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .bind(
             p.id,
@@ -238,12 +246,13 @@ export function createPagesRepository(db: D1Database): PagesRepository {
             p.show_source,
             p.visibility,
             p.passwordHash ?? null,
+            p.matchTags ?? null,
             p.created_at,
             p.updated_at,
           )
           .run();
-        const { passwordHash, ...rest } = p;
-        return { ...rest, password_hash: passwordHash ?? null };
+        const { passwordHash, matchTags, ...rest } = p;
+        return { ...rest, password_hash: passwordHash ?? null, match_tags: matchTags ?? null };
       } catch (error) {
         throw wrapDbWriteError(error);
       }
