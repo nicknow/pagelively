@@ -15,6 +15,7 @@ export interface ParsedPublishForm {
     entry?: string;
     visibility?: "public" | "unlisted";
     password?: string;
+    tags?: string[];
   };
   files: Array<{
     path: string;
@@ -124,6 +125,12 @@ function parseManifestField(raw: string): ParsedPublishForm["manifest"] {
       }
       manifest.password = parsed.password;
     }
+    if ("tags" in parsed) {
+      if (!Array.isArray(parsed.tags)) {
+        throw new AppError("invalid_tags", 400, "Tags must be an array of strings.");
+      }
+      manifest.tags = parsed.tags.filter((t: unknown) => typeof t === "string");
+    }
     return manifest;
   } catch (error) {
     if (error instanceof AppError) {
@@ -186,6 +193,12 @@ export async function parsePublishJson(request: Request): Promise<ParsedPublishF
       throw new AppError("invalid_password", 400, "Password must be a string if provided.");
     }
     manifest.password = body.password;
+  }
+  if ("tags" in body) {
+    if (!Array.isArray(body.tags)) {
+      throw new AppError("invalid_tags", 400, "Tags must be an array of strings.");
+    }
+    manifest.tags = body.tags.filter((t: unknown) => typeof t === "string");
   }
 
   const files: ParsedPublishForm["files"] = [

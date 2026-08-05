@@ -28,6 +28,7 @@ export interface AdminUiDeps {
   objectStore: ObjectStore;
   verifiedIdentity: VerifiedIdentity;
   settingsRepository?: SettingsRepository;
+  tagsRepository?: import("./tags-repository").TagsRepository;
 }
 
 function adminHtmlHeaders(cacheService: CacheService): Headers {
@@ -1175,6 +1176,10 @@ function uploadContent(): string {
           </div>
         </div>
         <div class="form-group">
+          <label class="field-label" for="tags">Tags <span class="hint">(optional, comma-separated)</span></label>
+          <input type="text" name="tags" id="tags" placeholder="blog, tech, announcement">
+        </div>
+        <div class="form-group">
           <label class="field-label" for="password">Password <span class="hint">(optional)</span></label>
           <input type="password" name="password" id="password" minlength="5" placeholder="Set a page password">
           <p id="password-notice" style="display:none">All access will bypass the CDN which may increase usage.</p>
@@ -1221,6 +1226,10 @@ function uploadContent(): string {
             <input type="checkbox" name="paste-show-source" id="paste-show-source" value="true">
             Show source link (for Markdown pages)
           </label>
+        </div>
+        <div class="form-group">
+          <label class="field-label" for="paste-tags">Tags <span class="hint">(optional, comma-separated)</span></label>
+          <input type="text" name="paste-tags" id="paste-tags" placeholder="blog, tech, announcement">
         </div>
         <div class="form-group">
           <label class="field-label" for="paste-password">Password <span class="hint">(optional)</span></label>
@@ -1341,9 +1350,14 @@ function uploadContent(): string {
         renderChips('folder-chips', []);
       }
 
+      function parseTags(value) {
+        return value.split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t.length > 0; });
+      }
+
       function buildManifest() {
         const files = selectedFiles();
         const pwd = document.getElementById('password').value;
+        const tags = parseTags(document.getElementById('tags').value);
         const manifest = {
           slug: document.getElementById('slug').value || undefined,
           title: document.getElementById('title').value || undefined,
@@ -1352,6 +1366,7 @@ function uploadContent(): string {
           entry: entryField.classList.contains('hidden') ? undefined : entrySelect.value,
           password: pwd || undefined,
         };
+        if (tags.length > 0) manifest.tags = tags;
         return JSON.stringify(manifest);
       }
 
@@ -1470,6 +1485,7 @@ function uploadContent(): string {
         }
         const pasteFormat = pasteForm.querySelector('input[name="paste-format"]:checked').value;
         var pastePwd = document.getElementById('paste-password').value;
+        var pasteTags = parseTags(document.getElementById('paste-tags').value);
         const payload = {
           content: pasteContent.value,
           format: pasteFormat,
@@ -1479,6 +1495,7 @@ function uploadContent(): string {
           showSource: document.getElementById('paste-show-source').checked,
           password: pastePwd || undefined,
         };
+        if (pasteTags.length > 0) payload.tags = pasteTags;
         const res = await fetch('/api/pages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1544,7 +1561,12 @@ function pageKindIcon(kind: string): string {
   return `<svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-${icon}"></use></svg>`;
 }
 
-function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): string {
+function editContent(
+  page: PageRecord,
+  files: FileRecord[],
+  tags: string[],
+  requestUrl: URL,
+): string {
   const backUrl = new URL("/admin", requestUrl).pathname;
   const pageApiUrl = `/api/pages/${page.id}`;
   const filesApiUrl = `/api/pages/${page.id}/files`;
@@ -1612,6 +1634,10 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
           <input type="checkbox" name="showSource" value="true" ${showSourceChecked}>
           Show source link
         </label>
+      </div>
+      <div class="form-group">
+        <label class="field-label" for="edit-tags">Tags <span class="hint">(optional, comma-separated)</span></label>
+        <input type="text" name="tags" id="edit-tags" placeholder="blog, tech, announcement">
       </div>
       <fieldset class="form-group">
         <legend class="field-label">Password</legend>
@@ -1687,6 +1713,12 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
         if (title !== '') body.title = title;
         body.visibility = formData.get('visibility');
         body.showSource = formData.has('showSource');
+        var tagsVal = document.getElementById('edit-tags').value;
+        if (tagsVal) {
+          body.tags = parseTags(tagsVal);
+        } else {
+          body.tags = [];
+        }
         const pwd = formData.get('password');
         if (pwd && pwd !== '') {
           body.password = pwd;
@@ -1783,7 +1815,8 @@ export async function handleAdminEdit(
   if (!detail) {
     throw new AppError("not_found", 404, "Page not found.");
   }
-  const content = editContent(detail.page, detail.files, url);
+  const pageTags = deps.tagsRepository ? await deps.tagsRepository.getByPageId(id) : [];
+  const content = editContent(detail.page, detail.files, pageTags, url);
   const body = layout(config, verifiedIdentity, content);
   return htmlResponse(cacheService, body);
 }
