@@ -1541,7 +1541,6 @@ function uploadContent(): string {
           errorBox.classList.add('visible');
           return;
         }
-        const isPasteListing = pasteForm.querySelector('input[name="paste-page-kind"]:checked').value === 'listing';
         var pastePwd = document.getElementById('paste-password').value;
         const payload = {
           slug: document.getElementById('paste-slug').value || undefined,
