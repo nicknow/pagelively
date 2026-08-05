@@ -877,6 +877,10 @@ const SHARED_JS = `<script>
     input.addEventListener('input', function() { updateSlugPreview(input, preview); });
   }
 
+  function parseTags(value) {
+    return value.split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t.length > 0; });
+  }
+
   function formatDateTime(isoString) {
     try {
       var d = new Date(isoString);
@@ -1378,10 +1382,6 @@ function uploadContent(): string {
         Array.from(folderInput.files || []).forEach(addFn);
         renderChips('upload-chips', managedFiles);
         renderChips('folder-chips', []);
-      }
-
-      function parseTags(value) {
-        return value.split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t.length > 0; });
       }
 
       function buildManifest() {

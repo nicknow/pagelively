@@ -533,7 +533,7 @@ public, max-age=300, stale-while-revalidate=3600` with a `Cache-Tag: page-{id}`;
       `Content-Type: application/json` unlock POST must return a typed `400 {"error":
 "invalid_form_data", ...}` with `Cache-Control: no-store` and no `Cache-Tag`; same for a
       `multipart/form-data` POST whose boundary does not appear in the body, and for a POST with
-      no Content-Type at all. A valid       `multipart/form-data` unlock POST must still `303` (the
+      no Content-Type at all. A valid `multipart/form-data` unlock POST must still `303` (the
       guard is not over-broad).
 
 ## Listing page UI (upload and paste forms)

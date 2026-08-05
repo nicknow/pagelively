@@ -2291,4 +2291,34 @@ describe("index.ts — admin UI", () => {
     expect(inputMatch).toContain('value="');
     expect(inputMatch).toContain("blog,tech");
   });
+
+  it("edit page has parseTags defined in the shared script so the edit form can call it", async () => {
+    const db = env.DB;
+    const pageId = "page00parsefn";
+    await insertPage(db, {
+      id: pageId,
+      slug: "parse-fn",
+      title: "Parse Fn",
+      kind: "html",
+    });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "index.html",
+      r2_key: `pages/${pageId}/1/index.html`,
+      content_type: "text/html; charset=utf-8",
+      size: 100,
+    });
+
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+
+    // parseTags must be in the SHARED_JS block (which is between <style> and the SVG sprite)
+    // and BEFORE the upload/edit inline scripts, so the edit form can reference it.
+    // The first <script> block is the early no-FOUC theme script (before <style>).
+    // The second <script> block is SHARED_JS.
+    const scriptBlocks = text.match(/<script>[\s\S]*?<\/script>/g) ?? [];
+    const sharedBlock = scriptBlocks.length >= 2 ? scriptBlocks[1] : "";
+    expect(sharedBlock).toContain("function parseTags(");
+  });
 });
