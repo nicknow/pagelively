@@ -13,9 +13,11 @@ export interface ParsedPublishForm {
     title?: string;
     showSource?: boolean;
     entry?: string;
+    kind?: string;
     visibility?: "public" | "unlisted";
     password?: string;
     tags?: string[];
+    matchTags?: string;
   };
   files: Array<{
     path: string;
@@ -125,11 +127,20 @@ function parseManifestField(raw: string): ParsedPublishForm["manifest"] {
       }
       manifest.password = parsed.password;
     }
+    if ("kind" in parsed && typeof parsed.kind === "string") {
+      manifest.kind = parsed.kind;
+    }
     if ("tags" in parsed) {
       if (!Array.isArray(parsed.tags)) {
         throw new AppError("invalid_tags", 400, "Tags must be an array of strings.");
       }
       manifest.tags = parsed.tags.filter((t: unknown) => typeof t === "string");
+    }
+    if ("matchTags" in parsed) {
+      if (typeof parsed.matchTags !== "string") {
+        throw new AppError("invalid_match_tags", 400, "matchTags must be a string.");
+      }
+      manifest.matchTags = parsed.matchTags;
     }
     return manifest;
   } catch (error) {
@@ -199,6 +210,15 @@ export async function parsePublishJson(request: Request): Promise<ParsedPublishF
       throw new AppError("invalid_tags", 400, "Tags must be an array of strings.");
     }
     manifest.tags = body.tags.filter((t: unknown) => typeof t === "string");
+  }
+  if ("kind" in body && typeof body.kind === "string") {
+    manifest.kind = body.kind;
+  }
+  if ("matchTags" in body) {
+    if (typeof body.matchTags !== "string") {
+      throw new AppError("invalid_match_tags", 400, "matchTags must be a string.");
+    }
+    manifest.matchTags = body.matchTags;
   }
 
   const files: ParsedPublishForm["files"] = [

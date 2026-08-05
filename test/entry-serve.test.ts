@@ -249,6 +249,7 @@ describe("serveEntry", () => {
       pages: {
         getBySlug: () => Promise.reject("simulated unexpected failure"),
         getById: () => Promise.reject("simulated unexpected failure"),
+        list: () => Promise.resolve([]),
       },
     };
 
@@ -270,6 +271,7 @@ describe("serveEntry", () => {
       pages: {
         getBySlug: () => Promise.reject(appError),
         getById: () => Promise.reject(appError),
+        list: () => Promise.resolve([]),
       },
     };
 

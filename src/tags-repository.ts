@@ -9,6 +9,8 @@ export interface TagsRepository {
   getByPageId(pageId: string): Promise<string[]>;
   /** Replace all tags for a page with a new set (reconcile). */
   setForPage(pageId: string, tags: string[]): Promise<void>;
+  /** Find page IDs that have ANY of the given tags. */
+  findPagesByTags(tags: string[]): Promise<string[]>;
 }
 
 export function createTagsRepository(db: D1Database): TagsRepository {
@@ -33,6 +35,16 @@ export function createTagsRepository(db: D1Database): TagsRepository {
           db.prepare("INSERT INTO page_tags (page_id, tag) VALUES (?, ?)").bind(pageId, tag),
         ),
       ]);
+    },
+
+    async findPagesByTags(tags: string[]): Promise<string[]> {
+      if (tags.length === 0) return [];
+      const placeholders = tags.map(() => "?").join(", ");
+      const result = await db
+        .prepare(`SELECT DISTINCT page_id FROM page_tags WHERE tag IN (${placeholders})`)
+        .bind(...tags)
+        .all<{ page_id: string }>();
+      return result.results.map((r) => r.page_id);
     },
   };
 }

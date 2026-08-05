@@ -76,7 +76,7 @@ function extractIdFromPath(pathname: string): string | undefined {
 const MAX_TITLE_LENGTH = 256;
 const MAX_SLUG_SUFFIX_ATTEMPTS = 1000;
 
-type PageKind = "image" | "html" | "markdown" | "bundle";
+type PageKind = "image" | "html" | "markdown" | "bundle" | "listing";
 
 function isHtmlPath(path: string): boolean {
   const lower = path.toLowerCase();
@@ -348,11 +348,19 @@ export async function handleCreatePage(
   const { manifest, files } = contentType.startsWith("application/json")
     ? await parsePublishJson(request)
     : await parsePublishForm(request);
-  if (files.length === 0) {
+
+  // Detect listing pages: explicit kind or matchTags with no files
+  const isListing =
+    manifest.kind === "listing" || (manifest.matchTags !== undefined && files.length === 0);
+
+  if (files.length === 0 && !isListing) {
     throw new AppError("no_files", 400, "No files were uploaded.");
   }
 
-  const { kind, entry } = determineKindAndEntry(files, manifest.entry);
+  const actualKind = isListing ? "listing" : undefined;
+  const { kind, entry } = actualKind
+    ? { kind: "listing" as PageKind, entry: "index.html" }
+    : determineKindAndEntry(files, manifest.entry);
   const { slug: cleanedSlug } = validateManifest(manifest, files);
 
   const id = generateId();
@@ -414,28 +422,33 @@ export async function handleCreatePage(
     title,
     kind,
     rev,
-    entry_path: entryPath,
+    entry_path: kind === "listing" ? "index.html" : entryPath,
     raw_md_path: rawMdPath,
     show_source: showSource,
     visibility: manifest.visibility ?? "public",
     passwordHash,
+    matchTags: manifest.matchTags ?? null,
     created_at: now,
     updated_at: now,
   };
 
-  try {
-    for (const file of r2Files) {
-      await objectStore.put(id, rev, file.path, file.content, file.contentType);
+  if (kind !== "listing") {
+    try {
+      for (const file of r2Files) {
+        await objectStore.put(id, rev, file.path, file.content, file.contentType);
+      }
+    } catch (error) {
+      await objectStore.deletePageObjects(id);
+      throw error;
     }
-  } catch (error) {
-    await objectStore.deletePageObjects(id);
-    throw error;
   }
 
   let createdPage: PageRecord;
   try {
     createdPage = await pagesRepository.create(newPage);
-    await filesRepository.replaceAll(id, rev, fileRecords);
+    if (kind !== "listing") {
+      await filesRepository.replaceAll(id, rev, fileRecords);
+    }
     if (deps.tagsRepository && tags.length > 0) {
       await deps.tagsRepository.setForPage(id, tags);
     }

@@ -755,6 +755,7 @@ describe("S23-D validator adversarial probes", () => {
       show_source: 0 as const,
       visibility: "public",
       password_hash: "pbkdf2$10000$test-salt$test-hash",
+      match_tags: null,
       created_at: "2026-01-01T00:00:00.000Z",
       updated_at: "2026-01-01T00:00:00.000Z",
     };
