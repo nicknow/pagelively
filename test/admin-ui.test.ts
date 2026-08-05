@@ -1898,4 +1898,129 @@ describe("index.ts — admin UI", () => {
     // Delete page button still works
     expect(text).toContain(`data-delete="/api/pages/${pageId}"`);
   });
+
+  // ── Back button top-left navigation ────────────────────────────────────
+
+  it("edit page has a back link at the top of the content (top-left navigation)", async () => {
+    const db = env.DB;
+    const pageId = "page00back1";
+    await insertPage(db, {
+      id: pageId,
+      slug: "back-test",
+      title: "Back Test",
+      kind: "html",
+    });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "index.html",
+      r2_key: `pages/${pageId}/1/index.html`,
+      content_type: "text/html",
+      size: 100,
+    });
+
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+
+    // A back link should exist at the top of the content area (before the first .card)
+    const mainContent = text.match(/<main>[\s\S]*<\/main>/)?.[0] ?? "";
+    const backLinkPos = mainContent.indexOf('href="/admin"');
+    const firstCardPos = mainContent.indexOf('<div class="card"');
+    expect(backLinkPos).toBeGreaterThan(-1);
+    expect(firstCardPos).toBeGreaterThan(-1);
+    expect(backLinkPos).toBeLessThan(firstCardPos);
+  });
+
+  it("edit page back link uses an arrow icon for visual navigation cue", async () => {
+    const db = env.DB;
+    const pageId = "page00back2";
+    await insertPage(db, {
+      id: pageId,
+      slug: "back-icon",
+      title: "Back Icon",
+      kind: "html",
+    });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "index.html",
+      r2_key: `pages/${pageId}/1/index.html`,
+      content_type: "text/html",
+      size: 100,
+    });
+
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+
+    // Should have a back arrow icon (chevron-left or arrow-left) in the back link
+    const navSection = text.match(/<div class="page-nav">[\s\S]*?<\/div>/)?.[0] ?? "";
+    expect(navSection).toContain('href="/admin"');
+    expect(navSection).toContain("Back");
+  });
+
+  it("edit page no longer has a Back button in the bottom toolbar", async () => {
+    const db = env.DB;
+    const pageId = "page00back3";
+    await insertPage(db, {
+      id: pageId,
+      slug: "back-toolbar",
+      title: "Back Toolbar",
+      kind: "html",
+    });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "index.html",
+      r2_key: `pages/${pageId}/1/index.html`,
+      content_type: "text/html",
+      size: 100,
+    });
+
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+
+    // Find the toolbar in the edit form — it should only have "Update metadata", no "Back" link
+    const formToolbar = text.match(/<form[^>]*id="edit-form"[^>]*>[\s\S]*?<\/form>/)?.[0] ?? "";
+    const toolbarDiv = formToolbar.match(/class="toolbar"[^>]*>[\s\S]*?<\/div>/)?.[0] ?? "";
+    // Should still have the Update button
+    expect(toolbarDiv).toContain("Update metadata");
+    // Should NOT contain "Back" — it's been moved to top navigation
+    expect(toolbarDiv).not.toContain("Back");
+    // Should NOT contain "/admin" href (back link has been moved)
+    expect(toolbarDiv).not.toContain('href="/admin"');
+  });
+
+  it("upload page has a back link at the top of the content (top-left navigation)", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+
+    // The back link should appear before the first .card in the main content
+    const mainContent = text.match(/<main>[\s\S]*<\/main>/)?.[0] ?? "";
+    const backLinkPos = mainContent.indexOf('href="/admin"');
+    const firstCardPos = mainContent.indexOf('<div class="card"');
+    expect(backLinkPos).toBeGreaterThan(-1);
+    expect(firstCardPos).toBeGreaterThan(-1);
+    expect(backLinkPos).toBeLessThan(firstCardPos);
+  });
+
+  it("upload page no longer has Cancel buttons in the form toolbars", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+
+    // The upload form toolbar should only have the Upload button, no Cancel link
+    const toolbarMatches = text.match(/class="toolbar"[^>]*>[\s\S]*?<\/div>/g) ?? [];
+    for (const tb of toolbarMatches) {
+      expect(tb).not.toContain("Cancel");
+      expect(tb).not.toContain('href="/admin"');
+    }
+  });
+
+  it("CSS has .page-nav styles for the top navigation bar", async () => {
+    const res = await fetchAdmin("/admin", await validToken());
+    const text = await res.text();
+    const styleBlock = text.match(/<style>[\s\S]*?<\/style>/)?.[0] ?? "";
+    expect(styleBlock).toMatch(/\.page-nav\s*\{/);
+  });
 });

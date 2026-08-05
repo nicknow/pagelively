@@ -802,6 +802,30 @@ input[type="file"] {
   color: var(--color-danger-hover);
   background: var(--color-danger-bg);
 }
+
+.page-nav {
+  margin-bottom: var(--space-4);
+  display: flex;
+  align-items: center;
+}
+
+.page-nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  text-decoration: none;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.page-nav a:hover {
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+}
 `;
 
 const SHARED_JS = `<script>
@@ -922,6 +946,9 @@ const ICON_SPRITE = `<svg style="display:none" aria-hidden="true">
   </symbol>
   <symbol id="icon-alert-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+  </symbol>
+  <symbol id="icon-arrow-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
   </symbol>
   <symbol id="icon-inbox" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
@@ -1056,7 +1083,11 @@ export async function handleAdminDashboard(
 }
 
 function uploadContent(): string {
-  return `<div class="card">
+  const backUrl = "/admin";
+  return `<div class="page-nav">
+    <a href="${escapeHtml(backUrl)}"><svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-arrow-left"></use></svg>Back</a>
+  </div>
+  <div class="card">
     <header>
       <h2>Upload a page</h2>
     </header>
@@ -1129,7 +1160,6 @@ function uploadContent(): string {
         <input type="hidden" name="manifest" id="manifest">
         <div class="toolbar">
           <button type="submit" class="button button-primary">Upload</button>
-          <a class="button button-secondary" href="/admin">Cancel</a>
         </div>
       </form>
     </div>
@@ -1177,7 +1207,6 @@ function uploadContent(): string {
         </div>
         <div class="toolbar">
           <button type="submit" id="publish-paste" class="button button-primary">Publish</button>
-          <a class="button button-secondary" href="/admin">Cancel</a>
         </div>
       </form>
     </div>
@@ -1530,7 +1559,10 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
   const showSourceChecked = page.show_source === 1 ? "checked" : "";
   const kindSvg = pageKindIcon(page.kind);
 
-  return `<div class="card">
+  return `<div class="page-nav">
+    <a href="${escapeHtml(backUrl)}"><svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-arrow-left"></use></svg>Back</a>
+  </div>
+  <div class="card">
     <header>
       <h2>Edit ${escapeHtml(page.title)} <span class="badge kind-${escapeHtml(page.kind)}">${kindSvg}${escapeHtml(page.kind)}</span> <span class="badge visibility-${escapeHtml(page.visibility)}">${escapeHtml(page.visibility)}</span></h2>
       <button class="button button-danger" type="button" id="delete-page" data-delete="${escapeHtml(pageApiUrl)}">Delete page</button>
@@ -1582,7 +1614,6 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
       </fieldset>
       <div class="toolbar">
         <button type="submit" class="button button-primary">Update metadata</button>
-        <a class="button button-secondary" href="${escapeHtml(backUrl)}">Back</a>
       </div>
     </form>
   </div>
