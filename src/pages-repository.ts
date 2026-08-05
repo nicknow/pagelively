@@ -299,6 +299,10 @@ export function createPagesRepository(db: D1Database): PagesRepository {
         setClauses.push("password_hash = ?");
         values.push(patch.passwordHash);
       }
+      if ("matchTags" in patch && patch.matchTags !== undefined) {
+        setClauses.push("match_tags = ?");
+        values.push(patch.matchTags === null ? null : patch.matchTags);
+      }
 
       if (setClauses.length === 0) {
         // Nothing to change; return current row if it exists.

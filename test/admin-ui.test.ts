@@ -42,6 +42,7 @@ async function insertPage(
     show_source?: number;
     visibility?: string;
     password_hash?: string | null;
+    match_tags?: string | null;
     created_at?: string;
     updated_at?: string;
   },
@@ -49,8 +50,8 @@ async function insertPage(
   const now = new Date().toISOString();
   await db
     .prepare(
-      `INSERT INTO pages (id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO pages (id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, password_hash, match_tags, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       p.id,
@@ -63,6 +64,7 @@ async function insertPage(
       p.show_source ?? 0,
       p.visibility ?? "public",
       p.password_hash === undefined ? null : p.password_hash,
+      p.match_tags === undefined ? null : p.match_tags,
       p.created_at ?? now,
       p.updated_at ?? now,
     )
@@ -412,8 +414,11 @@ describe("index.ts — admin UI", () => {
     const text = await res.text();
     expect(text).toContain("'Content-Type': 'application/json'");
     expect(text).toContain("JSON.stringify(");
-    expect(text).toContain("content: pasteContent.value");
-    expect(text).toContain("format: pasteFormat");
+    // Regular page path includes content/format; listing path includes kind/matchTags
+    expect(text).toContain("payload.kind = 'listing'");
+    expect(text).toContain("payload.matchTags");
+    expect(text).toContain("payload.content = pasteContent.value");
+    expect(text).toContain("payload.format = pasteFormat");
     expect(text).toContain("method: 'POST'");
     expect(text).toContain("/api/pages");
   });
@@ -2191,5 +2196,99 @@ describe("index.ts — admin UI", () => {
     const text = await res.text();
     expect(text).toContain("body.tags = parseTags(");
     expect(text).toContain("body.tags = []");
+  });
+
+  // ── Issue 1: Tags persist on page reload ──────────────────────────────
+
+  it("edit page pre-fills the tags input with existing tags (comma-separated)", async () => {
+    const db = env.DB;
+    const pageId = "page00tagfill";
+    await insertPage(db, {
+      id: pageId,
+      slug: "tag-fill",
+      title: "Tag Fill",
+      kind: "html",
+    });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "index.html",
+      r2_key: `pages/${pageId}/1/index.html`,
+      content_type: "text/html; charset=utf-8",
+      size: 100,
+    });
+    // Seed tags directly in D1 as the API would do
+    await db
+      .prepare("INSERT INTO page_tags (page_id, tag) VALUES (?, ?)")
+      .bind(pageId, "blog")
+      .run();
+    await db
+      .prepare("INSERT INTO page_tags (page_id, tag) VALUES (?, ?)")
+      .bind(pageId, "tech")
+      .run();
+
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+
+    // The tags input value must contain the existing tags
+    const inputMatch = text.match(/<input[^>]*id="edit-tags"[^>]*>/)?.[0] ?? "";
+    expect(inputMatch).toContain('value="');
+    expect(inputMatch).toContain("blog");
+    expect(inputMatch).toContain("tech");
+  });
+
+  // ── Issue 2: Listing page creation UI ─────────────────────────────────
+
+  it("upload page has a Page kind selector with 'listing' option", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("Page kind");
+    expect(text).toContain("Regular page");
+    expect(text).toContain("Listing page");
+  });
+
+  it("upload page has a Match tags input for listing pages", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("matchTags");
+    expect(text).toContain("Match tags");
+  });
+
+  it("upload form manifest includes kind and matchTags when listing is selected", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // The buildManifest function should handle listing kind
+    expect(text).toContain("manifest.kind = 'listing'");
+    expect(text).toContain("manifest.matchTags");
+  });
+
+  it("edit page for a listing page shows match tags input pre-filled", async () => {
+    const db = env.DB;
+    const pageId = "page00listedit";
+    await insertPage(db, {
+      id: pageId,
+      slug: "list-edit",
+      title: "List Edit",
+      kind: "listing",
+      match_tags: "blog,tech",
+    });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "index.html",
+      r2_key: `pages/${pageId}/1/index.html`,
+      content_type: "text/html; charset=utf-8",
+      size: 100,
+    });
+
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("Match tags");
+    const inputMatch = text.match(/<input[^>]*id="edit-match-tags"[^>]*>/)?.[0] ?? "";
+    expect(inputMatch).toContain('value="');
+    expect(inputMatch).toContain("blog,tech");
   });
 });

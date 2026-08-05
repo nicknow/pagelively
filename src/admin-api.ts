@@ -569,6 +569,7 @@ function validatePatchBody(body: Record<string, unknown>): {
   show_source?: 0 | 1;
   password?: string | null;
   tags?: string[];
+  matchTags?: string | null;
 } {
   const patch: {
     slug?: string | null;
@@ -577,6 +578,7 @@ function validatePatchBody(body: Record<string, unknown>): {
     show_source?: 0 | 1;
     password?: string | null;
     tags?: string[];
+    matchTags?: string | null;
   } = {};
 
   if ("slug" in body) {
@@ -621,6 +623,12 @@ function validatePatchBody(body: Record<string, unknown>): {
       throw new AppError("invalid_tags", 400, "Tags must be an array of strings.");
     }
     patch.tags = body.tags.filter((t: unknown) => typeof t === "string");
+  }
+  if ("matchTags" in body) {
+    if (body.matchTags !== null && typeof body.matchTags !== "string") {
+      throw new AppError("invalid_match_tags", 400, "matchTags must be a string or null.");
+    }
+    patch.matchTags = body.matchTags as string | null;
   }
 
   return patch;

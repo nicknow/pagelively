@@ -1176,8 +1176,23 @@ function uploadContent(): string {
           </div>
         </div>
         <div class="form-group">
+          <span class="field-label">Page kind</span>
+          <div class="radio-group">
+            <label><input type="radio" name="page-kind" value="regular" checked data-kind-regular> Regular page</label>
+            <label><input type="radio" name="page-kind" value="listing" data-kind-listing> Listing page</label>
+          </div>
+        </div>
+        <div id="listing-page-fields" class="hidden">
+          <div class="form-group">
+            <label class="field-label" for="listing-match-tags">Match tags <span class="hint">Show all public pages that match ANY of these tags (comma-separated)</span></label>
+            <input type="text" name="listing-match-tags" id="listing-match-tags" placeholder="blog, tech, announcement">
+          </div>
+        </div>
+        <div id="regular-page-fields">
+        <div class="form-group">
           <label class="field-label" for="tags">Tags <span class="hint">(optional, comma-separated)</span></label>
           <input type="text" name="tags" id="tags" placeholder="blog, tech, announcement">
+        </div>
         </div>
         <div class="form-group">
           <label class="field-label" for="password">Password <span class="hint">(optional)</span></label>
@@ -1228,8 +1243,23 @@ function uploadContent(): string {
           </label>
         </div>
         <div class="form-group">
+          <span class="field-label">Page kind</span>
+          <div class="radio-group">
+            <label><input type="radio" name="paste-page-kind" value="regular" checked data-kind-regular> Regular page</label>
+            <label><input type="radio" name="paste-page-kind" value="listing" data-kind-listing> Listing page</label>
+          </div>
+        </div>
+        <div id="paste-listing-fields" class="hidden">
+          <div class="form-group">
+            <label class="field-label" for="paste-match-tags">Match tags <span class="hint">Show all public pages that match ANY of these tags (comma-separated)</span></label>
+            <input type="text" name="paste-match-tags" id="paste-match-tags" placeholder="blog, tech, announcement">
+          </div>
+        </div>
+        <div id="paste-regular-fields">
+        <div class="form-group">
           <label class="field-label" for="paste-tags">Tags <span class="hint">(optional, comma-separated)</span></label>
           <input type="text" name="paste-tags" id="paste-tags" placeholder="blog, tech, announcement">
+        </div>
         </div>
         <div class="form-group">
           <label class="field-label" for="paste-password">Password <span class="hint">(optional)</span></label>
@@ -1355,18 +1385,23 @@ function uploadContent(): string {
       }
 
       function buildManifest() {
-        const files = selectedFiles();
+        const isListing = document.querySelector('input[name="page-kind"]:checked').value === 'listing';
         const pwd = document.getElementById('password').value;
-        const tags = parseTags(document.getElementById('tags').value);
         const manifest = {
           slug: document.getElementById('slug').value || undefined,
           title: document.getElementById('title').value || undefined,
-          showSource: document.getElementById('show_source').checked,
           visibility: form.querySelector('input[name="visibility"]:checked').value,
-          entry: entryField.classList.contains('hidden') ? undefined : entrySelect.value,
           password: pwd || undefined,
         };
-        if (tags.length > 0) manifest.tags = tags;
+        if (isListing) {
+          manifest.kind = 'listing';
+          manifest.matchTags = document.getElementById('listing-match-tags').value || undefined;
+        } else {
+          manifest.showSource = document.getElementById('show_source').checked;
+          manifest.entry = entryField.classList.contains('hidden') ? undefined : entrySelect.value;
+          const tags = parseTags(document.getElementById('tags').value);
+          if (tags.length > 0) manifest.tags = tags;
+        }
         return JSON.stringify(manifest);
       }
 
@@ -1394,6 +1429,27 @@ function uploadContent(): string {
 
       filesInput.addEventListener('change', function() { syncManagedFiles(); updateEntryPicker(); });
       folderInput.addEventListener('change', function() { syncManagedFiles(); updateEntryPicker(); });
+
+      // Page kind toggle: show/hide listing vs regular fields
+      function togglePageKind() {
+        var isListing = document.querySelector('input[name="page-kind"]:checked').value === 'listing';
+        document.getElementById('listing-page-fields').classList.toggle('hidden', !isListing);
+        document.getElementById('regular-page-fields').classList.toggle('hidden', isListing);
+        document.getElementById('entry-field').classList.toggle('hidden', isListing);
+      }
+      document.querySelectorAll('input[name="page-kind"]').forEach(function(el) {
+        el.addEventListener('change', togglePageKind);
+      });
+
+      // Paste kind toggle
+      function togglePasteKind() {
+        var isListing = document.querySelector('input[name="paste-page-kind"]:checked').value === 'listing';
+        document.getElementById('paste-listing-fields').classList.toggle('hidden', !isListing);
+        document.getElementById('paste-regular-fields').classList.toggle('hidden', isListing);
+      }
+      document.querySelectorAll('input[name="paste-page-kind"]').forEach(function(el) {
+        el.addEventListener('change', togglePasteKind);
+      });
 
       // Wire up dropzone drag/drop
       function initDropzone(dropzoneId, inputId) {
@@ -1443,12 +1499,13 @@ function uploadContent(): string {
         errorBox.textContent = '';
         const files = selectedFiles();
         const pasted = pasteContent.value.trim();
-        if (files.length === 0 && pasted === '') {
+        const isListingKind = document.querySelector('input[name="page-kind"]:checked').value === 'listing';
+        if (!isListingKind && files.length === 0 && pasted === '') {
           errorBox.textContent = 'Provide either files or paste content.';
           errorBox.classList.add('visible');
           return;
         }
-        if (files.length > 0 && pasted !== '') {
+        if (!isListingKind && files.length > 0 && pasted !== '') {
           errorBox.textContent = 'Provide either files or paste content, not both.';
           errorBox.classList.add('visible');
           return;
@@ -1473,29 +1530,35 @@ function uploadContent(): string {
         errorBox.classList.remove('visible');
         errorBox.textContent = '';
         const files = selectedFiles();
-        if (files.length === 0 && pasteContent.value.trim() === '') {
+        const isPasteListing = pasteForm.querySelector('input[name="paste-page-kind"]:checked').value === 'listing';
+        if (!isPasteListing && files.length === 0 && pasteContent.value.trim() === '') {
           errorBox.textContent = 'Provide either files or paste content.';
           errorBox.classList.add('visible');
           return;
         }
-        if (files.length > 0 && pasteContent.value.trim() !== '') {
+        if (!isPasteListing && files.length > 0 && pasteContent.value.trim() !== '') {
           errorBox.textContent = 'Provide either files or paste content, not both.';
           errorBox.classList.add('visible');
           return;
         }
-        const pasteFormat = pasteForm.querySelector('input[name="paste-format"]:checked').value;
         var pastePwd = document.getElementById('paste-password').value;
-        var pasteTags = parseTags(document.getElementById('paste-tags').value);
         const payload = {
-          content: pasteContent.value,
-          format: pasteFormat,
           slug: document.getElementById('paste-slug').value || undefined,
           title: document.getElementById('paste-title').value || undefined,
           visibility: pasteForm.querySelector('input[name="paste-visibility"]:checked').value,
-          showSource: document.getElementById('paste-show-source').checked,
           password: pastePwd || undefined,
         };
-        if (pasteTags.length > 0) payload.tags = pasteTags;
+        if (isPasteListing) {
+          payload.kind = 'listing';
+          payload.matchTags = document.getElementById('paste-match-tags').value || undefined;
+        } else {
+          const pasteFormat = pasteForm.querySelector('input[name="paste-format"]:checked').value;
+          var pasteTags = parseTags(document.getElementById('paste-tags').value);
+          payload.content = pasteContent.value;
+          payload.format = pasteFormat;
+          payload.showSource = document.getElementById('paste-show-source').checked;
+          if (pasteTags.length > 0) payload.tags = pasteTags;
+        }
         const res = await fetch('/api/pages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1602,6 +1665,15 @@ function editContent(
   const unlistedChecked = page.visibility === "unlisted" ? "checked" : "";
   const showSourceChecked = page.show_source === 1 ? "checked" : "";
   const kindSvg = pageKindIcon(page.kind);
+  const tagsValue = escapeHtml(tags.join(", "));
+  const matchTagsValue = escapeHtml(page.match_tags ?? "");
+  const isListing = page.kind === "listing";
+  const listingMatchField = isListing
+    ? `<div class="form-group">
+        <label class="field-label" for="edit-match-tags">Match tags <span class="hint">Show all public pages that match ANY of these tags (comma-separated)</span></label>
+        <input type="text" name="matchTags" id="edit-match-tags" value="${matchTagsValue}" placeholder="blog, tech">
+      </div>`
+    : "";
 
   return `<div class="page-nav">
     <a href="${escapeHtml(backUrl)}"><svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-arrow-left"></use></svg>Back</a>
@@ -1637,8 +1709,9 @@ function editContent(
       </div>
       <div class="form-group">
         <label class="field-label" for="edit-tags">Tags <span class="hint">(optional, comma-separated)</span></label>
-        <input type="text" name="tags" id="edit-tags" placeholder="blog, tech, announcement">
+        <input type="text" name="tags" id="edit-tags" value="${tagsValue}" placeholder="blog, tech, announcement">
       </div>
+      ${listingMatchField}
       <fieldset class="form-group">
         <legend class="field-label">Password</legend>
         ${
@@ -1718,6 +1791,10 @@ function editContent(
           body.tags = parseTags(tagsVal);
         } else {
           body.tags = [];
+        }
+        var matchTagsEl = document.getElementById('edit-match-tags');
+        if (matchTagsEl) {
+          body.matchTags = matchTagsEl.value || '';
         }
         const pwd = formData.get('password');
         if (pwd && pwd !== '') {
