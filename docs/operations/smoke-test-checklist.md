@@ -533,5 +533,14 @@ public, max-age=300, stale-while-revalidate=3600` with a `Cache-Tag: page-{id}`;
       `Content-Type: application/json` unlock POST must return a typed `400 {"error":
 "invalid_form_data", ...}` with `Cache-Control: no-store` and no `Cache-Tag`; same for a
       `multipart/form-data` POST whose boundary does not appear in the body, and for a POST with
-      no Content-Type at all. A valid `multipart/form-data` unlock POST must still `303` (the
+      no Content-Type at all. A valid       `multipart/form-data` unlock POST must still `303` (the
       guard is not over-broad).
+
+## Listing page UI (upload and paste forms)
+
+- [ ] The upload form has a "Page kind" radio with Regular/Listing options; selecting Listing shows "Match tags" input and hides content/entry/tag fields; selecting Regular restores them.
+- [ ] The paste form has the same "Page kind" radio with the same toggle behavior.
+- [ ] Creating a listing page (Listing kind + match tags) via upload and visiting its URL shows a dynamic list of matching public pages.
+- [ ] Creating a listing page via the paste form works the same way.
+- [ ] Editing a listing page shows the "Match tags" input pre-filled; changing it updates the listing content on save.
+- [ ] Editing a regular page does not show the "Match tags" input.
