@@ -17,8 +17,8 @@
  * - `showSource: true` appends a relative link to the raw file (`source.md`,
  *   OQ-14). Kind-gating of showSource (non-markdown kinds → ignored) is the
  *   CALLER's boundary (S17 entry-serve): this module only ever renders
- *   markdown, so the option surface is typed to exactly two booleans and any
- *   extra keys are dropped by destructuring — the surface cannot express an
+ *   markdown, so the option surface is typed to three fields and any extra
+ *   keys are dropped by destructuring — the surface cannot express an
  *   unknown option combination.
  * - Renderer failure (malformed/adversarial input, non-string) throws a typed
  *   AppError (markdown_render_failed, 500) carrying the cause in `detail` — a
@@ -37,41 +37,25 @@ import { Marked } from "marked";
 import type { RendererObject, Tokens } from "marked";
 import { escapeHtml } from "./utils";
 import { AppError } from "./errors";
+import { renderTemplate } from "./templates";
 
 /**
- * Options accepted by `renderMarkdown`. Exactly two booleans; unknown keys are
- * ignored (see module docstring). Config.ts's env parsing of
- * `ALLOW_RAW_HTML_IN_MD` lands in a later slice — here the value is a typed,
- * defaulted option.
+ * Options accepted by `renderMarkdown`. Two booleans and an optional template
+ * name; unknown keys are ignored (see module docstring). Config.ts's env
+ * parsing of `ALLOW_RAW_HTML_IN_MD` lands in a later slice — here the value is
+ * a typed, defaulted option.
  */
 export interface MarkdownRenderOptions {
   /** Pass raw HTML through as-is (default true, §7). false → escaped to text. */
   allowRawHtml?: boolean;
   /** Append a relative link to the raw source file (`source.md`, OQ-14). */
   showSource?: boolean;
+  /**
+   * Template name for wrapping the rendered content (default "default").
+   * Unknown names fall back to the default template (OQ-26).
+   */
+  template?: string;
 }
-
-/** Slot in TEMPLATE where the rendered body (and optional source link) goes. */
-const CONTENT_SLOT = "{{CONTENT}}";
-
-/**
- * The minimal document template (S05 AC 2): `<html>`, `<head>` carrying the
- * base slot + charset + responsive viewport meta, and a `<main>` container
- * with a readable typography class. No external CSS/JS; no base tag — the S04
- * injector inserts it at serve time as the first element of `<head>`.
- */
-const TEMPLATE = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-</head>
-<body>
-<main class="markdown-body">
-${CONTENT_SLOT}</main>
-</body>
-</html>
-`;
 
 /**
  * The show-source link (S05 AC 3; OQ-14): relative `source.md`, resolved by
@@ -104,7 +88,7 @@ escapingMarked.use({ renderer: escapeHtmlRenderer });
  * cannot render the input — never returns a partial page (S05 AC failure).
  */
 export function renderMarkdown(markdown: string, options?: MarkdownRenderOptions): string {
-  const { allowRawHtml = true, showSource = false } = options ?? {};
+  const { allowRawHtml = true, showSource = false, template } = options ?? {};
   let body: string;
   try {
     body = (allowRawHtml ? passthroughMarked : escapingMarked).parse(markdown, {
@@ -116,10 +100,6 @@ export function renderMarkdown(markdown: string, options?: MarkdownRenderOptions
     });
   }
   const sourceLink = showSource ? SOURCE_LINK : "";
-  // Function replacement, NOT a string replacement value: a string would be
-  // scanned for `$` substitution patterns (`$&`, `$'`, "$\`", `$$`), letting
-  // user content containing them corrupt the document (e.g. `$$` collapses to
-  // `$`, `$&` re-injects `{{CONTENT}}`, `$'` splices the template tail into the
-  // body). A function is called once with the slot text and returned verbatim.
-  return TEMPLATE.replace(CONTENT_SLOT, () => body + sourceLink);
+  const templateName = template ?? "default";
+  return renderTemplate(templateName, body + sourceLink);
 }
