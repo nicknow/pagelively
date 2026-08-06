@@ -121,3 +121,147 @@ describe("renderPasswordPrompt — disclosure & resources (OQ-23)", () => {
     expect(html).toMatch(/<title>Password required/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Slice 9 — CSS polish: centered card, admin-palette matching hex values
+// ---------------------------------------------------------------------------
+
+describe("renderPasswordPrompt — CSS polish (Slice 9)", () => {
+  it("uses the light palette body background #f8fafc", () => {
+    const html = renderPasswordPrompt(BASE_OPTS);
+    expect(html).toMatch(/body[^}]*background:\s*#f8fafc/i);
+  });
+
+  it("uses the light palette body text color #0f172a", () => {
+    const html = renderPasswordPrompt(BASE_OPTS);
+    expect(html).toMatch(/body[^}]*color:\s*#0f172a/i);
+  });
+
+  it("has a centered card (main) with white surface, border-radius 0.75rem, box-shadow", () => {
+    const html = renderPasswordPrompt(BASE_OPTS);
+    expect(html).toMatch(/main[^}]*background:\s*#ffffff/i);
+    expect(html).toMatch(/main[^}]*border-radius:\s*0\.75rem/i);
+    expect(html).toMatch(/main[^}]*box-shadow/i);
+    expect(html).toMatch(/main[^}]*padding:\s*2rem/i);
+  });
+
+  it("has the heading styled with font-size, weight, letter-spacing", () => {
+    const html = renderPasswordPrompt(BASE_OPTS);
+    expect(html).toMatch(/h1[^}]*font-size:\s*1\.25rem/i);
+    expect(html).toMatch(/h1[^}]*font-weight:\s*700/i);
+  });
+
+  it("has the description paragraph with muted color #64748b", () => {
+    const html = renderPasswordPrompt(BASE_OPTS);
+    expect(html).toMatch(/p[^}]*color:\s*#64748b/i);
+  });
+
+  it("has labels with font-weight 500", () => {
+    const html = renderPasswordPrompt(BASE_OPTS);
+    expect(html).toMatch(/label[^}]*font-weight:\s*500/i);
+  });
+
+  it("styles the password input with border #e2e8f0 and border-radius 0.5rem", () => {
+    const html = renderPasswordPrompt(BASE_OPTS);
+    expect(html).toMatch(/input\[type="password"\][^}]*border:\s*1px\s+solid\s+#e2e8f0/i);
+    expect(html).toMatch(/input\[type="password"\][^}]*border-radius:\s*0\.5rem/i);
+    // Should also have padding: 0.75rem and font-size: 0.9375rem
+    expect(html).toMatch(/input\[type="password"\][^}]*padding:\s*0\.75rem/i);
+  });
+
+  it("styles the password input focus state with border-color #3b82f6 and ring", () => {
+    const html = renderPasswordPrompt(BASE_OPTS);
+    expect(html).toMatch(/input\[type="password"\]:focus[^}]*border-color:\s*#3b82f6/i);
+    expect(html).toMatch(/input\[type="password"\]:focus[^}]*box-shadow/i);
+    expect(html).toMatch(/input\[type="password"\]:focus[^}]*outline:\s*none/i);
+  });
+
+  it("styles the button with primary blue #2563eb, white text, border-radius 0.5rem", () => {
+    const html = renderPasswordPrompt(BASE_OPTS);
+    expect(html).toMatch(/button[^}]*background:\s*#2563eb/i);
+    expect(html).toMatch(/button[^}]*color:\s*#ffffff/i);
+    expect(html).toMatch(/button[^}]*border-radius:\s*0\.5rem/i);
+    expect(html).toMatch(/button[^}]*cursor:\s*pointer/i);
+  });
+
+  it("styles the button hover state with #1d4ed8", () => {
+    const html = renderPasswordPrompt(BASE_OPTS);
+    expect(html).toMatch(/button:hover[^}]*background:\s*#1d4ed8/i);
+  });
+
+  it("styles the error element with #dc2626 danger color and #fef2f2 background", () => {
+    const html = renderPasswordPrompt({ ...BASE_OPTS, error: "Wrong" });
+    expect(html).toMatch(/\.error[^}]*color:\s*#dc2626/i);
+    expect(html).toMatch(/\.error[^}]*font-weight:\s*500/i);
+    expect(html).toMatch(/\.error[^}]*background:\s*#fef2f2/i);
+    expect(html).toMatch(/\.error[^}]*border-radius:\s*0\.5rem/i);
+  });
+
+  it("has antialiased font smoothing on the body", () => {
+    const html = renderPasswordPrompt(BASE_OPTS);
+    expect(html).toMatch(/body[^}]*webkit-font-smoothing:\s*antialiased/i);
+  });
+
+  it("has an extended system-ui font stack on the body", () => {
+    const html = renderPasswordPrompt(BASE_OPTS);
+    expect(html).toMatch(/body[^}]*font-family:\s*system-ui,\s*-apple-system/i);
+  });
+
+  it("includes the dark mode @media (prefers-color-scheme: dark) block", () => {
+    const html = renderPasswordPrompt(BASE_OPTS);
+    expect(html).toMatch(/@media\s*\(prefers-color-scheme:\s*dark\)/i);
+  });
+
+  it("uses dark palette hex values inside the dark mode block", () => {
+    const html = renderPasswordPrompt(BASE_OPTS);
+    // Dark mode is all on one line; use greedy match to capture the full block
+    const darkMatch = html.match(/@media\s*\(prefers-color-scheme:\s*dark\)\s*\{(.+)\}/i);
+    expect(darkMatch).not.toBeNull();
+    const dark = darkMatch![1];
+    expect(dark).toContain("#0b1220"); // body background
+    expect(dark).toContain("#16213a"); // card surface
+    expect(dark).toContain("#2b3a55"); // border color
+    expect(dark).toContain("#3b82f6"); // button
+    expect(dark).toContain("#60a5fa"); // button hover
+    expect(dark).toContain("#94a3b8"); // muted text
+  });
+
+  it("still has no external resources (link, script, url()) after CSS polish", () => {
+    const html = renderPasswordPrompt(BASE_OPTS);
+    expect(html).not.toMatch(/<link\b/i);
+    expect(html).not.toMatch(/<script\b/i);
+    expect(html).not.toMatch(/<img\b/i);
+    expect(html).not.toMatch(/@import/i);
+    expect(html).not.toMatch(/url\(/i);
+    expect(html).not.toMatch(/(?:src|href)=["']https?:/i);
+  });
+
+  it("still has no page title or content slot — only site name and error", () => {
+    const html = renderPasswordPrompt({ ...BASE_OPTS, error: "Wrong password" });
+    expect(html).not.toMatch(/<article\b/i);
+    expect(html).not.toMatch(/<nav\b/i);
+    expect(html).toMatch(/<title>Password required/i);
+  });
+
+  it("preserves the form action, method, input attributes, and button unchanged", () => {
+    const html = renderPasswordPrompt(BASE_OPTS);
+    expect(html).toContain('<form method="post" action="/p/abc123/unlock">');
+    expect(html).toMatch(/<input[^>]*\btype="password"[^>]*\brequired\b[^>]*\bminlength="5"[^>]*>/);
+    expect(html).toMatch(/<button[^>]*type="submit"[^>]*>Unlock<\/button>/);
+  });
+
+  it("preserves escaping behavior after CSS polish", () => {
+    const html = renderPasswordPrompt({
+      siteName: '<script>alert("x")</script>',
+      action: '/p/abc/unlock?x="1"&y=2',
+      error: "<b>Wrong</b> & try again",
+    });
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).toContain("&quot;x&quot;");
+    expect(html).toContain('action="/p/abc/unlock?x=&quot;1&quot;&amp;y=2"');
+    expect(html).toContain(
+      '<p class="error" role="alert">&lt;b&gt;Wrong&lt;/b&gt; &amp; try again</p>',
+    );
+  });
+});

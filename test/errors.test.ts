@@ -55,4 +55,20 @@ describe("toErrorResponse", () => {
     expect(body).not.toHaveProperty("detail");
     expect(body).not.toHaveProperty("stack");
   });
+
+  it("defensively copies passed-in headers (mutating one does not affect the other)", () => {
+    const original = new Headers({ "X-Custom": "original" });
+    const err = new AppError("not_found", 404, "Not found.");
+    const res = toErrorResponse(err, original);
+
+    // Mutate the response headers
+    res.headers.set("X-Custom", "response-only");
+    expect(res.headers.get("X-Custom")).toBe("response-only");
+    expect(original.get("X-Custom")).toBe("original");
+
+    // Mutate the original headers
+    original.set("X-Mutated", "yes");
+    expect(original.get("X-Mutated")).toBe("yes");
+    expect(res.headers.has("X-Mutated")).toBe(false);
+  });
 });

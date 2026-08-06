@@ -369,6 +369,46 @@ describe("createFilesRepository", () => {
         status: 400,
       });
     });
+
+    it("throws db_write_failed (500) when the page does not exist (FK violation)", async () => {
+      await expect(
+        repo.replaceAll("nosuchpage", 1, [
+          {
+            path: "x.txt",
+            r2_key: "pages/nosuchpage/1/x.txt",
+            content_type: "text/plain",
+            size: 1,
+          },
+        ]),
+      ).rejects.toMatchObject({
+        code: "db_write_failed",
+        status: 500,
+      });
+    });
+
+    it("throws db_write_failed (500) when two files share the same path in a single batch (composite PK conflict)", async () => {
+      const pageId = "page000103";
+      await insertPage(db, { id: pageId, slug: "dup-path" });
+      await expect(
+        repo.replaceAll(pageId, 1, [
+          {
+            path: "dup.txt",
+            r2_key: "pages/page000103/1/dup.txt",
+            content_type: "text/plain",
+            size: 1,
+          },
+          {
+            path: "dup.txt",
+            r2_key: "pages/page000103/1/dup.txt",
+            content_type: "text/plain",
+            size: 2,
+          },
+        ]),
+      ).rejects.toMatchObject({
+        code: "db_write_failed",
+        status: 500,
+      });
+    });
   });
 
   // --- deleteFile ---

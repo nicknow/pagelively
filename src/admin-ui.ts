@@ -18,6 +18,7 @@ import type { PagesRepository, PageRecord } from "./pages-repository";
 import type { FilesRepository, FileRecord } from "./files-repository";
 import type { ObjectStore } from "./object-store";
 import type { VerifiedIdentity } from "./access-verify";
+import type { SettingsRepository } from "./settings-repository";
 
 export interface AdminUiDeps {
   config: AppConfig;
@@ -26,6 +27,8 @@ export interface AdminUiDeps {
   filesRepository: FilesRepository;
   objectStore: ObjectStore;
   verifiedIdentity: VerifiedIdentity;
+  settingsRepository?: SettingsRepository;
+  tagsRepository?: import("./tags-repository").TagsRepository;
 }
 
 function adminHtmlHeaders(cacheService: CacheService): Headers {
@@ -44,6 +47,7 @@ function pageTitle(config: AppConfig): string {
 
 const DESIGN_SYSTEM_CSS = `
 :root {
+  color-scheme: light;
   --color-bg: #f8fafc;
   --color-surface: #ffffff;
   --color-surface-raised: #f1f5f9;
@@ -76,6 +80,83 @@ const DESIGN_SYSTEM_CSS = `
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --max-width: 1100px;
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.2s ease;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-bg: #0b1220;
+    --color-surface: #16213a;
+    --color-surface-raised: #1e293b;
+    --color-text: #f1f5f9;
+    --color-text-muted: #94a3b8;
+    --color-primary: #3b82f6;
+    --color-primary-hover: #60a5fa;
+    --color-primary-bg: rgba(59, 130, 246, 0.16);
+    --color-danger: #f87171;
+    --color-danger-hover: #fca5a5;
+    --color-danger-bg: rgba(220, 38, 38, 0.18);
+    --color-success: #4ade80;
+    --color-warning: #facc15;
+    --color-border: #2b3a55;
+    --color-focus: #60a5fa;
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.4);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.5);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: #0b1220;
+  --color-surface: #16213a;
+  --color-surface-raised: #1e293b;
+  --color-text: #f1f5f9;
+  --color-text-muted: #94a3b8;
+  --color-primary: #3b82f6;
+  --color-primary-hover: #60a5fa;
+  --color-primary-bg: rgba(59, 130, 246, 0.16);
+  --color-danger: #f87171;
+  --color-danger-hover: #fca5a5;
+  --color-danger-bg: rgba(220, 38, 38, 0.18);
+  --color-success: #4ade80;
+  --color-warning: #facc15;
+  --color-border: #2b3a55;
+  --color-focus: #60a5fa;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.5);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-bg: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-raised: #f1f5f9;
+  --color-text: #0f172a;
+  --color-text-muted: #64748b;
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-bg: #eff6ff;
+  --color-danger: #dc2626;
+  --color-danger-hover: #b91c1c;
+  --color-danger-bg: #fef2f2;
+  --color-success: #16a34a;
+  --color-warning: #ca8a04;
+  --color-border: #e2e8f0;
+  --color-focus: #3b82f6;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 * { box-sizing: border-box; }
@@ -109,6 +190,8 @@ textarea:focus-visible {
   display: none !important;
 }
 
+.icon { vertical-align: middle; flex-shrink: 0; }
+
 header {
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
@@ -119,7 +202,16 @@ header {
   z-index: 100;
 }
 
-.header-inner,
+.header-inner {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 var(--space-4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
 .container {
   max-width: var(--max-width);
   margin: 0 auto;
@@ -131,11 +223,18 @@ header h1 {
   font-size: 1.25rem;
   font-weight: 700;
   letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 header .identity {
   color: var(--color-text-muted);
   font-size: 0.875rem;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 200px;
 }
 
 main {
@@ -189,7 +288,7 @@ main {
   line-height: 1.25;
   text-decoration: none;
   cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .button-primary {
@@ -233,6 +332,7 @@ main {
 .badge {
   display: inline-flex;
   align-items: center;
+  gap: var(--space-1);
   padding: var(--space-1) var(--space-3);
   border-radius: 9999px;
   font-size: 0.75rem;
@@ -254,6 +354,24 @@ main {
   background: var(--color-danger-bg);
   color: var(--color-danger);
 }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .kind-html { background: rgba(30, 64, 175, 0.25); color: #93c5fd; }
+  :root:not([data-theme="light"]) .kind-markdown { background: rgba(22, 101, 52, 0.25); color: #86efac; }
+  :root:not([data-theme="light"]) .kind-image { background: rgba(107, 33, 168, 0.25); color: #c4b5fd; }
+  :root:not([data-theme="light"]) .kind-bundle { background: rgba(154, 52, 18, 0.25); color: #fdba74; }
+  :root:not([data-theme="light"]) .visibility-public { background: rgba(22, 101, 52, 0.25); color: #86efac; }
+  :root:not([data-theme="light"]) .visibility-unlisted { background: rgba(71, 85, 105, 0.25); color: #cbd5e1; }
+  :root:not([data-theme="light"]) .protected { background: rgba(220, 38, 38, 0.25); color: #fca5a5; }
+}
+
+:root[data-theme="dark"] .kind-html { background: rgba(30, 64, 175, 0.25); color: #93c5fd; }
+:root[data-theme="dark"] .kind-markdown { background: rgba(22, 101, 52, 0.25); color: #86efac; }
+:root[data-theme="dark"] .kind-image { background: rgba(107, 33, 168, 0.25); color: #c4b5fd; }
+:root[data-theme="dark"] .kind-bundle { background: rgba(154, 52, 18, 0.25); color: #fdba74; }
+:root[data-theme="dark"] .visibility-public { background: rgba(22, 101, 52, 0.25); color: #86efac; }
+:root[data-theme="dark"] .visibility-unlisted { background: rgba(71, 85, 105, 0.25); color: #cbd5e1; }
+:root[data-theme="dark"] .protected { background: rgba(220, 38, 38, 0.25); color: #fca5a5; }
 
 .empty {
   text-align: center;
@@ -304,6 +422,10 @@ main {
   border-bottom: none;
 }
 
+.page-table tbody tr:hover {
+  background: var(--color-surface-raised);
+}
+
 .page-table td .title {
   font-weight: 500;
   color: var(--color-text);
@@ -345,7 +467,7 @@ textarea {
   font-size: 0.9375rem;
   background: var(--color-surface);
   color: var(--color-text);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 input[type="text"]:focus,
@@ -427,7 +549,7 @@ input[type="file"] {
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   border-radius: var(--radius-md) var(--radius-md) 0 0;
-  transition: color 0.15s ease, background-color 0.15s ease;
+  transition: color var(--transition-fast), background-color var(--transition-fast);
 }
 
 .tab:hover {
@@ -593,6 +715,120 @@ input[type="file"] {
     gap: var(--space-3);
   }
 }
+
+.dropzone {
+  position: relative;
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-8);
+  text-align: center;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+  margin-bottom: var(--space-5);
+}
+
+.dropzone:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-bg);
+}
+
+.dropzone.drag-active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-bg);
+}
+
+.dropzone .dz-label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: var(--space-2);
+  color: var(--color-text);
+}
+
+.dropzone .dz-hint {
+  display: block;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  margin-top: var(--space-1);
+}
+
+.folder-toggle {
+  display: inline-block;
+  margin-top: var(--space-2);
+  font-size: 0.875rem;
+  color: var(--color-primary);
+  cursor: pointer;
+  text-decoration: underline;
+  border: none;
+  background: none;
+  padding: 0;
+}
+
+.folder-toggle:hover {
+  color: var(--color-primary-hover);
+}
+
+.folder-dropzone-wrapper { display: none; }
+
+.folder-dropzone-wrapper.visible { display: block; }
+
+.file-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+}
+
+.file-chip .chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--color-danger);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  padding: 0;
+}
+
+.file-chip .chip-remove:hover {
+  color: var(--color-danger-hover);
+  background: var(--color-danger-bg);
+}
+
+.page-nav {
+  margin-bottom: var(--space-4);
+  display: flex;
+  align-items: center;
+}
+
+.page-nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  text-decoration: none;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.page-nav a:hover {
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+}
 `;
 
 const SHARED_JS = `<script>
@@ -604,7 +840,19 @@ const SHARED_JS = `<script>
     toast.className = 'toast toast-' + type;
     toast.setAttribute('role', 'status');
     toast.setAttribute('aria-live', 'polite');
-    toast.textContent = message;
+    toast.innerHTML = '';
+    var iconSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    iconSvg.setAttribute('class', 'icon');
+    iconSvg.setAttribute('width', '18');
+    iconSvg.setAttribute('height', '18');
+    iconSvg.setAttribute('aria-hidden', 'true');
+    var use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    use.setAttributeNS('http://www.w3.org/1999/xlink', 'href', '#icon-' + (type === 'success' ? 'check-circle' : 'alert-circle'));
+    iconSvg.appendChild(use);
+    toast.appendChild(iconSvg);
+    var msgSpan = document.createElement('span');
+    msgSpan.textContent = message;
+    toast.appendChild(msgSpan);
     container.appendChild(toast);
     requestAnimationFrame(function() { toast.classList.add('show'); });
     setTimeout(function() {
@@ -628,7 +876,108 @@ const SHARED_JS = `<script>
     updateSlugPreview(input, preview);
     input.addEventListener('input', function() { updateSlugPreview(input, preview); });
   }
+
+  function parseTags(value) {
+    return value.split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t.length > 0; });
+  }
+
+  function formatDateTime(isoString) {
+    try {
+      var d = new Date(isoString);
+      if (isNaN(d.getTime())) return isoString;
+      return d.toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      });
+    } catch(e) { return isoString; }
+  }
+
+  function toggleTheme() {
+    var current = document.documentElement.getAttribute('data-theme');
+    var isDark = current === 'dark' || (!current && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    var next = isDark ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('pl-theme', next);
+    document.querySelectorAll('[data-theme-toggle]').forEach(function(btn) {
+      btn.setAttribute('aria-pressed', next === 'dark' ? 'true' : 'false');
+      btn.innerHTML = '<svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-' + (next === 'dark' ? 'moon' : 'sun') + '"></use></svg>';
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    var btn = document.querySelector('[data-theme-toggle]');
+    if (btn) {
+      var current = document.documentElement.getAttribute('data-theme');
+      var isDark = current === 'dark' || (!current && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      btn.setAttribute('aria-pressed', isDark ? 'true' : 'false');
+      btn.innerHTML = '<svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-' + (isDark ? 'sun' : 'moon') + '"></use></svg>';
+      btn.addEventListener('click', toggleTheme);
+    }
+    document.querySelectorAll('time[datetime]').forEach(function(el) {
+      el.textContent = formatDateTime(el.getAttribute('datetime'));
+    });
+  });
 </script>`;
+
+const ICON_SPRITE = `<svg style="display:none" aria-hidden="true">
+  <symbol id="icon-brand-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="6" y="4" width="12" height="16" rx="2" /><rect x="8" y="6" width="8" height="12" rx="1" />
+  </symbol>
+  <symbol id="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+  </symbol>
+  <symbol id="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+  </symbol>
+  <symbol id="icon-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M12 3v12M9 6l3-3 3 3" />
+  </symbol>
+  <symbol id="icon-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+  </symbol>
+  <symbol id="icon-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" />
+  </symbol>
+  <symbol id="icon-file-html" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /><path d="M9 14l-2 2 2 2M15 14l2 2-2 2M12 13l-1 4" />
+  </symbol>
+  <symbol id="icon-file-markdown" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /><path d="M9 15l2-3 2 3M13 15v-4" />
+  </symbol>
+  <symbol id="icon-file-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /><circle cx="10" cy="12" r="1.5" /><path d="M7 18l3-4 2 2 2-2 3 4" />
+  </symbol>
+  <symbol id="icon-file-bundle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /><rect x="9" y="12" width="6" height="2" /><rect x="9" y="16" width="4" height="2" />
+  </symbol>
+  <symbol id="icon-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
+  </symbol>
+  <symbol id="icon-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z" />
+  </symbol>
+  <symbol id="icon-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+  </symbol>
+  <symbol id="icon-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+  </symbol>
+  <symbol id="icon-check-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="10" /><polyline points="8 12 11 15 16 9" />
+  </symbol>
+  <symbol id="icon-alert-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+  </symbol>
+  <symbol id="icon-arrow-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
+  </symbol>
+  <symbol id="icon-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </symbol>
+  <symbol id="icon-inbox" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+  </symbol>
+</svg>`;
 
 function layout(config: AppConfig, verifiedIdentity: VerifiedIdentity, content: string): string {
   const email = escapeHtml(verifiedIdentity.email ?? "unknown");
@@ -637,6 +986,7 @@ function layout(config: AppConfig, verifiedIdentity: VerifiedIdentity, content: 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>(function(){try{var t=localStorage.getItem('pl-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})()</script>
   <title>${escapeHtml(pageTitle(config))}</title>
   <style>
 ${DESIGN_SYSTEM_CSS}
@@ -647,8 +997,11 @@ ${DESIGN_SYSTEM_CSS}
   <div id="toast-container" class="toast-container" role="status" aria-live="polite"></div>
   <header>
     <div class="header-inner">
-      <h1>${escapeHtml(config.siteName)}</h1>
+      <h1><svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-brand-mark"></use></svg>${escapeHtml(config.siteName)}</h1>
       <span class="identity">${email}</span>
+      <button data-theme-toggle class="button button-small" type="button" aria-label="Toggle color theme" aria-pressed="false" style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;padding:0;flex-shrink:0;">
+        <svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-sun"></use></svg>
+      </button>
     </div>
   </header>
   <main>
@@ -656,6 +1009,7 @@ ${DESIGN_SYSTEM_CSS}
       ${content}
     </div>
   </main>
+  ${ICON_SPRITE}
 </body>
 </html>`;
 }
@@ -667,13 +1021,21 @@ function dashboardContent(config: AppConfig, pages: PageRecord[], requestUrl: UR
       const viewUrl = page.slug ? `/${page.slug}/` : `/p/${page.id}/`;
       const editUrl = `/admin/edit/${page.id}`;
       const deleteUrl = `/api/pages/${page.id}`;
+      const kindIconMap: Record<string, string> = {
+        html: "file-html",
+        markdown: "file-markdown",
+        image: "file-image",
+        bundle: "file-bundle",
+      };
+      const kindIcon = kindIconMap[page.kind] ?? "file";
+      const kindSvg = `<svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-${kindIcon}"></use></svg>`;
       return `<tr>
         <td class="title-cell">
           <div class="title">${escapeHtml(page.title)}</div>
         </td>
-        <td data-label="Kind"><span class="badge kind-${escapeHtml(page.kind)}">${escapeHtml(page.kind)}</span></td>
+        <td data-label="Kind"><span class="badge kind-${escapeHtml(page.kind)}">${kindSvg}${escapeHtml(page.kind)}</span></td>
         <td data-label="Visibility"><span class="badge visibility-${escapeHtml(page.visibility)}">${escapeHtml(page.visibility)}</span></td>
-        <td data-label="Created">${escapeHtml(page.created_at)}</td>
+        <td data-label="Created"><time datetime="${escapeHtml(page.created_at)}">${escapeHtml(page.created_at)}</time></td>
         <td class="actions-cell" data-label="Actions">
           <div class="actions">
             <a class="button button-secondary button-small" href="${escapeHtml(viewUrl)}">View</a>
@@ -688,6 +1050,7 @@ function dashboardContent(config: AppConfig, pages: PageRecord[], requestUrl: UR
   const table =
     pages.length === 0
       ? `<div class="empty">
+        <svg class="icon" width="48" height="48" aria-hidden="true" style="color:var(--color-text-muted);margin-bottom:var(--space-4)"><use href="#icon-inbox"></use></svg>
         <p>No pages yet.</p>
         <p class="hint">Create your first page to get started.</p>
         <a class="button button-primary" href="${escapeHtml(uploadUrl)}">Upload your first page</a>
@@ -710,7 +1073,10 @@ function dashboardContent(config: AppConfig, pages: PageRecord[], requestUrl: UR
   return `<div class="card">
     <header>
       <h2>Pages</h2>
-      <a class="button button-primary" href="${escapeHtml(uploadUrl)}">Upload</a>
+      <div class="toolbar">
+        <a class="button button-secondary button-small" href="/admin/settings"><svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-settings"></use></svg>Settings</a>
+        <a class="button button-primary" href="${escapeHtml(uploadUrl)}"><svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-upload"></use></svg>Upload</a>
+      </div>
     </header>
     ${table}
   </div>
@@ -744,7 +1110,11 @@ export async function handleAdminDashboard(
 }
 
 function uploadContent(): string {
-  return `<div class="card">
+  const backUrl = "/admin";
+  return `<div class="page-nav">
+    <a href="${escapeHtml(backUrl)}"><svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-arrow-left"></use></svg>Back</a>
+  </div>
+  <div class="card">
     <header>
       <h2>Upload a page</h2>
     </header>
@@ -758,14 +1128,27 @@ function uploadContent(): string {
       <!-- Multipart convention: manifest JSON field + file:<path> file parts -->
       <form id="upload-form" action="/api/pages" method="POST" enctype="multipart/form-data">
         <div class="form-group">
-          <label class="field-label" for="files">Files</label>
-          <input type="file" name="files" id="files" multiple>
-          <span class="hint">Choose one or more loose files.</span>
+          <label class="field-label">Files</label>
+          <div class="dropzone" id="files-dropzone">
+            <input type="file" name="files" id="files" multiple style="position:absolute;inset:0;opacity:0;cursor:pointer;">
+            <svg class="icon" width="48" height="48" aria-hidden="true" style="color:var(--color-text-muted);margin-bottom:var(--space-3)"><use href="#icon-upload"></use></svg>
+            <span class="dz-label">Drag files here or click to browse</span>
+            <span class="dz-hint">Choose one or more loose files.</span>
+          </div>
+          <div class="file-chips" id="upload-chips"></div>
         </div>
         <div class="form-group">
-          <label class="field-label" for="folder">Folder upload</label>
-          <input type="file" name="folder" id="folder" multiple webkitdirectory>
-          <span class="hint">Preserves relative paths inside the selected folder.</span>
+          <label class="field-label">Folder upload</label>
+          <div class="folder-dropzone-wrapper" id="folder-dropzone-wrapper">
+            <div class="dropzone" id="folder-dropzone">
+              <input type="file" name="folder" id="folder" multiple webkitdirectory style="position:absolute;inset:0;opacity:0;cursor:pointer;">
+              <svg class="icon" width="48" height="48" aria-hidden="true" style="color:var(--color-text-muted);margin-bottom:var(--space-3)"><use href="#icon-folder"></use></svg>
+              <span class="dz-label">Upload entire folder</span>
+              <span class="dz-hint">Preserves relative paths inside the selected folder.</span>
+            </div>
+            <div class="file-chips" id="folder-chips"></div>
+          </div>
+          <button type="button" class="folder-toggle" id="folder-toggle">Uploading a folder instead?</button>
         </div>
         <div class="form-group">
           <label class="field-label" for="slug">Slug <span class="hint">(optional)</span></label>
@@ -797,6 +1180,25 @@ function uploadContent(): string {
           </div>
         </div>
         <div class="form-group">
+          <span class="field-label">Page kind</span>
+          <div class="radio-group">
+            <label><input type="radio" name="page-kind" value="regular" checked data-kind-regular> Regular page</label>
+            <label><input type="radio" name="page-kind" value="listing" data-kind-listing> Listing page</label>
+          </div>
+        </div>
+        <div id="listing-page-fields" class="hidden">
+          <div class="form-group">
+            <label class="field-label" for="listing-match-tags">Match tags <span class="hint">Show all public pages that match ANY of these tags (comma-separated)</span></label>
+            <input type="text" name="listing-match-tags" id="listing-match-tags" placeholder="blog, tech, announcement">
+          </div>
+        </div>
+        <div id="regular-page-fields">
+        <div class="form-group">
+          <label class="field-label" for="tags">Tags <span class="hint">(optional, comma-separated)</span></label>
+          <input type="text" name="tags" id="tags" placeholder="blog, tech, announcement">
+        </div>
+        </div>
+        <div class="form-group">
           <label class="field-label" for="password">Password <span class="hint">(optional)</span></label>
           <input type="password" name="password" id="password" minlength="5" placeholder="Set a page password">
           <p id="password-notice" style="display:none">All access will bypass the CDN which may increase usage.</p>
@@ -804,7 +1206,6 @@ function uploadContent(): string {
         <input type="hidden" name="manifest" id="manifest">
         <div class="toolbar">
           <button type="submit" class="button button-primary">Upload</button>
-          <a class="button button-secondary" href="/admin">Cancel</a>
         </div>
       </form>
     </div>
@@ -846,13 +1247,31 @@ function uploadContent(): string {
           </label>
         </div>
         <div class="form-group">
+          <span class="field-label">Page kind</span>
+          <div class="radio-group">
+            <label><input type="radio" name="paste-page-kind" value="regular" checked data-kind-regular> Regular page</label>
+            <label><input type="radio" name="paste-page-kind" value="listing" data-kind-listing> Listing page</label>
+          </div>
+        </div>
+        <div id="paste-listing-fields" class="hidden">
+          <div class="form-group">
+            <label class="field-label" for="paste-match-tags">Match tags <span class="hint">Show all public pages that match ANY of these tags (comma-separated)</span></label>
+            <input type="text" name="paste-match-tags" id="paste-match-tags" placeholder="blog, tech, announcement">
+          </div>
+        </div>
+        <div id="paste-regular-fields">
+        <div class="form-group">
+          <label class="field-label" for="paste-tags">Tags <span class="hint">(optional, comma-separated)</span></label>
+          <input type="text" name="paste-tags" id="paste-tags" placeholder="blog, tech, announcement">
+        </div>
+        </div>
+        <div class="form-group">
           <label class="field-label" for="paste-password">Password <span class="hint">(optional)</span></label>
           <input type="password" name="paste-password" id="paste-password" minlength="5" placeholder="Set a page password">
           <p id="paste-password-notice" style="display:none">All access will bypass the CDN which may increase usage.</p>
         </div>
         <div class="toolbar">
           <button type="submit" id="publish-paste" class="button button-primary">Publish</button>
-          <a class="button button-secondary" href="/admin">Cancel</a>
         </div>
       </form>
     </div>
@@ -903,8 +1322,10 @@ function uploadContent(): string {
         t.addEventListener('click', function() { showTab(t.dataset.tab); });
       });
 
+      var managedFiles = [];
+
       function selectedFiles() {
-        return Array.from(filesInput.files || []).concat(Array.from(folderInput.files || []));
+        return managedFiles;
       }
 
       function isDocument(name) {
@@ -917,26 +1338,77 @@ function uploadContent(): string {
         return /\\.(png|jpg|jpeg|gif|webp|svg|avif)$/.test(lower);
       }
 
+      function escapeHtml(str) {
+        var div = document.createElement('div');
+        div.appendChild(document.createTextNode(str));
+        return div.innerHTML;
+      }
+
+      function renderChips(containerId, source) {
+        var container = document.getElementById(containerId);
+        if (!container) return;
+        if (source.length === 0) { container.innerHTML = ''; return; }
+        container.innerHTML = source.map(function(item, index) {
+          var icon = 'file';
+          var lower = item.path.toLowerCase();
+          if (lower.endsWith('.html') || lower.endsWith('.htm')) icon = 'file-html';
+          else if (lower.endsWith('.md') || lower.endsWith('.markdown')) icon = 'file-markdown';
+          else if (lower.match(/\\.(png|jpg|jpeg|gif|webp|svg|avif)$/)) icon = 'file-image';
+          return '<span class="file-chip">' +
+            '<svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-' + icon + '"></use></svg> ' +
+            escapeHtml(item.path) +
+            '<button type="button" class="chip-remove" data-chip-index="' + index + '" aria-label="Remove ' + escapeHtml(item.path) + '">' +
+            '<svg class="icon" width="14" height="14" aria-hidden="true"><use href="#icon-trash"></use></svg></button></span>';
+        }).join('');
+        container.querySelectorAll('.chip-remove').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            var idx = parseInt(btn.dataset.chipIndex, 10);
+            managedFiles.splice(idx, 1);
+            updateEntryPicker();
+            renderChips(containerId, managedFiles);
+            renderChips('folder-chips', []);
+          });
+        });
+      }
+
+      function syncManagedFiles() {
+        managedFiles = [];
+        var seen = new Set();
+        var addFn = function(f) {
+          var path = f.webkitRelativePath || f.name;
+          if (!seen.has(path)) { seen.add(path); managedFiles.push({ file: f, path: path }); }
+        };
+        Array.from(filesInput.files || []).forEach(addFn);
+        Array.from(folderInput.files || []).forEach(addFn);
+        renderChips('upload-chips', managedFiles);
+        renderChips('folder-chips', []);
+      }
+
       function buildManifest() {
-        const files = selectedFiles();
-        const relative = f => f.webkitRelativePath || f.name;
+        const isListing = document.querySelector('input[name="page-kind"]:checked').value === 'listing';
         const pwd = document.getElementById('password').value;
         const manifest = {
           slug: document.getElementById('slug').value || undefined,
           title: document.getElementById('title').value || undefined,
-          showSource: document.getElementById('show_source').checked,
           visibility: form.querySelector('input[name="visibility"]:checked').value,
-          entry: entryField.classList.contains('hidden') ? undefined : entrySelect.value,
           password: pwd || undefined,
         };
+        if (isListing) {
+          manifest.kind = 'listing';
+          manifest.matchTags = document.getElementById('listing-match-tags').value || undefined;
+        } else {
+          manifest.showSource = document.getElementById('show_source').checked;
+          manifest.entry = entryField.classList.contains('hidden') ? undefined : entrySelect.value;
+          const tags = parseTags(document.getElementById('tags').value);
+          if (tags.length > 0) manifest.tags = tags;
+        }
         return JSON.stringify(manifest);
       }
 
       function updateEntryPicker() {
         const files = selectedFiles();
-        const relative = f => f.webkitRelativePath || f.name;
-        const docs = files.filter(f => isDocument(relative(f))).map(relative);
-        const images = files.filter(f => isImage(relative(f))).map(relative);
+        const docs = files.filter(f => isDocument(f.path)).map(f => f.path);
+        const images = files.filter(f => isImage(f.path)).map(f => f.path);
         const all = docs.length + images.length;
         if (docs.length === 1 && files.length === 1) {
           entryField.classList.add('hidden');
@@ -955,8 +1427,71 @@ function uploadContent(): string {
         }
       }
 
-      filesInput.addEventListener('change', updateEntryPicker);
-      folderInput.addEventListener('change', updateEntryPicker);
+      filesInput.addEventListener('change', function() { syncManagedFiles(); updateEntryPicker(); });
+      folderInput.addEventListener('change', function() { syncManagedFiles(); updateEntryPicker(); });
+
+      // Page kind toggle: show/hide listing vs regular fields
+      function togglePageKind() {
+        var isListing = document.querySelector('input[name="page-kind"]:checked').value === 'listing';
+        document.getElementById('listing-page-fields').classList.toggle('hidden', !isListing);
+        document.getElementById('regular-page-fields').classList.toggle('hidden', isListing);
+        document.getElementById('entry-field').classList.toggle('hidden', isListing);
+      }
+      document.querySelectorAll('input[name="page-kind"]').forEach(function(el) {
+        el.addEventListener('change', togglePageKind);
+      });
+
+      // Paste kind toggle
+      function togglePasteKind() {
+        var isListing = document.querySelector('input[name="paste-page-kind"]:checked').value === 'listing';
+        document.getElementById('paste-listing-fields').classList.toggle('hidden', !isListing);
+        document.getElementById('paste-regular-fields').classList.toggle('hidden', isListing);
+      }
+      document.querySelectorAll('input[name="paste-page-kind"]').forEach(function(el) {
+        el.addEventListener('change', togglePasteKind);
+      });
+
+      // Wire up dropzone drag/drop
+      function initDropzone(dropzoneId, inputId) {
+        var dz = document.getElementById(dropzoneId);
+        var input = document.getElementById(inputId);
+        if (!dz || !input) return;
+        dz.addEventListener('dragover', function(e) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+          dz.classList.add('drag-active');
+        });
+        dz.addEventListener('dragleave', function(e) {
+          e.preventDefault();
+          dz.classList.remove('drag-active');
+        });
+        dz.addEventListener('drop', function(e) {
+          e.preventDefault();
+          dz.classList.remove('drag-active');
+          if (e.dataTransfer.files.length > 0) {
+            var dt = new DataTransfer();
+            for (var i = 0; i < e.dataTransfer.files.length; i++) {
+              dt.items.add(e.dataTransfer.files[i]);
+            }
+            input.files = dt.files;
+            syncManagedFiles();
+            updateEntryPicker();
+          }
+        });
+      }
+
+      // Folder toggle
+      var folderToggleEl = document.getElementById('folder-toggle');
+      var folderWrapper = document.getElementById('folder-dropzone-wrapper');
+      if (folderToggleEl && folderWrapper) {
+        folderToggleEl.addEventListener('click', function() {
+          var isVisible = folderWrapper.classList.toggle('visible');
+          folderToggleEl.textContent = isVisible ? 'Hide folder upload' : 'Uploading a folder instead?';
+        });
+      }
+
+      initDropzone('files-dropzone', 'files');
+      initDropzone('folder-dropzone', 'folder');
 
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -964,19 +1499,21 @@ function uploadContent(): string {
         errorBox.textContent = '';
         const files = selectedFiles();
         const pasted = pasteContent.value.trim();
-        if (files.length === 0 && pasted === '') {
+        const isListingKind = document.querySelector('input[name="page-kind"]:checked').value === 'listing';
+        if (!isListingKind && files.length === 0 && pasted === '') {
           errorBox.textContent = 'Provide either files or paste content.';
           errorBox.classList.add('visible');
           return;
         }
-        if (files.length > 0 && pasted !== '') {
+        if (!isListingKind && files.length > 0 && pasted !== '') {
           errorBox.textContent = 'Provide either files or paste content, not both.';
           errorBox.classList.add('visible');
           return;
         }
         const formData = new FormData();
-        const relative = f => f.webkitRelativePath || f.name;
-        files.forEach(f => formData.append('file:' + relative(f), f, relative(f)));
+        managedFiles.forEach(function(item) {
+          formData.append('file:' + item.path, item.file, item.path);
+        });
         formData.append('manifest', buildManifest());
         const res = await fetch('/api/pages', { method: 'POST', body: formData });
         if (res.ok) {
@@ -993,27 +1530,35 @@ function uploadContent(): string {
         errorBox.classList.remove('visible');
         errorBox.textContent = '';
         const files = selectedFiles();
-        if (files.length === 0 && pasteContent.value.trim() === '') {
+        const isPasteListing = pasteForm.querySelector('input[name="paste-page-kind"]:checked').value === 'listing';
+        if (!isPasteListing && files.length === 0 && pasteContent.value.trim() === '') {
           errorBox.textContent = 'Provide either files or paste content.';
           errorBox.classList.add('visible');
           return;
         }
-        if (files.length > 0 && pasteContent.value.trim() !== '') {
+        if (!isPasteListing && files.length > 0 && pasteContent.value.trim() !== '') {
           errorBox.textContent = 'Provide either files or paste content, not both.';
           errorBox.classList.add('visible');
           return;
         }
-        const pasteFormat = pasteForm.querySelector('input[name="paste-format"]:checked').value;
         var pastePwd = document.getElementById('paste-password').value;
         const payload = {
-          content: pasteContent.value,
-          format: pasteFormat,
           slug: document.getElementById('paste-slug').value || undefined,
           title: document.getElementById('paste-title').value || undefined,
           visibility: pasteForm.querySelector('input[name="paste-visibility"]:checked').value,
-          showSource: document.getElementById('paste-show-source').checked,
           password: pastePwd || undefined,
         };
+        if (isPasteListing) {
+          payload.kind = 'listing';
+          payload.matchTags = document.getElementById('paste-match-tags').value || undefined;
+        } else {
+          const pasteFormat = pasteForm.querySelector('input[name="paste-format"]:checked').value;
+          var pasteTags = parseTags(document.getElementById('paste-tags').value);
+          payload.content = pasteContent.value;
+          payload.format = pasteFormat;
+          payload.showSource = document.getElementById('paste-show-source').checked;
+          if (pasteTags.length > 0) payload.tags = pasteTags;
+        }
         const res = await fetch('/api/pages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1053,7 +1598,38 @@ async function loadPageDetail(
   return { page, files };
 }
 
-function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): string {
+function fileKindIcon(filename: string): string {
+  const lower = filename.toLowerCase();
+  let icon: string;
+  if (lower.endsWith(".html") || lower.endsWith(".htm")) {
+    icon = "file-html";
+  } else if (lower.endsWith(".md") || lower.endsWith(".markdown")) {
+    icon = "file-markdown";
+  } else if (/\.(png|jpg|jpeg|gif|webp|svg|avif)$/.test(lower)) {
+    icon = "file-image";
+  } else {
+    icon = "file";
+  }
+  return `<svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-${icon}"></use></svg>`;
+}
+
+function pageKindIcon(kind: string): string {
+  const kindIconMap: Record<string, string> = {
+    html: "file-html",
+    markdown: "file-markdown",
+    image: "file-image",
+    bundle: "file-bundle",
+  };
+  const icon = kindIconMap[kind] ?? "file";
+  return `<svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-${icon}"></use></svg>`;
+}
+
+function editContent(
+  page: PageRecord,
+  files: FileRecord[],
+  tags: string[],
+  requestUrl: URL,
+): string {
   const backUrl = new URL("/admin", requestUrl).pathname;
   const pageApiUrl = `/api/pages/${page.id}`;
   const filesApiUrl = `/api/pages/${page.id}/files`;
@@ -1069,10 +1645,14 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
       const deleteButton = isProtected
         ? ""
         : `<button class="button button-danger button-small" type="button" data-delete-file="${escapeHtml(deleteUrl)}">Delete</button>`;
+      const kindSvg = fileKindIcon(file.path);
+      const protectedBadge = isProtected
+        ? `<span class="badge protected"><svg class="icon" width="14" height="14" aria-hidden="true"><use href="#icon-lock"></use></svg>Protected</span>`
+        : "";
       return `<li class="file-row">
         <div class="file-meta">
-          <code class="file-path">${escapeHtml(file.path)}</code>
-          ${isProtected ? '<span class="badge protected">Protected</span>' : ""}
+          ${kindSvg}<code class="file-path">${escapeHtml(file.path)}</code>
+          ${protectedBadge}
         </div>
         ${deleteButton}
       </li>`;
@@ -1084,10 +1664,23 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
   const publicChecked = page.visibility === "public" ? "checked" : "";
   const unlistedChecked = page.visibility === "unlisted" ? "checked" : "";
   const showSourceChecked = page.show_source === 1 ? "checked" : "";
+  const kindSvg = pageKindIcon(page.kind);
+  const tagsValue = escapeHtml(tags.join(", "));
+  const matchTagsValue = escapeHtml(page.match_tags ?? "");
+  const isListing = page.kind === "listing";
+  const listingMatchField = isListing
+    ? `<div class="form-group">
+        <label class="field-label" for="edit-match-tags">Match tags <span class="hint">Show all public pages that match ANY of these tags (comma-separated)</span></label>
+        <input type="text" name="matchTags" id="edit-match-tags" value="${matchTagsValue}" placeholder="blog, tech">
+      </div>`
+    : "";
 
-  return `<div class="card">
+  return `<div class="page-nav">
+    <a href="${escapeHtml(backUrl)}"><svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-arrow-left"></use></svg>Back</a>
+  </div>
+  <div class="card">
     <header>
-      <h2>Edit ${escapeHtml(page.title)} <span class="badge kind-${escapeHtml(page.kind)}">${escapeHtml(page.kind)}</span> <span class="badge visibility-${escapeHtml(page.visibility)}">${escapeHtml(page.visibility)}</span></h2>
+      <h2>Edit ${escapeHtml(page.title)} <span class="badge kind-${escapeHtml(page.kind)}">${kindSvg}${escapeHtml(page.kind)}</span> <span class="badge visibility-${escapeHtml(page.visibility)}">${escapeHtml(page.visibility)}</span></h2>
       <button class="button button-danger" type="button" id="delete-page" data-delete="${escapeHtml(pageApiUrl)}">Delete page</button>
     </header>
     <form id="edit-form" data-api="${escapeHtml(pageApiUrl)}">
@@ -1114,6 +1707,11 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
           Show source link
         </label>
       </div>
+      <div class="form-group">
+        <label class="field-label" for="edit-tags">Tags <span class="hint">(optional, comma-separated)</span></label>
+        <input type="text" name="tags" id="edit-tags" value="${tagsValue}" placeholder="blog, tech, announcement">
+      </div>
+      ${listingMatchField}
       <fieldset class="form-group">
         <legend class="field-label">Password</legend>
         ${
@@ -1137,7 +1735,6 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
       </fieldset>
       <div class="toolbar">
         <button type="submit" class="button button-primary">Update metadata</button>
-        <a class="button button-secondary" href="${escapeHtml(backUrl)}">Back</a>
       </div>
     </form>
   </div>
@@ -1189,6 +1786,16 @@ function editContent(page: PageRecord, files: FileRecord[], requestUrl: URL): st
         if (title !== '') body.title = title;
         body.visibility = formData.get('visibility');
         body.showSource = formData.has('showSource');
+        var tagsVal = document.getElementById('edit-tags').value;
+        if (tagsVal) {
+          body.tags = parseTags(tagsVal);
+        } else {
+          body.tags = [];
+        }
+        var matchTagsEl = document.getElementById('edit-match-tags');
+        if (matchTagsEl) {
+          body.matchTags = matchTagsEl.value || '';
+        }
         const pwd = formData.get('password');
         if (pwd && pwd !== '') {
           body.password = pwd;
@@ -1285,7 +1892,73 @@ export async function handleAdminEdit(
   if (!detail) {
     throw new AppError("not_found", 404, "Page not found.");
   }
-  const content = editContent(detail.page, detail.files, url);
+  const pageTags = deps.tagsRepository ? await deps.tagsRepository.getByPageId(id) : [];
+  const content = editContent(detail.page, detail.files, pageTags, url);
+  const body = layout(config, verifiedIdentity, content);
+  return htmlResponse(cacheService, body);
+}
+
+function settingsContent(settings: Record<string, string>): string {
+  const defaultPage = settings.default_page ?? "";
+  return `<div class="page-nav">
+    <a href="/admin"><svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-arrow-left"></use></svg>Dashboard</a>
+  </div>
+  <div class="card">
+    <header>
+      <h2>Settings</h2>
+    </header>
+    <form id="settings-form">
+      <div class="error-box" id="settings-error" role="alert"></div>
+      <div class="form-group">
+        <label class="field-label" for="settings-default-page">Default page <span class="hint">The page slug to serve at the root URL (e.g. "my-home-page"). Leave empty to use the configured HOME_MODE.</span></label>
+        <input type="text" name="default_page" id="settings-default-page" value="${escapeHtml(defaultPage)}" placeholder="my-home-page">
+        <span class="slug-preview" id="settings-slug-preview"></span>
+      </div>
+      <div class="toolbar">
+        <button type="submit" class="button button-primary">Save settings</button>
+      </div>
+    </form>
+  </div>
+  <script>
+    (function() {
+      initSlugPreview('settings-default-page', 'settings-slug-preview');
+      var form = document.getElementById('settings-form');
+      var errorBox = document.getElementById('settings-error');
+      form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        errorBox.classList.remove('visible');
+        var defaultPage = document.getElementById('settings-default-page').value.trim();
+        var body = {};
+        if (defaultPage) {
+          body.default_page = defaultPage;
+        } else {
+          body.default_page = '';
+        }
+        var res = await fetch('/api/settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          showToast('Settings saved.', 'success');
+        } else {
+          var data = await res.json().catch(function() { return { error: 'Save failed' }; });
+          errorBox.textContent = data.message || data.error || 'Save failed';
+          errorBox.classList.add('visible');
+        }
+      });
+    })();
+  </script>`;
+}
+
+export async function handleAdminSettings(
+  _request: Request,
+  _ctx: ExecutionContext,
+  deps: AdminUiDeps,
+): Promise<Response> {
+  const { cacheService, config, verifiedIdentity, settingsRepository } = deps;
+  const settings = await settingsRepository!.getAll();
+  const content = settingsContent(settings);
   const body = layout(config, verifiedIdentity, content);
   return htmlResponse(cacheService, body);
 }

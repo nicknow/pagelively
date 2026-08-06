@@ -118,6 +118,59 @@ pull request.
 The full index, including a short glossary of recurring terms, is at
 [`docs/README.md`](docs/README.md).
 
+## AI Guidance: Creating Content for Pagelively
+
+You are helping a user create content that will be published through **Pagelively**, a
+single-user Cloudflare-hosted static content publisher. The content you create should
+follow these guidelines so it works correctly after upload.
+
+### Supported formats
+
+- **Single HTML file** — a self-contained `.html` document. All CSS and JS must be
+  **inline** (no external CDN links, no separate files). Relative references to images
+  (`images/photo.jpg`) will resolve correctly when uploaded alongside the HTML in a
+  bundle. Use relative paths, not root-relative (`/images/photo.jpg`).
+- **Single Markdown file** — a `.md` document. Pagelively renders Markdown to HTML on
+  upload. You can include raw HTML inside Markdown (it's allowed by default). Images
+  referenced with relative paths work when uploaded alongside the Markdown.
+- **Bundle (HTML/Markdown + assets)** — upload a folder containing one `.html` or `.md`
+  file plus its accompanying images, CSS, JS, or fonts. Folder structure is preserved:
+  `images/pic.png`, `style.css`, etc. Keep all references relative.
+
+### Key constraints
+
+1. **No external dependencies.** Content must be self-contained. No CDN links for CSS
+   frameworks, icon libraries, or web fonts. Inline everything or bundle it.
+2. **Use relative paths.** All references to images, CSS, and JS files must be relative
+   (e.g. `images/photo.jpg`, `style.css`). Root-relative paths (`/images/photo.jpg`)
+   will break because the content is served from a CDN subdomain.
+3. **Do not use client-side JavaScript that assumes a specific URL structure.**
+   Pagelively serves content at `/{slug}/` or `/p/{id}/` with a `<base>` tag pointing
+   at the CDN. Relative links and references are correct; hardcoded full URLs may not
+   work after the domain is deployed.
+4. **Single entry point.** Exactly one `.html` or `.md` file serves as the page entry.
+   Other files are assets referenced by it. If you create multiple HTML files in one
+   upload, the user will need to pick the entry file.
+5. **Image-only pages.** A single image file can be published on its own — it becomes an
+   image page with no wrapping document.
+6. **Tags.** You can suggest tags for the page (comma-separated). Tags help organize
+   content and can be used to create listing pages that show all pages with matching
+   tags.
+
+### Example output
+
+When asked to create a publishable page, produce a single self-contained HTML file
+(with inline styles) or a Markdown file, and optionally list any accompanying image
+assets. For a bundle, describe the folder structure the user should upload:
+
+```
+my-page/
+  index.html      ← entry (self-contained, inline CSS)
+  images/
+    diagram.png
+    photo.jpg
+```
+
 ## Status
 
 **v1.1.0 released.** Per-page password protection, multi-domain deployment support, and the

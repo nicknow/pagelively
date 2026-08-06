@@ -119,10 +119,16 @@ describe("createCacheService (production)", () => {
 
   it("logs and does not throw when purge returns a result with errors", async () => {
     await withSpiedConsoleAsync(async (spy) => {
-      const purge = vi.fn().mockResolvedValue({ success: true, errors: [] });
+      const purge = vi
+        .fn()
+        .mockResolvedValue({ success: false, errors: [{ code: 7000, message: "rate limited" }] });
       const ctx = { cache: { purge } } as unknown as ExecutionContext;
       await expect(cache.purgePage(ctx, "page-123")).resolves.toBeUndefined();
-      expect(spy.logs.length).toBe(0);
+      expect(spy.logs.length).toBeGreaterThan(0);
+      // console.error uses printf-style %o placeholders; raw args are captured.
+      expect(spy.logs[0]?.[0]).toContain("purge failed");
+      expect(spy.logs[0]?.[1]).toContainEqual({ code: 7000, message: "rate limited" });
+      expect(spy.logs[0]?.[2]).toContain("page-page-123");
     });
   });
 });

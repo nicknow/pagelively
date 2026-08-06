@@ -23,13 +23,15 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { env } from "cloudflare:workers";
 import { createExecutionContext } from "cloudflare:test";
 import worker from "../src/index";
-import { handlePatchPage, handleGetPage } from "../src/admin-api";
+import { handlePatchPage, toPageJson } from "../src/admin-api";
+import type { PageRecord } from "../src/pages-repository";
 import { createTestCacheService } from "../src/cache-service";
 import { createConfig } from "../src/config";
 import { createPagesRepository } from "../src/pages-repository";
 import { createFilesRepository } from "../src/files-repository";
 import { createUnlocksRepository } from "../src/unlocks-repository";
 import { createObjectStore } from "../src/object-store";
+import { createSettingsRepository } from "../src/settings-repository";
 import { verifyPassword } from "../src/password";
 import {
   ACCESS_AUD,
@@ -211,6 +213,7 @@ function makeAdminDeps(objectStore = createObjectStore(env.BUCKET)) {
     config,
     verifiedIdentity: { email: "admin@example.com" },
     unlocks: createUnlocksRepository(env.DB),
+    settingsRepository: createSettingsRepository(env.DB),
   };
 }
 
@@ -737,36 +740,36 @@ describe("S23-D validator adversarial probes", () => {
   // ─────────────────────────────────────────────────────────────────────────
   // PROBE J — toPageJson defensive copy (no mutation)
   // ─────────────────────────────────────────────────────────────────────────
-  it("PROBE J: toPageJson does not mutate the original record", async () => {
-    // We test this by examining the admin-api.ts toPageJson implementation.
-    // toPageJson destructures { password_hash, ...rest } — this creates a new
-    // object, so the original record is not mutated. Let's verify at the DB level
-    // that password_hash survives round trips.
-
-    const pageId = "prob0000j";
-    await insertPage(db, {
-      id: pageId,
-      slug: "probe-j",
-      title: "Probe J",
+  it("PROBE J: toPageJson does not mutate the original record", () => {
+    // Direct test: call toPageJson with a known object reference and verify
+    // the original object is unchanged after the call. Destructuring creates
+    // a new object; the source reference is never modified.
+    const record: PageRecord = {
+      id: "test-id-001",
+      slug: "test-slug",
+      title: "Test",
       kind: "html",
+      rev: 1,
+      entry_path: "index.html",
+      raw_md_path: null,
+      show_source: 0 as const,
+      visibility: "public",
       password_hash: "pbkdf2$10000$test-salt$test-hash",
-    });
+      match_tags: null,
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    };
+    const snapshot = { ...record };
 
-    // Fetch through handleGetPage (which uses toPageJson)
-    const deps = makeAdminDeps();
-    const res = await handleGetPage(
-      new Request(`https://pages.example.com/api/pages/${pageId}`),
-      ctx,
-      deps,
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body.has_password).toBe(true);
-    expect(body).not.toHaveProperty("password_hash");
+    const result = toPageJson(record);
 
-    // Verify the DB still has the hash (toPageJson didn't mutate the source)
-    const hash = await storedPasswordHash(db, pageId);
-    expect(hash).toBe("pbkdf2$10000$test-salt$test-hash");
+    // The result must strip password_hash and add has_password.
+    expect(result).not.toHaveProperty("password_hash");
+    expect(result.has_password).toBe(true);
+
+    // The original record must be unchanged.
+    expect(record).toEqual(snapshot);
+    expect(record.password_hash).toBe("pbkdf2$10000$test-salt$test-hash");
   });
 
   // ─────────────────────────────────────────────────────────────────────────

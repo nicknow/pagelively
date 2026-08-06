@@ -39,12 +39,15 @@ async function insertPage(
     raw_md_path?: string | null;
     show_source?: number;
     visibility?: string;
+    match_tags?: string | null;
+    created_at?: string;
+    updated_at?: string;
   },
 ) {
   await db
     .prepare(
-      `INSERT INTO pages (id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO pages (id, slug, title, kind, rev, entry_path, raw_md_path, show_source, visibility, match_tags, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       p.id,
@@ -56,13 +59,15 @@ async function insertPage(
       p.raw_md_path === undefined ? null : p.raw_md_path,
       p.show_source ?? 0,
       p.visibility ?? "public",
-      isoNow(),
-      isoNow(),
+      p.match_tags === undefined ? null : p.match_tags,
+      p.created_at ?? isoNow(),
+      p.updated_at ?? isoNow(),
     )
     .run();
 }
 
 async function clearPages(db: D1Database) {
+  await db.prepare("DELETE FROM page_tags").run();
   await db.prepare("DELETE FROM pages").run();
   await db.prepare("DELETE FROM files").run();
   await db.prepare("DELETE FROM page_unlocks").run();
@@ -249,6 +254,7 @@ describe("serveEntry", () => {
       pages: {
         getBySlug: () => Promise.reject("simulated unexpected failure"),
         getById: () => Promise.reject("simulated unexpected failure"),
+        list: () => Promise.resolve([]),
       },
     };
 
@@ -270,6 +276,7 @@ describe("serveEntry", () => {
       pages: {
         getBySlug: () => Promise.reject(appError),
         getById: () => Promise.reject(appError),
+        list: () => Promise.resolve([]),
       },
     };
 
@@ -406,5 +413,120 @@ describe("serveEntry", () => {
       '<base href="https://pages.example.com/assets/pages/page000010/2/index.html">',
     );
     expect(res.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  // ── Listing page serving ───────────────────────────────────────────────
+
+  it("serves a listing page with matching public pages when no R2 objects exist", async () => {
+    const { createTagsRepository } = await import("../src/tags-repository");
+    const tagsRepo = createTagsRepository(env.DB);
+
+    // Create the listing page with match_tags
+    await insertPage(db, {
+      id: "page00list",
+      slug: "my-list",
+      title: "My Listing",
+      kind: "listing",
+      visibility: "public",
+      match_tags: "blog,tech",
+    });
+
+    // Create pages with matching tags
+    await insertPage(db, {
+      id: "page00post1",
+      slug: "post-one",
+      title: "Post One",
+      kind: "html",
+      visibility: "public",
+      created_at: "2026-06-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+    });
+    await insertPage(db, {
+      id: "page00post2",
+      slug: "post-two",
+      title: "Post Two",
+      kind: "html",
+      visibility: "public",
+      created_at: "2026-06-02T00:00:00.000Z",
+      updated_at: "2026-06-02T00:00:00.000Z",
+    });
+    // An unlisted page with matching tag — should NOT appear
+    await insertPage(db, {
+      id: "page00post3",
+      slug: "post-three",
+      title: "Post Three",
+      kind: "html",
+      visibility: "unlisted",
+      created_at: "2026-06-03T00:00:00.000Z",
+      updated_at: "2026-06-03T00:00:00.000Z",
+    });
+
+    // Assign tags — Post One and Post Two have ALL required tags (blog + tech)
+    // Post Three missing tech — should NOT match
+    await tagsRepo.setForPage("page00post1", ["blog", "tech"]);
+    await tagsRepo.setForPage("page00post2", ["blog", "tech"]);
+    await tagsRepo.setForPage("page00post3", ["blog"]);
+
+    // Verify data is correctly set up
+    const listingPage = await createPagesRepository(env.DB).getBySlug("my-list");
+    expect(listingPage).not.toBeNull();
+    expect(listingPage!.kind).toBe("listing");
+    expect(listingPage!.match_tags).toBe("blog,tech");
+
+    const matchingIds = await tagsRepo.findPagesByTags(["blog", "tech"]);
+    expect(matchingIds).toContain("page00post1");
+    expect(matchingIds).toContain("page00post2");
+
+    const allPgs = await createPagesRepository(env.DB).list();
+    expect(allPgs.length).toBeGreaterThanOrEqual(4);
+
+    const deps = {
+      ...makeDeps(),
+      tagsRepository: tagsRepo,
+    };
+
+    const res = await serveEntry(new Request("https://pages.example.com/my-list/"), deps);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+    const text = await res.text();
+    // Should contain matching public pages
+    expect(text).toContain("Post One");
+    expect(text).toContain("Post Two");
+    expect(text).toContain("/post-one/");
+    expect(text).toContain("/post-two/");
+    // Should NOT contain unlisted page
+    expect(text).not.toContain("Post Three");
+    // Should NOT contain the listing page's slug (it's filtered out from the list)
+    expect(text).not.toContain("/my-list/");
+    // Should show title
+    expect(text).toContain("My Listing");
+    // Tag badges should appear
+    expect(text).toContain("blog");
+    expect(text).toContain("tech");
+  });
+
+  it("serves an empty listing page (no matching posts) when no tagged pages exist", async () => {
+    const { createTagsRepository } = await import("../src/tags-repository");
+    const tagsRepo = createTagsRepository(env.DB);
+
+    await insertPage(db, {
+      id: "page00emptylist",
+      slug: "empty-list",
+      title: "Empty List",
+      kind: "listing",
+      visibility: "public",
+      match_tags: "nonexistent-tag",
+    });
+
+    const deps = {
+      ...makeDeps(),
+      tagsRepository: tagsRepo,
+    };
+
+    const res = await serveEntry(new Request("https://pages.example.com/empty-list/"), deps);
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("No matching pages yet");
+    expect(text).toContain("Empty List");
   });
 });

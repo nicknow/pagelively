@@ -10,6 +10,7 @@ import { createFilesRepository } from "../src/files-repository";
 import { createUnlocksRepository } from "../src/unlocks-repository";
 import { verifyPassword } from "../src/password";
 import { createObjectStore } from "../src/object-store";
+import { createSettingsRepository } from "../src/settings-repository";
 import type { ObjectStore } from "../src/object-store";
 import { AppError } from "../src/errors";
 import {
@@ -758,7 +759,11 @@ describe("S17 — POST /api/pages (publish)", () => {
     expect(res.status).toBe(201);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.kind).toBe("bundle");
-    expect(body.entry_path).toBe("site/index.md");
+    // The rendered entry is stored as index.html (see buildR2Files), so
+    // entry_path must point there too — not at the original upload path,
+    // which is never written to R2 under that name (regression: publishing
+    // a multi-file upload with a Markdown entry served a 404 on the link).
+    expect(body.entry_path).toBe("index.html");
     expect(body.raw_md_path).toBe("source.md");
     expect(body.slug).toBe("bundle-md");
 
@@ -782,6 +787,79 @@ describe("S17 — POST /api/pages (publish)", () => {
 
     const mdObj = await bucket.get(`pages/${pageId}/1/source.md`);
     expect(await new Response(mdObj!.body).text()).toBe("# Hello Bundle");
+
+    // Regression: browsing to the published link must serve the page, not 404.
+    const publicRes = await worker.fetch(
+      new Request("https://pages.example.com/bundle-md/"),
+      makeEnv(),
+      createExecutionContext(),
+    );
+    expect(publicRes.status).toBe(200);
+    const publicHtml = await publicRes.text();
+    expect(publicHtml).toContain("<h1>Hello Bundle</h1>");
+    expect(publicHtml).toContain(
+      `<base href="https://cdn.example.com/pages/${pageId}/1/index.html">`,
+    );
+  });
+
+  // Independent validator regression test (not from the implementer): a bundle
+  // whose entry is one of SEVERAL markdown documents. Guards against a narrower
+  // fix that only handles the single-md-file case — the non-entry .md file must
+  // stay a plain asset at its original path (not rendered, not moved to
+  // index.html/source.md), while only the manifest-selected entry gets the
+  // index.html/source.md treatment and the corrected entry_path.
+  it("renders only the manifest entry when a bundle has multiple markdown documents", async () => {
+    const token = await validToken();
+    const form = new FormData();
+    appendManifest(form, {
+      entry: "docs/intro.md",
+      slug: "bundle-multi-md",
+      title: "Bundle Multi MD",
+    });
+    appendFile(form, "docs/intro.md", makeFile("intro.md", "# Intro", "text/markdown"));
+    appendFile(form, "docs/appendix.md", makeFile("appendix.md", "# Appendix", "text/markdown"));
+    appendFile(form, "docs/style.css", makeFile("style.css", "body{}", "text/css"));
+
+    const res = await fetchApi("/api/pages", "POST", form, token);
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.kind).toBe("bundle");
+    expect(body.entry_path).toBe("index.html");
+    expect(body.raw_md_path).toBe("source.md");
+
+    const pageId = body.id as string;
+    const keys = await listKeys(bucket, `pages/${pageId}/1/`);
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        `pages/${pageId}/1/source.md`,
+        `pages/${pageId}/1/index.html`,
+        `pages/${pageId}/1/docs/appendix.md`,
+        `pages/${pageId}/1/docs/style.css`,
+      ]),
+    );
+    // The entry's original path is not written; the non-entry markdown file
+    // IS written at its original path, unrendered.
+    expect(keys).not.toContain(`pages/${pageId}/1/docs/intro.md`);
+
+    const htmlObj = await bucket.get(`pages/${pageId}/1/index.html`);
+    expect(await new Response(htmlObj!.body).text()).toContain("<h1>Intro</h1>");
+
+    const mdObj = await bucket.get(`pages/${pageId}/1/source.md`);
+    expect(await new Response(mdObj!.body).text()).toBe("# Intro");
+
+    // The other markdown document is stored verbatim, not rendered.
+    const appendixObj = await bucket.get(`pages/${pageId}/1/docs/appendix.md`);
+    expect(await new Response(appendixObj!.body).text()).toBe("# Appendix");
+
+    const publicRes = await worker.fetch(
+      new Request("https://pages.example.com/bundle-multi-md/"),
+      makeEnv(),
+      createExecutionContext(),
+    );
+    expect(publicRes.status).toBe(200);
+    const publicHtml = await publicRes.text();
+    expect(publicHtml).toContain("<h1>Intro</h1>");
   });
 
   it("falls back to the generated id when the filename slugifies to a reserved name", async () => {
@@ -961,6 +1039,7 @@ describe("S17 — POST /api/pages (publish)", () => {
         config,
         verifiedIdentity: { email: "admin@example.com" },
         unlocks: createUnlocksRepository(env.DB),
+        settingsRepository: createSettingsRepository(env.DB),
       };
     }
 

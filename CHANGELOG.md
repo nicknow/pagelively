@@ -3,6 +3,51 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.0] — Tags, listing pages, settings, and UI polish
+
+### Added
+
+- **Tags** — pages can have zero or more tags (comma-separated labels). Tags are set on upload
+  or edit, stored in a junction table, and accessible via the admin API. See the
+  [user guide](docs/guide/README.md#tags).
+- **Listing pages** — a special page kind that dynamically renders a list of all public pages
+  matching ALL configured tags. Listing pages are created by selecting "Listing page" from the
+  Page kind selector on upload or paste forms. See the [user guide](docs/guide/README.md#listing-pages).
+- **Settings** — a new `/admin/settings` page lets operators configure a default page slug
+  served at the root URL, overriding env-var-based configuration. Managed via
+  `GET/PATCH /api/settings`.
+- **AI guidance** — a new section in the README tells AI agents how to create
+  Pagelively-compatible content (relative paths, inline CSS, self-contained bundles).
+
+### Changed
+
+- **Back navigation** — on edit and upload pages, the Back/Cancel buttons have moved from the
+  bottom form toolbar to a top-left navigation bar with an arrow icon, matching common web app
+  patterns.
+- **Date formatting** — dashboard dates now render in `<time datetime="...">` elements and are
+  formatted client-side using `Intl.DateTimeFormat` with the user's browser locale, instead of
+  raw ISO-8601 strings.
+
+### Fixed
+
+- Publishing a multi-file bundle whose entry is a Markdown file (e.g. multiple `.md` files, or
+  a `.md` file alongside images/assets) stored the page's `entry_path` at the original upload
+  path (e.g. `site/index.md`) instead of `index.html` — the path R2 actually stores the
+  rendered entry under. Every such page 404'd when visited. `entry_path` now matches the stored
+  object for bundle pages with a Markdown entry, consistent with the top-level `markdown` kind.
+- Tags on a page were not persisted across page reloads on the edit form — the tags input now
+  pre-fills with existing tags from the database.
+- Listing pages returned a 404 when visited because the serving logic tried to read the entry
+  HTML from R2 before checking the page kind. Listing pages (which have no uploaded files) now
+  render before the R2 lookup occurs.
+- Listing pages matched pages having ANY of the configured tags instead of ALL. The SQL query
+  now uses `GROUP BY … HAVING COUNT(DISTINCT tag) = n` to require all specified tags.
+- `parseTags()` was scoped inside the upload page's inline script and unavailable to the edit
+  page, causing a `ReferenceError` when saving tags on the edit form. Moved to the shared
+  `SHARED_JS` block.
+- A duplicate `const isPasteListing` declaration in the paste form submit handler would throw a
+  `SyntaxError` on paste form submission. Removed the re-declaration.
+
 ## [1.1.0] — Password protection & multi-domain support
 
 ### Added

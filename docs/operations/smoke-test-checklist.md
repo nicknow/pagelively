@@ -396,6 +396,13 @@ them and that the dashboard surface exists to watch them.
       all existing files to `pages/{id}/{newRev}/`.
 - [ ] `POST /api/pages/{id}/files` replacing a Markdown entry re-renders `index.html` +
       `source.md` at the new rev.
+- [ ] **Known defect (found 2026-08-04, not yet fixed):** `POST /api/pages/{id}/files`
+      replacing `source.md` on a **bundle**-kind page whose entry is Markdown does NOT
+      re-render `index.html` — the new Markdown is saved but the old rendered HTML keeps
+      serving (silent staleness). `isEntryReplacement`/`prepareEntryFiles` in `src/admin-api.ts`
+      key off `page.entry_path`/`isMarkdownPath(page.entry_path)` instead of
+      `page.raw_md_path !== null` (the check `servedEntryPath` already uses correctly). Confirm
+      this is fixed before relying on bundle+Markdown entry replacement in production.
 - [ ] `DELETE /api/pages/{id}/files/{path}` with a valid token removes a file, bumps `rev`, and
       copies remaining files to the new rev.
 - [ ] `DELETE /api/pages/{id}/files/index.html` returns `400`
@@ -528,3 +535,12 @@ public, max-age=300, stale-while-revalidate=3600` with a `Cache-Tag: page-{id}`;
       `multipart/form-data` POST whose boundary does not appear in the body, and for a POST with
       no Content-Type at all. A valid `multipart/form-data` unlock POST must still `303` (the
       guard is not over-broad).
+
+## Listing page UI (upload and paste forms)
+
+- [ ] The upload form has a "Page kind" radio with Regular/Listing options; selecting Listing shows "Match tags" input and hides content/entry/tag fields; selecting Regular restores them.
+- [ ] The paste form has the same "Page kind" radio with the same toggle behavior.
+- [ ] Creating a listing page (Listing kind + match tags) via upload and visiting its URL shows a dynamic list of matching public pages.
+- [ ] Creating a listing page via the paste form works the same way.
+- [ ] Editing a listing page shows the "Match tags" input pre-filled; changing it updates the listing content on save.
+- [ ] Editing a regular page does not show the "Match tags" input.

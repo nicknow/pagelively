@@ -90,6 +90,25 @@ describe("createConfig", () => {
     ).toBe("https://myteam.cloudflareaccess.com");
   });
 
+  it("strips http:// prefix identically to https:// from teamDomainUrl", () => {
+    expect(
+      createConfig(env({ ACCESS_TEAM_DOMAIN: "http://myteam.cloudflareaccess.com" })).access
+        .teamDomainUrl,
+    ).toBe("https://myteam.cloudflareaccess.com");
+    expect(
+      createConfig(env({ ACCESS_TEAM_DOMAIN: "http://myteam.cloudflareaccess.com/" })).access
+        .teamDomainUrl,
+    ).toBe("https://myteam.cloudflareaccess.com");
+  });
+
+  it("uses an empty teamDomainUrl when ACCESS_TEAM_DOMAIN is whitespace-only", () => {
+    expect(createConfig(env({ ACCESS_TEAM_DOMAIN: "   " })).access.teamDomainUrl).toBe("");
+  });
+
+  it("treats a single-character zero AUD as placeholder (null)", () => {
+    expect(createConfig(env({ ACCESS_AUD: "0" })).access.aud).toBeNull();
+  });
+
   it("uses an empty teamDomainUrl when ACCESS_TEAM_DOMAIN is missing", () => {
     expect(createConfig(env({ ACCESS_TEAM_DOMAIN: undefined })).access.teamDomainUrl).toBe("");
   });

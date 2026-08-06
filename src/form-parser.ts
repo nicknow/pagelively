@@ -13,8 +13,11 @@ export interface ParsedPublishForm {
     title?: string;
     showSource?: boolean;
     entry?: string;
+    kind?: string;
     visibility?: "public" | "unlisted";
     password?: string;
+    tags?: string[];
+    matchTags?: string;
   };
   files: Array<{
     path: string;
@@ -124,6 +127,21 @@ function parseManifestField(raw: string): ParsedPublishForm["manifest"] {
       }
       manifest.password = parsed.password;
     }
+    if ("kind" in parsed && typeof parsed.kind === "string") {
+      manifest.kind = parsed.kind;
+    }
+    if ("tags" in parsed) {
+      if (!Array.isArray(parsed.tags)) {
+        throw new AppError("invalid_tags", 400, "Tags must be an array of strings.");
+      }
+      manifest.tags = parsed.tags.filter((t: unknown) => typeof t === "string");
+    }
+    if ("matchTags" in parsed) {
+      if (typeof parsed.matchTags !== "string") {
+        throw new AppError("invalid_match_tags", 400, "matchTags must be a string.");
+      }
+      manifest.matchTags = parsed.matchTags;
+    }
     return manifest;
   } catch (error) {
     if (error instanceof AppError) {
@@ -187,6 +205,21 @@ export async function parsePublishJson(request: Request): Promise<ParsedPublishF
     }
     manifest.password = body.password;
   }
+  if ("tags" in body) {
+    if (!Array.isArray(body.tags)) {
+      throw new AppError("invalid_tags", 400, "Tags must be an array of strings.");
+    }
+    manifest.tags = body.tags.filter((t: unknown) => typeof t === "string");
+  }
+  if ("kind" in body && typeof body.kind === "string") {
+    manifest.kind = body.kind;
+  }
+  if ("matchTags" in body) {
+    if (typeof body.matchTags !== "string") {
+      throw new AppError("invalid_match_tags", 400, "matchTags must be a string.");
+    }
+    manifest.matchTags = body.matchTags;
+  }
 
   const files: ParsedPublishForm["files"] = [
     {
@@ -211,7 +244,15 @@ export async function parsePublishForm(request: Request): Promise<ParsedPublishF
   try {
     formData = await request.formData();
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
+    // The runtime always throws TypeError for formData() — String(error)
+    // branch is defensive only.
+    let detail: string;
+    if (error instanceof Error) {
+      detail = error.message;
+    } else {
+      /* istanbul ignore next -- unreachable: formData() always throws TypeError */
+      detail = String(error);
+    }
     throw new AppError("invalid_form_data", 400, "Could not parse multipart form data.", detail);
   }
 
@@ -229,6 +270,7 @@ export async function parsePublishForm(request: Request): Promise<ParsedPublishF
 
     if (name.startsWith("file:")) {
       const file = await parseFilePart(name, value);
+      /* istanbul ignore next -- parseFilePart always throws or returns a file, never null */
       if (file) {
         files.push(file);
       }
@@ -252,7 +294,15 @@ export async function parseFileUpdateForm(request: Request): Promise<ParsedPubli
   try {
     formData = await request.formData();
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
+    // The runtime always throws TypeError for formData() — String(error)
+    // branch is defensive only.
+    let detail: string;
+    if (error instanceof Error) {
+      detail = error.message;
+    } else {
+      /* istanbul ignore next -- unreachable: formData() always throws TypeError */
+      detail = String(error);
+    }
     throw new AppError("invalid_form_data", 400, "Could not parse multipart form data.", detail);
   }
 
@@ -260,6 +310,7 @@ export async function parseFileUpdateForm(request: Request): Promise<ParsedPubli
   for (const [name, value] of formData) {
     if (name.startsWith("file:")) {
       const file = await parseFilePart(name, value);
+      /* istanbul ignore next -- parseFilePart always throws or returns a file, never null */
       if (file) {
         files.push(file);
       }

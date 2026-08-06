@@ -91,6 +91,36 @@ directly into the text box, choose the format (Markdown is the default), fill in
 slug/title/visibility/show-source fields, and click **Publish**. This is the fastest path when
 you don't have a file to upload — there's no file picker involved at all.
 
+### Tags
+
+Both the **Upload files** and **Paste content** forms have a **Tags** field. Tags are simple
+labels you can add to a page — for example `blog`, `tech`, `announcement`. You can enter them
+as a comma-separated list. Tags are normalized to lowercase automatically.
+
+From the edit screen, you can change a page's tags at any time. Click **Update metadata** to
+save the changes. Tags are included in the page's API response and can be used to organize
+your content.
+
+### Listing pages
+
+A **listing page** is a special kind of page that automatically shows a list of links to
+other pages. You create a listing page by selecting **Listing page** from the **Page kind**
+selector on the upload or paste form, then entering the tags you want to match in the
+**Match tags** field (comma-separated).
+
+When someone visits a listing page's URL, Pagelively finds all **public** pages that have
+**all** the tags you specified and renders them as a linked list, newest first. Pages
+marked `unlisted` are excluded. A page that has _additional_ tags beyond the ones you
+specified is still included — only the matching tags count.
+
+> **Note: up to 5-minute delay.** Listing page output is cached by Cloudflare's edge network
+> for up to 5 minutes. When you add or change tags on an individual page, any listing page
+> that references those tags may not reflect the change for up to 5 minutes. This is normal
+> — the listing page is a server-rendered view that gets cached like any other page, and
+> changing a page's tags doesn't automatically flush the cached output of every listing page
+> that might reference it. If you need to see an immediate update, wait for the cache to
+> expire (up to 5 minutes) and refresh.
+
 ## ids, slugs, and URLs
 
 Every page is reachable two ways:
@@ -192,3 +222,8 @@ allowed through Access has full access to every page.
 **Where do I go to change my custom domain, add another admin email, or re-run provisioning?**
 That's covered in the [operations guide](../operations/README.md) — those are deploy-time
 changes, not something done from `/admin`.
+
+**I changed a page's tags but the listing page hasn't updated. How long do I need to wait?**
+Up to 5 minutes. Listing pages are edge-cached, and tag changes on individual pages don't
+automatically flush the cached output of listing pages that reference those tags. The cache
+expires within 5 minutes (see the [listing page section](#listing-pages) for details).

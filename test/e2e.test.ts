@@ -47,6 +47,7 @@ describe("S22 — full local end-to-end journey", () => {
   // Journey state shared across the sequential steps.
   let homeId = "";
   let bundleId = "";
+  let imageId = "";
   let mdId = "";
   let privateKey: CryptoKey;
   let fetchMock: ReturnType<typeof createMockFetch>;
@@ -302,7 +303,53 @@ describe("S22 — full local end-to-end journey", () => {
     );
   });
 
-  it("step 8: publish a markdown page with show_source; the rendered entry serves, the raw source lives on the CDN path", async () => {
+  it("step 8: publish an image-kind page; worker redirects to CDN (image pages are never served directly by the Worker per spec §6); stored bytes verified from R2", async () => {
+    const form = new FormData();
+    form.append("manifest", JSON.stringify({ slug: "photo", title: "Photo" }));
+    appendFile(form, "sunset.jpg", makeFile("sunset.jpg", "FAKE-JPEG-BYTES", "image/jpeg"));
+
+    const res = await fetchApi("/api/pages", "POST", form, await validToken());
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.kind).toBe("image");
+    expect(body.slug).toBe("photo");
+    expect(body.title).toBe("Photo");
+    expect(body.entry_path).toBe("sunset.jpg");
+    expect(body.rev).toBe(1);
+    expect(body.files).toHaveLength(1);
+    imageId = body.id as string;
+    expect(imageId).toMatch(/^[A-Za-z0-9_-]{8,10}$/);
+
+    // The image object is stored under the rev folder with upload-time metadata.
+    // This is the authoritative byte-level verification — the Worker only
+    // redirects to the CDN for image pages (spec §6), so body bytes and
+    // content-type cannot be asserted through the Worker response path.
+    const stored = await env.BUCKET.get(`pages/${imageId}/1/sunset.jpg`);
+    expect(stored).not.toBeNull();
+    expect(await new Response(stored!.body).text()).toBe("FAKE-JPEG-BYTES");
+    expect(stored!.httpMetadata).toMatchObject({ contentType: "image/jpeg" });
+
+    // The public slug URL 301s to the CDN object (spec §6: image pages redirect).
+    // The Worker never returns the image body directly — that's the CDN's job
+    // in production. The Location header pin is the coverage for the redirect.
+    const serve = await fetchPublic("/photo/");
+    expect(serve.status).toBe(301);
+    expect(serve.headers.get("Location")).toBe(
+      `https://cdn.example.com/pages/${imageId}/1/sunset.jpg`,
+    );
+    expect(serve.headers.get("Cache-Control")).toMatch(/^public, max-age=/);
+    expect(serve.headers.get("Cache-Tag")).toBe(`page-${imageId}`);
+
+    // The id URL also 301s.
+    const idServe = await fetchPublic(`/p/${imageId}/`);
+    expect(idServe.status).toBe(301);
+    expect(idServe.headers.get("Location")).toBe(
+      `https://cdn.example.com/pages/${imageId}/1/sunset.jpg`,
+    );
+  });
+
+  it("step 9: publish a markdown page with show_source; the rendered entry serves, the raw source lives on the CDN path", async () => {
     const form = new FormData();
     form.append("manifest", JSON.stringify({ showSource: true }));
     appendFile(form, "notes.md", makeFile("notes.md", `# ${MD_MARKER}\n\nWorld.`, "text/markdown"));
@@ -347,7 +394,7 @@ describe("S22 — full local end-to-end journey", () => {
     expect(raw404.headers.get("Cache-Control")).toBe("no-store");
   });
 
-  it("step 9: the admin dashboard renders and lists the published pages", async () => {
+  it("step 10: the admin dashboard renders and lists the published pages", async () => {
     const res = await fetchApi("/admin", "GET", null, await validToken());
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
@@ -364,7 +411,7 @@ describe("S22 — full local end-to-end journey", () => {
     expect(text).toContain("/admin/upload");
   });
 
-  it("step 10: PATCH edits metadata without a rev bump", async () => {
+  it("step 11: PATCH edits metadata without a rev bump", async () => {
     const res = await fetchApi(
       `/api/pages/${bundleId}`,
       "PATCH",
@@ -379,7 +426,7 @@ describe("S22 — full local end-to-end journey", () => {
     expect(body.rev).toBe(1);
   });
 
-  it("step 11: replacing the entry file bumps rev; the new rev serves, the old is immutable", async () => {
+  it("step 12: replacing the entry file bumps rev; the new rev serves, the old is immutable", async () => {
     const form = new FormData();
     appendFile(
       form,
@@ -417,7 +464,7 @@ describe("S22 — full local end-to-end journey", () => {
     expect(await new Response(rev1Obj!.body).text()).toContain(BUNDLE_MARKER);
   });
 
-  it("step 12: deleting a file bumps rev; the deleted asset 404s at the current rev", async () => {
+  it("step 13: deleting a file bumps rev; the deleted asset 404s at the current rev", async () => {
     const res = await fetchApi(
       `/api/pages/${bundleId}/files/style.css`,
       "DELETE",
@@ -446,7 +493,7 @@ describe("S22 — full local end-to-end journey", () => {
     );
   });
 
-  it("step 13: PATCH edits the home page's slug; the new slug serves, the old 404s clean, the id serves, rev is unchanged", async () => {
+  it("step 14: PATCH edits the home page's slug; the new slug serves, the old 404s clean, the id serves, rev is unchanged", async () => {
     // The page created for the html leg (step 3) is the one whose slug is
     // edited — no new page needed. The slug edit is metadata-only (ADR 0012 /
     // admin-api-edit.test.ts): rev stays 1 and the R2 objects are untouched.
@@ -486,7 +533,7 @@ describe("S22 — full local end-to-end journey", () => {
     expect(await idRes.text()).toContain(HOME_MARKER);
   });
 
-  it("step 14: DELETE removes the page, its rows, and its R2 objects", async () => {
+  it("step 15: DELETE removes the page, its rows, and its R2 objects", async () => {
     const res = await fetchApi(`/api/pages/${bundleId}`, "DELETE", null, await validToken());
     expect(res.status).toBe(204);
     expect(res.body).toBeNull();
@@ -509,7 +556,7 @@ describe("S22 — full local end-to-end journey", () => {
     expect(files.results).toHaveLength(0);
   });
 
-  it("step 15: a reserved slug is rejected through UI → API → 4xx with zero orphan rows/objects", async () => {
+  it("step 16: a reserved slug is rejected through UI → API → 4xx with zero orphan rows/objects", async () => {
     // UI leg: the admin upload page carries the S19 error-surfacing box that
     // surfaces API errors to the operator (`#upload-error`, role="alert" —
     // pre-existing markup on /admin/upload; the dashboard /admin does not
@@ -560,7 +607,7 @@ describe("S22 — full local end-to-end journey", () => {
     expect(reservedRow).toBeNull();
   });
 
-  it("step 16: HOME_MODE=404 returns the clean 404 at /", async () => {
+  it("step 17: HOME_MODE=404 returns the clean 404 at /", async () => {
     const res = await fetchPublic("/", { HOME_MODE: "404", HOME_PAGE_SLUG: "" });
     expect(res.status).toBe(404);
     expect(res.headers.get("Cache-Control")).toBe("no-store");

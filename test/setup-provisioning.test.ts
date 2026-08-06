@@ -2,6 +2,7 @@ import { describe, expect, it, vi, type Mock } from "vitest";
 import {
   envToSetupOptions,
   findCoveringZone,
+  normalizeDomain,
   provisioningError,
   resolveTeamDomain,
   runSetup,
@@ -799,5 +800,257 @@ describe("runSetup R2 custom-domain attach", () => {
     await expect(
       runSetup(baseOptions({ accessTeamDomain: "team.cloudflareaccess.com" }), deps),
     ).rejects.toThrow("Failed to connect R2 custom domain (HTTP 400): [9999] something");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WI-10: merged from setup-provisioning-validator.test.ts (validator edge cases)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ORG_OK(domain: string): ApiResponse {
+  return ok({ result: { domain } });
+}
+
+/** Simplified zone-list responder for the CDN-missing test (avoids full provisioning mock). */
+function zonelistResponder(zones: Record<string, { id: string; name: string }>): ApiCaller {
+  return async (method: string, path: string) => {
+    // Collision guard queries
+    if (method === "GET" && path.startsWith("/accounts/acc-123/workers/domains"))
+      return ok({ result: [] });
+    if (
+      method === "GET" &&
+      path.startsWith("/accounts/acc-123/r2/buckets/") &&
+      path.endsWith("/domains/custom")
+    )
+      return ok({ result: { domains: [] } });
+
+    if (method === "GET" && path === "/accounts/acc-123/access/apps")
+      return ok({
+        result: [
+          {
+            id: "app-123",
+            aud: "aud-123",
+            name: "Pagelively Admin",
+            domain: "n.3a8r.com/admin",
+            destinations: [
+              { type: "public", uri: "n.3a8r.com/admin" },
+              { type: "public", uri: "n.3a8r.com/api" },
+            ],
+            type: "self_hosted",
+          },
+        ],
+      });
+    if (method === "GET" && path === "/accounts/acc-123/access/organizations")
+      return ok({ result: { domain: "team.cloudflareaccess.com" } });
+    if (method === "POST" && path === "/accounts/acc-123/access/apps")
+      return ok({
+        result: { id: "app-123", aud: "aud-123", name: "Pagelively admin", type: "self_hosted" },
+      });
+    if (method === "GET" && path === "/accounts/acc-123/access/apps/app-123/policies")
+      return ok({ result: [] });
+    if (method === "POST" && path === "/accounts/acc-123/access/apps/app-123/policies")
+      return ok({ result: { id: "policy-1" } });
+    if (method === "GET" && path.startsWith("/zones")) {
+      const name = new URLSearchParams(path.split("?")[1]).get("name") || "";
+      const zone = zones[name];
+      return ok({ result: zone ? [zone] : [] });
+    }
+    if (method === "GET" && path === "/accounts/acc-123/r2/buckets")
+      return ok({ result: { buckets: [] } });
+    if (method === "POST" && path === "/accounts/acc-123/r2/buckets")
+      return ok({ result: { name: "pagelively-assets" } });
+    if (method === "POST" && path.includes("/domains/custom"))
+      return ok({ result: { domain: "cdn.pages.example.com", status: "active" } });
+    if (method === "GET" && path === "/accounts/acc-123/d1/database") return ok({ result: [] });
+    if (method === "POST" && path === "/accounts/acc-123/d1/database")
+      return ok({ result: { uuid: "d1-123", name: "pagelively-db" } });
+    if (method === "GET" && path === "/accounts/acc-123/storage/kv/namespaces")
+      return ok({ result: [] });
+    throw new Error(`unexpected API call: ${method} ${path}`);
+  };
+}
+
+// --- resolveTeamDomain edge shapes (validator) ---
+
+describe("resolveTeamDomain: org response shape edge cases (validator)", () => {
+  const noopPrompt = vi.fn(async () => "");
+
+  it("org `result` as an ARRAY (not the documented single object) falls through to the prompt", async () => {
+    const api = vi.fn<ApiCaller>(async () =>
+      ok({ result: [{ domain: "arr.cloudflareaccess.com" }] }),
+    );
+    const prompt = vi.fn(async () => "prompted.cloudflareaccess.com");
+    const result = await resolveTeamDomain({ accountId: "acc-1", api, prompt });
+    expect(result).toBe("prompted.cloudflareaccess.com");
+    expect(api).toHaveBeenCalledTimes(1);
+  });
+
+  it("org non-JSON body (json() throws) falls through to the prompt", async () => {
+    const api = vi.fn<ApiCaller>(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new Error("no body");
+      },
+    }));
+    const prompt = vi.fn(async () => "prompted.cloudflareaccess.com");
+    const result = await resolveTeamDomain({ accountId: "acc-1", api, prompt });
+    expect(result).toBe("prompted.cloudflareaccess.com");
+  });
+
+  it("api() itself throwing is swallowed and falls through to the prompt", async () => {
+    const api = vi.fn<ApiCaller>(async () => {
+      throw new Error("network down");
+    });
+    const prompt = vi.fn(async () => "prompted.cloudflareaccess.com");
+    const result = await resolveTeamDomain({ accountId: "acc-1", api, prompt });
+    expect(result).toBe("prompted.cloudflareaccess.com");
+  });
+
+  it("SETUP_ACCESS_TEAM_DOMAIN with surrounding whitespace is trimmed", async () => {
+    const api = vi.fn<ApiCaller>();
+    const result = await resolveTeamDomain({
+      env: { SETUP_ACCESS_TEAM_DOMAIN: "  team.cloudflareaccess.com  " },
+      api,
+      prompt: noopPrompt,
+    });
+    expect(result).toBe("team.cloudflareaccess.com");
+    expect(api).not.toHaveBeenCalled();
+  });
+
+  it("whitespace-only SETUP_ACCESS_TEAM_DOMAIN is ignored (falls through to org/prompt)", async () => {
+    const api = vi.fn<ApiCaller>(async () => ORG_OK("org.cloudflareaccess.com"));
+    const result = await resolveTeamDomain({
+      env: { SETUP_ACCESS_TEAM_DOMAIN: "   " },
+      accountId: "acc-1",
+      api,
+      prompt: noopPrompt,
+    });
+    expect(result).toBe("org.cloudflareaccess.com");
+  });
+
+  it("org body with ONLY the documented `auth_domain` field resolves to the team domain (no prompt)", async () => {
+    const api = vi.fn<ApiCaller>(async () =>
+      ok({ result: { auth_domain: "team.cloudflareaccess.com" } }),
+    );
+    const prompt = vi.fn(async () => "prompted.cloudflareaccess.com");
+    const result = await resolveTeamDomain({ accountId: "acc-1", api, prompt });
+    expect(result).toBe("team.cloudflareaccess.com");
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it("org body with BOTH `domain` and `auth_domain` prefers `domain` (documented precedence)", async () => {
+    const api = vi.fn<ApiCaller>(async () =>
+      ok({
+        result: { domain: "domain.cloudflareaccess.com", auth_domain: "auth.cloudflareaccess.com" },
+      }),
+    );
+    const prompt = vi.fn(async () => "prompted.cloudflareaccess.com");
+    const result = await resolveTeamDomain({ accountId: "acc-1", api, prompt });
+    expect(result).toBe("domain.cloudflareaccess.com");
+    expect(prompt).not.toHaveBeenCalled();
+  });
+});
+
+// --- zone candidates: trailing dot (validator) ---
+
+describe("zoneCandidates / findCoveringZone trailing-dot input (validator)", () => {
+  it('normalizeDomain strips trailing dots ("example.com." -> "example.com")', () => {
+    expect(normalizeDomain("example.com.")).toBe("example.com");
+    expect(normalizeDomain("https://Example.COM./")).toBe("example.com");
+  });
+
+  it("a trailing dot yields dotless candidates with NO empty-string candidate", () => {
+    const candidates = zoneCandidates("cdn.n.3a8r.com.");
+    expect(candidates).toEqual(["cdn.n.3a8r.com", "n.3a8r.com", "3a8r.com", "com"]);
+    expect(candidates).not.toContain("");
+  });
+
+  it("trailing-dot domain with no covering zone: returns undefined (graceful, no empty-name query)", async () => {
+    const api = vi.fn<ApiCaller>(async (_m, p) => {
+      const name = new URLSearchParams(p.split("?")[1]).get("name");
+      expect(name).not.toBe("");
+      return ok({ result: [] });
+    });
+    const zone = await findCoveringZone("cdn.n.3a8r.com.", api);
+    expect(zone).toBeUndefined();
+  });
+
+  it("trailing-dot domain resolves the covering zone gracefully even against an API that 400s a blank name", async () => {
+    const api = vi.fn<ApiCaller>(async (_m, p) => {
+      const name = new URLSearchParams(p.split("?")[1]).get("name");
+      if (name === "") return err(400, [{ code: 1003, message: "invalid filter" }]);
+      if (name === "3a8r.com") return ok({ result: [{ id: "zone-3a8r", name: "3a8r.com" }] });
+      return ok({ result: [] });
+    });
+    const zone = await findCoveringZone("n.3a8r.com.", api);
+    expect(zone).toEqual({ id: "zone-3a8r", name: "3a8r.com" });
+    const names = api.mock.calls.map((c) =>
+      new URLSearchParams(String(c[1]).split("?")[1]).get("name"),
+    );
+    expect(names).toEqual(["n.3a8r.com", "3a8r.com"]);
+  });
+
+  it("findCoveringZone('example.com.', api) returns the zone without ever being called with an empty name", async () => {
+    const api = vi.fn<ApiCaller>(async (_m, p) => {
+      const name = new URLSearchParams(p.split("?")[1]).get("name");
+      expect(name).toBe("example.com");
+      return ok({ result: [{ id: "zone-ex", name: "example.com" }] });
+    });
+    const zone = await findCoveringZone("example.com.", api);
+    expect(zone).toEqual({ id: "zone-ex", name: "example.com" });
+    expect(api).toHaveBeenCalledTimes(1);
+  });
+});
+
+// --- provisioningError: non-array errors body (validator) ---
+
+describe("provisioningError defensive shapes (validator)", () => {
+  it("errors as a non-array (object) falls back to the generic message", async () => {
+    const message = await provisioningError(
+      { status: 400, json: async () => ({ success: false, errors: { code: 10042 } }) },
+      "Failed to list R2 buckets",
+      [10042],
+    );
+    expect(message).toBe("Failed to list R2 buckets (HTTP 400)");
+  });
+});
+
+// --- runSetup: CDN zone missing while worker zone resolves (validator) ---
+
+describe("runSetup: CDN zone missing while worker zone resolves (validator)", () => {
+  it("logs the CDN-domain error and returns without deploying or writing wrangler.toml", async () => {
+    const zones = { "3a8r.com": { id: "zone-3a8r", name: "3a8r.com" } };
+    const deps = makeDeps(zonelistResponder(zones));
+    await runSetup(baseOptions({ cdnDomain: "cdn.example.org", workerDomain: "n.3a8r.com" }), deps);
+
+    expect(deps._calls.logs.some((m) => m.includes("Resolved zone for n.3a8r.com"))).toBe(true);
+    expect(
+      deps._calls.logs.some(
+        (m) => m.includes("cdn.example.org") && m.includes("not found in this Cloudflare account"),
+      ),
+    ).toBe(true);
+    expect(deps._calls.logs.some((m) => m.includes("Resolved zone for cdn.example.org"))).toBe(
+      false,
+    );
+
+    const deployCalls = deps.wrangler.mock.calls.filter((c) => c[0].includes("deploy"));
+    expect(deployCalls).toHaveLength(0);
+    expect(deps._calls.writes).toHaveLength(0);
+    const r2ProvisioningCalls = deps.api.mock.calls.filter(
+      (c) => c[0] === "POST" && String(c[1]).includes("/r2/buckets"),
+    );
+    expect(r2ProvisioningCalls).toHaveLength(0);
+  });
+});
+
+// --- prompt answer with a scheme/path (validator) ---
+
+describe("resolveTeamDomain: prompt answer with scheme/path (validator)", () => {
+  it("is stored verbatim (trimmed only, no normalization) — documents current behavior", async () => {
+    const api = vi.fn<ApiCaller>(async () => ok({ result: {} }));
+    const prompt = vi.fn(async () => "  https://team.cloudflareaccess.com/admin  ");
+    const result = await resolveTeamDomain({ accountId: "acc-1", api, prompt });
+    expect(result).toBe("https://team.cloudflareaccess.com/admin");
   });
 });

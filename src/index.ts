@@ -28,6 +28,8 @@ import { serveAsset } from "./asset-serve";
 import { createUnlocksRepository } from "./unlocks-repository";
 import { createAccessVerifier } from "./access-verify";
 import { createJwksProvider } from "./jwks-provider";
+import { createSettingsRepository } from "./settings-repository";
+import { createTagsRepository } from "./tags-repository";
 import {
   handleListPages,
   handleGetPage,
@@ -36,8 +38,15 @@ import {
   handleAddFiles,
   handleDeleteFile,
   handleDeletePage,
+  handleGetSettings,
+  handlePatchSettings,
 } from "./admin-api";
-import { handleAdminDashboard, handleAdminUpload, handleAdminEdit } from "./admin-ui";
+import {
+  handleAdminDashboard,
+  handleAdminUpload,
+  handleAdminEdit,
+  handleAdminSettings,
+} from "./admin-ui";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -58,6 +67,8 @@ export default {
         aud: config.access.aud,
         jwksProvider,
       });
+      const settingsRepository = createSettingsRepository(env.DB);
+      const tagsRepository = createTagsRepository(env.DB);
       const deps = {
         config,
         pages,
@@ -67,6 +78,8 @@ export default {
         accessVerifier,
         filesRepository,
         unlocks,
+        settingsRepository,
+        tagsRepository,
       };
 
       const url = new URL(request.url);
@@ -85,6 +98,12 @@ export default {
       }
 
       if (route.type === "home") {
+        // Check if a default_page is set in D1 settings (overrides env vars).
+        const defaultPageSetting = await settingsRepository.get("default_page");
+        if (defaultPageSetting && defaultPageSetting !== "") {
+          const target = new URL(`/${defaultPageSetting}/`, url);
+          return await serveEntry(new Request(target, { headers: request.headers }), deps);
+        }
         const home = resolveHome(config.homeMode, config.homePageSlug);
         if (home.type === "404") {
           return clean404Response(url);
@@ -129,12 +148,15 @@ export default {
         };
 
         if (route.type === "admin") {
-          const adminPath = url.pathname.replace(/\/+$/, "") || "/admin";
+          const adminPath = url.pathname.replace(/\/+$/, "");
           if (adminPath === "/admin" || adminPath === "/admin/") {
             return await handleAdminDashboard(request, ctx, adminDeps);
           }
           if (adminPath === "/admin/upload") {
             return await handleAdminUpload(request, ctx, adminDeps);
+          }
+          if (adminPath === "/admin/settings") {
+            return await handleAdminSettings(request, ctx, adminDeps);
           }
           if (adminPath.startsWith("/admin/edit/")) {
             return await handleAdminEdit(request, ctx, adminDeps);
@@ -169,7 +191,19 @@ export default {
         if (fileDeleteMatch && method === "DELETE") {
           return await handleDeleteFile(request, ctx, adminDeps);
         }
+        if (pathname === "/api/settings" && method === "GET") {
+          return await handleGetSettings(request, ctx, adminDeps);
+        }
+        if (pathname === "/api/settings" && method === "PATCH") {
+          return await handlePatchSettings(request, ctx, adminDeps);
+        }
         if (pathname === "/api/pages") {
+          return toErrorResponse(
+            new AppError("method_not_allowed", 405, "Method Not Allowed"),
+            cache.headersFor("admin"),
+          );
+        }
+        if (pathname === "/api/settings") {
           return toErrorResponse(
             new AppError("method_not_allowed", 405, "Method Not Allowed"),
             cache.headersFor("admin"),

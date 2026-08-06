@@ -34,6 +34,9 @@ import type { AppConfig } from "./config";
 import type { VerifiedIdentity } from "./access-verify";
 import type { ObjectStore } from "./object-store";
 
+import type { SettingsRepository } from "./settings-repository";
+import type { TagsRepository } from "./tags-repository";
+
 export interface AdminApiDeps {
   pagesRepository: PagesRepository;
   filesRepository: FilesRepository;
@@ -42,6 +45,8 @@ export interface AdminApiDeps {
   config: AppConfig;
   verifiedIdentity: VerifiedIdentity;
   unlocks: UnlocksRepository;
+  settingsRepository?: SettingsRepository;
+  tagsRepository?: TagsRepository;
 }
 
 import type { UnlocksRepository } from "./unlocks-repository";
@@ -52,7 +57,7 @@ import { hashPassword, validatePassword } from "./password";
  * has_password: boolean. Every page JSON surface uses this so the hash
  * never leaks (R19).
  */
-function toPageJson(record: PageRecord): Record<string, unknown> {
+export function toPageJson(record: PageRecord): Record<string, unknown> {
   const { password_hash, ...rest } = record;
   return { ...rest, has_password: password_hash !== null };
 }
@@ -71,7 +76,7 @@ function extractIdFromPath(pathname: string): string | undefined {
 const MAX_TITLE_LENGTH = 256;
 const MAX_SLUG_SUFFIX_ATTEMPTS = 1000;
 
-type PageKind = "image" | "html" | "markdown" | "bundle";
+type PageKind = "image" | "html" | "markdown" | "bundle" | "listing";
 
 function isHtmlPath(path: string): boolean {
   const lower = path.toLowerCase();
@@ -276,20 +281,34 @@ function buildR2Files(
   return r2Files;
 }
 
+async function loadTags(
+  tagsRepository: TagsRepository | undefined,
+  pageId: string,
+): Promise<string[]> {
+  if (!tagsRepository) return [];
+  return tagsRepository.getByPageId(pageId);
+}
+
 export async function handleListPages(
   _request: Request,
   _ctx: ExecutionContext,
   deps: AdminApiDeps,
 ): Promise<Response> {
-  const { pagesRepository, cacheService, config, verifiedIdentity } = deps;
+  const { pagesRepository, cacheService, config, verifiedIdentity, tagsRepository } = deps;
   // Read-only endpoints do not consume identity/config yet, but reference them
   // so the unused-parameter lint rule stays happy and the contract is explicit.
   void config;
   void verifiedIdentity;
 
   const pages = await pagesRepository.list();
+  const pageJsonList = await Promise.all(
+    pages.map(async (page) => ({
+      ...toPageJson(page),
+      tags: await loadTags(tagsRepository, page.id),
+    })),
+  );
   const headers = adminJsonHeaders(cacheService);
-  return Response.json(pages.map(toPageJson), { headers });
+  return Response.json(pageJsonList, { headers });
 }
 
 export async function handleGetPage(
@@ -313,8 +332,9 @@ export async function handleGetPage(
   }
 
   const files = await filesRepository.listForPage(id);
+  const tags = await loadTags(deps.tagsRepository, id);
   const headers = adminJsonHeaders(cacheService);
-  return Response.json({ ...toPageJson(page), files }, { headers });
+  return Response.json({ ...toPageJson(page), files, tags }, { headers });
 }
 
 export async function handleCreatePage(
@@ -328,11 +348,19 @@ export async function handleCreatePage(
   const { manifest, files } = contentType.startsWith("application/json")
     ? await parsePublishJson(request)
     : await parsePublishForm(request);
-  if (files.length === 0) {
+
+  // Detect listing pages: explicit kind or matchTags with no files
+  const isListing =
+    manifest.kind === "listing" || (manifest.matchTags !== undefined && files.length === 0);
+
+  if (files.length === 0 && !isListing) {
     throw new AppError("no_files", 400, "No files were uploaded.");
   }
 
-  const { kind, entry } = determineKindAndEntry(files, manifest.entry);
+  const actualKind = isListing ? "listing" : undefined;
+  const { kind, entry } = actualKind
+    ? { kind: "listing" as PageKind, entry: "index.html" }
+    : determineKindAndEntry(files, manifest.entry);
   const { slug: cleanedSlug } = validateManifest(manifest, files);
 
   const id = generateId();
@@ -353,6 +381,7 @@ export async function handleCreatePage(
 
   const slug = await resolveSlug(cleanedSlug, title, pagesRepository, id);
   const showSource = manifest.showSource === true ? 1 : 0;
+  const tags = manifest.tags ?? [];
 
   // S23: password validation before any side effects
   let passwordHash: string | undefined;
@@ -376,9 +405,16 @@ export async function handleCreatePage(
     size: file.size,
   }));
 
+  // A bundle whose entry is Markdown is rendered and stored as index.html by
+  // buildR2Files, just like the top-level "markdown" kind — entry_path must
+  // point there too, not at the original upload path (never written to R2
+  // under that name), or the entry object lookup at serve time 404s.
   const rawMdPath: string | null =
     kind === "markdown" || (kind === "bundle" && isMarkdownPath(entry)) ? "source.md" : null;
-  const entryPath = kind === "html" || kind === "markdown" ? "index.html" : entry;
+  const entryPath =
+    kind === "html" || kind === "markdown" || (kind === "bundle" && isMarkdownPath(entry))
+      ? "index.html"
+      : entry;
 
   const newPage: NewPage = {
     id,
@@ -386,28 +422,36 @@ export async function handleCreatePage(
     title,
     kind,
     rev,
-    entry_path: entryPath,
+    entry_path: kind === "listing" ? "index.html" : entryPath,
     raw_md_path: rawMdPath,
     show_source: showSource,
     visibility: manifest.visibility ?? "public",
     passwordHash,
+    matchTags: manifest.matchTags ?? null,
     created_at: now,
     updated_at: now,
   };
 
-  try {
-    for (const file of r2Files) {
-      await objectStore.put(id, rev, file.path, file.content, file.contentType);
+  if (kind !== "listing") {
+    try {
+      for (const file of r2Files) {
+        await objectStore.put(id, rev, file.path, file.content, file.contentType);
+      }
+    } catch (error) {
+      await objectStore.deletePageObjects(id);
+      throw error;
     }
-  } catch (error) {
-    await objectStore.deletePageObjects(id);
-    throw error;
   }
 
   let createdPage: PageRecord;
   try {
     createdPage = await pagesRepository.create(newPage);
-    await filesRepository.replaceAll(id, rev, fileRecords);
+    if (kind !== "listing") {
+      await filesRepository.replaceAll(id, rev, fileRecords);
+    }
+    if (deps.tagsRepository && tags.length > 0) {
+      await deps.tagsRepository.setForPage(id, tags);
+    }
   } catch (error) {
     await objectStore.deletePageObjects(id);
     await pagesRepository.delete(id).catch(() => {});
@@ -418,7 +462,7 @@ export async function handleCreatePage(
 
   const headers = adminJsonHeaders(cacheService);
   return Response.json(
-    { ...toPageJson(createdPage), files: fileRecords },
+    { ...toPageJson(createdPage), files: fileRecords, tags },
     { status: 201, headers },
   );
 }
@@ -524,6 +568,8 @@ function validatePatchBody(body: Record<string, unknown>): {
   visibility?: "public" | "unlisted";
   show_source?: 0 | 1;
   password?: string | null;
+  tags?: string[];
+  matchTags?: string | null;
 } {
   const patch: {
     slug?: string | null;
@@ -531,6 +577,8 @@ function validatePatchBody(body: Record<string, unknown>): {
     visibility?: "public" | "unlisted";
     show_source?: 0 | 1;
     password?: string | null;
+    tags?: string[];
+    matchTags?: string | null;
   } = {};
 
   if ("slug" in body) {
@@ -569,6 +617,18 @@ function validatePatchBody(body: Record<string, unknown>): {
       throw new AppError("invalid_password", 400, "Password must be a string.");
     }
     patch.password = body.password as string | null;
+  }
+  if ("tags" in body) {
+    if (!Array.isArray(body.tags)) {
+      throw new AppError("invalid_tags", 400, "Tags must be an array of strings.");
+    }
+    patch.tags = body.tags.filter((t: unknown) => typeof t === "string");
+  }
+  if ("matchTags" in body) {
+    if (body.matchTags !== null && typeof body.matchTags !== "string") {
+      throw new AppError("invalid_match_tags", 400, "matchTags must be a string or null.");
+    }
+    patch.matchTags = body.matchTags as string | null;
   }
 
   return patch;
@@ -661,6 +721,7 @@ export async function handlePatchPage(
     }
     if (cleaned.slug !== page.slug) {
       const validation = validateSlug(cleaned.slug);
+      /* istanbul ignore next -- reason: cleanSlug returned ok=true => validateSlug already passed (slug.ts:162) */
       if (!validation.ok) {
         throw validation.error;
       }
@@ -681,6 +742,7 @@ export async function handlePatchPage(
 
   if (needsReRender) {
     const rawMdPath = page.raw_md_path;
+    /* istanbul ignore next -- reason: guarded by needsReRender (page.raw_md_path !== null) */
     if (rawMdPath === null) {
       throw new AppError("entry_not_found", 404, "Source file not found.");
     }
@@ -727,6 +789,10 @@ export async function handlePatchPage(
     delete (patch as Record<string, unknown>).password;
   }
 
+  // Extract tags from the patch (handled separately via TagsRepository, not MetaPatch)
+  const tagsPatch = "tags" in patch ? patch.tags : undefined;
+  delete (patch as Record<string, unknown>).tags;
+
   if (Object.keys(patch).length > 0) {
     try {
       const result = await pagesRepository.updateMeta(id, patch);
@@ -743,6 +809,11 @@ export async function handlePatchPage(
     }
   }
 
+  // Handle tags update (not via MetaPatch)
+  if (tagsPatch !== undefined && deps.tagsRepository) {
+    await deps.tagsRepository.setForPage(id, tagsPatch);
+  }
+
   if (!updatedPage) {
     // No changes at all (empty patch); re-fetch
     const result = await pagesRepository.getById(id);
@@ -752,7 +823,8 @@ export async function handlePatchPage(
 
   const files = await filesRepository.listForPage(id);
   const headers = adminJsonHeaders(cacheService);
-  return Response.json({ ...toPageJson(updatedPage), files }, { headers });
+  const tags = await loadTags(deps.tagsRepository, id);
+  return Response.json({ ...toPageJson(updatedPage), files, tags }, { headers });
 }
 
 export async function handleAddFiles(
@@ -927,4 +999,46 @@ export async function handleDeletePage(
   await cacheService.purgePage(ctx, id);
 
   return new Response(null, { status: 204, headers: adminJsonHeaders(cacheService) });
+}
+
+export async function handleGetSettings(
+  _request: Request,
+  _ctx: ExecutionContext,
+  deps: AdminApiDeps,
+): Promise<Response> {
+  const { cacheService, settingsRepository } = deps;
+  const settings = await settingsRepository!.getAll();
+  const headers = adminJsonHeaders(cacheService);
+  return Response.json(settings, { headers });
+}
+
+export async function handlePatchSettings(
+  request: Request,
+  _ctx: ExecutionContext,
+  deps: AdminApiDeps,
+): Promise<Response> {
+  const { cacheService, settingsRepository } = deps;
+
+  let body: Record<string, string | null>;
+  try {
+    body = (await request.json()) as Record<string, string | null>;
+  } catch {
+    throw new AppError("invalid_json", 400, "Request body must be valid JSON.");
+  }
+
+  const repo = settingsRepository!;
+  for (const [key, value] of Object.entries(body)) {
+    if (value === null) {
+      // null = delete the setting (restore default)
+      await repo.set(key, "");
+    } else if (typeof value === "string") {
+      await repo.set(key, value);
+    } else {
+      throw new AppError("invalid_setting", 400, `Invalid value for setting "${key}".`);
+    }
+  }
+
+  const settings = await repo.getAll();
+  const headers = adminJsonHeaders(cacheService);
+  return Response.json(settings, { headers });
 }

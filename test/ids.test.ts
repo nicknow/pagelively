@@ -6,11 +6,10 @@ import { generateId, validateId } from "../src/ids";
 describe("generateId", () => {
   const URL_SAFE = /^[A-Za-z0-9_-]+$/;
 
-  it("returns ids of 8–10 URL-safe chars (§4, ADR 0002)", () => {
+  it("returns ids of exactly 10 URL-safe chars (§4, ADR 0002)", () => {
     for (let i = 0; i < 200; i++) {
       const id = generateId();
-      expect(id.length).toBeGreaterThanOrEqual(8);
-      expect(id.length).toBeLessThanOrEqual(10);
+      expect(id.length).toBe(10);
       expect(URL_SAFE.test(id)).toBe(true);
     }
   });

@@ -527,6 +527,40 @@ The admin can set or clear one password per page (min 5 chars after trim, max 25
 
 **CDN-host exposure (accepted limitation):** R2 public buckets serve every object by URL; protection removes Worker-side references but cannot revoke previously-public CDN-host URLs. See ADR 0041 for the full threat model.
 
+### Settings capability (built)
+
+The admin UI provides a `/admin/settings` page where the operator can configure key-value
+settings stored in D1. Currently supported settings:
+
+- **default_page** — the page slug to serve at the root URL (`/`), overriding the
+  `HOME_MODE` / `HOME_PAGE_SLUG` env var configuration.
+
+Settings are managed via `GET /api/settings` and `PATCH /api/settings` admin API endpoints.
+
+### Tags (built)
+
+Pages can have zero or more tags — simple text labels normalized to lowercase, trimmed,
+and deduplicated. Tags are stored in a `page_tags` junction table and managed through:
+
+- **Upload / paste:** a comma-separated tags field is available on both the upload and
+  paste tabs.
+- **Edit:** the edit page shows a tags field; saving replaces all tags.
+- **API:** tags are accepted in the manifest JSON (`tags: ["tag1", "tag2"]`) for
+  multipart uploads, in the JSON body for paste, and in PATCH requests. The list and
+  detail endpoints include tags in their responses.
+
+### Tag-listing pages (built)
+
+A page of kind `listing` dynamically renders an HTML index of all pages (with
+`visibility: public`) that match the configured tags. The listing page is configured with
+a `match_tags` field (comma-separated). When a visitor navigates to the listing page's
+URL, the Worker queries all public pages matching ANY of the specified tags and renders
+them as a linked list, newest first.
+
+Listing pages are created like any other page via upload/paste, with `kind: "listing"`
+in the manifest and `matchTags: "tag1,tag2"`. No file upload is needed — the content is
+generated server-side at serve time.
+
 ### Future enhancements
 
 - Root‑relative link rewriting for HTML (inject `<base>` or rewrite `/…` refs to the page prefix).

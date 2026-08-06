@@ -27,11 +27,12 @@ The `[cache] enabled = true` block is added to `wrangler.toml` in S13 with types
 
 ## JWT verification — the mock-JWKS matrix (S16 AC)
 
-Test helper `test/helpers/jwt.ts`:
+Test helper `test/jwt-test-helpers.ts`:
 
-- `generateKeyPair()` → `crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, true, ["sign","verify"])`, exported as JWK.
-- `buildJwks(keys)` → `{ keys: [...] }` (public JWKs only).
-- `signToken({ key, kid, iss, aud, exp, email })` → compact JWS via `jose`'s `SignJWT`.
+- `generateKeyPair(kid, alg)` → `crypto.subtle.generateKey` with `RSASSA-PKCS1-v1_5`, `RSA-PSS`, or `ECDSA` by algorithm; exported as JWK with `kid` set.
+- `signJwt(privateKey, kid, payload, alg)` → compact JWS signed directly via `crypto.subtle.sign` (no `jose` dependency).
+- `unsignedJwt(kid, alg)` → header + payload only (no signature), for tampered/malformed cases.
+- `createMockJwksProvider(jwks, opts)` → wraps a `vi.fn()` fetch pointing at a local JWKS endpoint.
 
 Matrix — every case must produce **403** (fail closed), plus the valid case → verified
 identity with `email`:
@@ -79,7 +80,7 @@ passes valid, 403s everything else).
 | S13   | cache-service.ts (contract), cache-headers.ts, index.ts (header assertions)         |
 | S14   | jwks-provider.ts (KV-backed)                                                        |
 | S15   | admin-api.ts (list/detail), index.ts (gate end-to-end)                              |
-| S16   | access-verify.ts, jwks-provider.ts, helpers/jwt.ts matrix                           |
+| S16   | access-verify.ts, jwks-provider.ts, jwt-test-helpers.ts matrix                      |
 | S17   | admin-api.ts (create), form-parser.ts, object-store.ts, errors.ts (413/400/409)     |
 | S18   | admin-api.ts (patch/delete/files), rev.ts, pages-repository.ts, files-repository.ts |
 | S19   | admin-ui.ts (handler-level HTML assertions)                                         |
@@ -124,6 +125,18 @@ The checklist document lives at `docs/operations/smoke-test-checklist.md` (produ
   gate from S05; 3 MB compressed free limit — verified).
 - `setup.mjs` is excluded from coverage (`include: ["src/**"]`) — its tests are mock-based
   (S20) by necessity, and the coverage bar applies to Worker code.
+
+## Open follow-up: duplicate JWT-header decoder (WI-14)
+
+Both `src/access-verify.ts:58-78` and `src/jwks-provider.ts:54-77` implement an identical
+`decodeJwtHeader` function (extract `{kid}`, `{kid,alg}` respectively). Each is well-tested
+in isolation, but a fix to one decoder's edge-case handling would not be caught by the other's
+tests — the duplication makes the codebase fragile to one-sided repairs.
+
+**Recommended action:** Architect / implementer — decide whether to extract a shared
+`decodeJwtHeader` utility (e.g. `src/jwt-util.ts` or similar) that both modules import, with
+a single test suite covering all edge cases. The extraction is low risk but should be
+coordinated with the module-boundary contract in `02-module-boundaries-contracts.md`.
 
 ## Cross-references
 
