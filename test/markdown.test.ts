@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { renderMarkdown, type MarkdownRenderOptions } from "../src/markdown";
 import { injectBase } from "../src/base-inject";
 import { AppError } from "../src/errors";
+import { DEFAULT_TEMPLATE_CSS } from "../src/templates";
 
 // S05 AC 1-7 — Markdown rendering pipeline (spec §7, §14; ADR 0002 decision 4;
 // OQ-14; architecture 02; planner S05). Pure unit tests; no bindings.
@@ -16,6 +17,8 @@ import { AppError } from "../src/errors";
 const HEAD = `<!doctype html>
 <html lang="en">
 <head>
+<style>
+${DEFAULT_TEMPLATE_CSS}</style>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
@@ -44,10 +47,12 @@ describe("renderMarkdown — happy path (S05 AC 1-2)", () => {
     expect(renderMarkdown("# Hi")).toBe(wrap("<h1>Hi</h1>\n"));
   });
 
-  it("pins the exact template byte-for-byte: html, head, viewport, typography class", () => {
+  it("pins the exact template byte-for-byte: html, head, style, viewport, typography class", () => {
     expect(renderMarkdown("# Hi")).toBe(`<!doctype html>
 <html lang="en">
 <head>
+<style>
+${DEFAULT_TEMPLATE_CSS}</style>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
@@ -66,7 +71,52 @@ describe("renderMarkdown — happy path (S05 AC 1-2)", () => {
     expect(out).toContain('<meta name="viewport" content="width=device-width, initial-scale=1">');
     expect(out).toContain('<meta charset="utf-8">');
     expect(out).toContain('<main class="markdown-body">');
+    expect(out).toContain("<style>");
     expect(out).not.toContain("<base");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T5-B: Template system wiring — inline CSS, template selection, fallback.
+// ---------------------------------------------------------------------------
+
+describe("renderMarkdown — template system (T5-B)", () => {
+  it("includes <style> with design system CSS when no options given", () => {
+    const out = renderMarkdown("# Hi");
+    expect(out).toContain("<style>");
+    expect(out).toContain(DEFAULT_TEMPLATE_CSS);
+  });
+
+  it("wraps content in .markdown-body container", () => {
+    const out = renderMarkdown("# Hi");
+    expect(out).toContain('<main class="markdown-body">');
+  });
+
+  it("contains key CSS selectors (e.g., .markdown-body h1)", () => {
+    expect(DEFAULT_TEMPLATE_CSS).toContain(".markdown-body h1");
+    expect(DEFAULT_TEMPLATE_CSS).toContain(".markdown-body p");
+    expect(DEFAULT_TEMPLATE_CSS).toContain(".markdown-body a");
+    expect(DEFAULT_TEMPLATE_CSS).toContain(".source-link");
+  });
+
+  it('renderMarkdown("# Hi", { template: "default" }) is identical to no template option', () => {
+    expect(renderMarkdown("# Hi", { template: "default" })).toBe(renderMarkdown("# Hi"));
+  });
+
+  it('renderMarkdown("# Hi", { template: "unknown" }) falls back to default template (OQ-26)', () => {
+    expect(renderMarkdown("# Hi", { template: "unknown" })).toBe(renderMarkdown("# Hi"));
+  });
+
+  it("renders empty string with template as a valid minimal page containing <style>", () => {
+    const out = renderMarkdown("");
+    expect(out).toContain("<style>");
+    expect(out).toContain("</style>");
+    expect(out).toContain('<main class="markdown-body">');
+    expect(out).toContain("</main>");
+  });
+
+  it("template option as undefined/null uses default", () => {
+    expect(renderMarkdown("# Hi", { template: undefined })).toBe(renderMarkdown("# Hi"));
   });
 });
 
@@ -246,6 +296,8 @@ describe("renderMarkdown + injectBase composition (S04/S05, OQ-14)", () => {
     expect(served).toBe(`<!doctype html>
 <html lang="en">
 <head><base href="${HREF}">
+<style>
+${DEFAULT_TEMPLATE_CSS}</style>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>

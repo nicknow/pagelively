@@ -27,7 +27,8 @@ src/
   content-type.ts     MIME table (§6 whitelist + .md/.html; extensible data)
   cache-headers.ts    headersFor(routeClass, pageId?) — pure cache policy (ADR 0006, 0016)
   markdown.ts         renderMarkdown(md, opts) via marked + custom html renderer (§7);
-                      minimal responsive HTML template is inline (no separate template.ts)
+                     wraps output using the template system (src/templates/) — template
+                     selected via MarkdownRenderOptions.template (default "default")
   base-inject.ts      injectBase(html, baseHref) — serve-time, first element of first real
                       <head>; <head> created if absent; existing <base> removed; never
                       throws; href escaped + trailing-slash normalized (ADR 0008, 0013)
@@ -52,13 +53,16 @@ src/
   admin-api.ts        /api/* handlers (list, create, patch, delete, files)
   admin-ui.ts         /admin dashboard HTML (buildless, §10)
   utils.ts            escapeHtml(value) — & < > " ' → entities (first consumer: base-inject.ts, S04); isoDate, etc.
+  templates/          template system: default.ts (DEFAULT_TEMPLATE_CSS + renderDefaultTemplate),
+                     index.ts (barrel export + renderTemplate registry with fallback — OQ-26)
 
 test/                 slice tests (see 06)
 ```
 
 Modules are grouped by **dependency direction**: `router/config/errors/ids/slug/reserved/rev/
-content-type/cache-headers/markdown/base-inject/redirects/home/utils` plus the S23 pure
-modules `password/password-token/password-prompt` are pure (no bindings, fully unit-tested);
+content-type/cache-headers/markdown/templates/base-inject/redirects/home/utils` plus the S23
+pure modules `password/password-token/password-prompt` are pure (no bindings, fully
+unit-tested);
 `*-repository/object-store` are binding adapters (D1/R2); `entry-serve/unlock/asset-serve/
 admin-api/admin-ui` are handlers (plus `index.ts`'s inline `/health` dispatch);
 `cache-service/access-verify/jwks-provider` are seams with injectable dependencies.

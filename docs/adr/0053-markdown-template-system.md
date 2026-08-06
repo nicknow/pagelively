@@ -51,11 +51,12 @@ src/templates/
   `renderDefaultTemplate(content: string): string` which wraps content in a full HTML document
   with the CSS inlined in `<head>`.
 - `src/templates/index.ts` provides a barrel export and a simple registry — a `Map<string,
-  (content: string) => string>` — mapping template names to render functions.
+(content: string) => string>` — mapping template names to render functions.
 - Currently only one entry exists: `"default" → renderDefaultTemplate`. The registry is
   extensible by adding entries; no template plugin system or dynamic loading is needed.
 
 **Rationale for separate module:**
+
 - **Separation of concerns:** `markdown.ts` handles rendering (Markdown → HTML); templates
   handle presentation (HTML → full document). A change to typography or colors never requires
   touching the rendering logic.
@@ -73,6 +74,7 @@ The template CSS is embedded as a `<style>` element inside `<head>`, directly in
 No external CSS files, no `@import`, no `<link>` elements, no CDN references (AC 8).
 
 **Why inline CSS (Workers constraints):**
+
 - The Worker has no file-system access at runtime. CSS must either be inlined in the bundle or
   fetched from R2/storage at serve time (which adds latency and cost).
 - R2-served CSS would add a Worker invocation per page load (defeating the "1 + 3" model, spec
@@ -81,6 +83,7 @@ No external CSS files, no `@import`, no `<link>` elements, no CDN references (AC
   limit (§15).
 
 **CSS custom properties pattern:**
+
 - Tokens like `--color-text`, `--color-bg`, `--font-sans`, `--font-mono`, `--max-width` are
   declared on `:root` in the light theme, then overridden in `@media (prefers-color-scheme: dark)`.
 - This follows the same pattern as the admin UI's `DESIGN_SYSTEM_CSS` (ADR 0046), which proved
@@ -100,11 +103,13 @@ framework required for v1"). Dark mode detection must work at the CSS level.
 
 **Decision:** Use `@media (prefers-color-scheme: dark)` exclusively for public pages. The
 template contains:
+
 1. `:root { /* light tokens */ }` — the default.
 2. `@media (prefers-color-scheme: dark) { :root { /* dark tokens */ } }` — overrides when the
    OS/browser reports dark preference.
 
 **Why not JS-based:**
+
 - Public pages have zero JS; adding JS solely for dark mode adds bytes, increases attack
   surface, and contradicts the "buildless" principle (§14).
 - The `prefers-color-scheme` media query has >96% global browser support (caniuse 2026). The
@@ -151,6 +156,7 @@ exists, the page still renders rather than 500-ing. Never fail on a template sel
 **Per-page storage (OQ-25):** Template selection is not stored per-page yet. The field exists
 only in `MarkdownRenderOptions` and defaults to `"default"` for all pages. When per-page
 selection is added (spec §17 "theme selection"), the template name becomes:
+
 - A `template` column on the `pages` D1 table (nullable, defaults to `"default"`)
 - A field on `NewPage` / `MetaPatch` for create and edit APIs
 - Subject to the same `show_source`/`visibility` patch contract
@@ -171,7 +177,7 @@ The following behaviors are preserved unchanged:
   function callback (`TEMPLATE.replace(CONTENT_SLOT, () => body + sourceLink)`) per the ADR 0014
   amendment. The slot mechanism is identical; only the surrounding template changes.
 - **`showSource` behavior.** `showSource: true` appends `<p class="source-link"><a
-  href="source.md">View source</a></p>` after the rendered body, inside `<main>`. The CSS includes
+href="source.md">View source</a></p>` after the rendered body, inside `<main>`. The CSS includes
   `.source-link` styling. No change to the link text or placement.
 - **`allowRawHtml` behavior.** The raw-HTML policy (ADR 0002 decision 4) is unchanged. CSS
   is in `<head>` and `marked` never sees it, so no CSS can be affected by the escaping mode.
@@ -201,9 +207,9 @@ on every PR.
   `HEAD`/`TAIL`/`wrap()` helpers are updated to match the new template structure. The
   composition test (`renderMarkdown + injectBase`) verifies the base-slot contract is preserved.
 - **Bundle growth:** ~3–5 KB raw added. This is acceptable (risk R25 mitigated). The `npm run
-  build` gate prevents unnoticed growth.
+build` gate prevents unnoticed growth.
 - **CSS-assertion tests:** New tests parse the CSS string for specific rules (`@media
-  (prefers-color-scheme: dark)`, custom property declarations, typography selectors). These are
+(prefers-color-scheme: dark)`, custom property declarations, typography selectors). These are
   string-inclusion tests on the exported `DEFAULT_TEMPLATE_CSS` constant.
 - **Simpler future re-render:** The "Re-render all Markdown" action (§7, §17) will apply the
   current template selection to all Markdown pages, using the same `renderDefaultTemplate`
