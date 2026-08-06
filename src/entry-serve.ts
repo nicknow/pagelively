@@ -179,7 +179,7 @@ export async function serveEntry(
       return new Response(null, { status: 301, headers });
     }
 
-    // Listing pages: render a dynamic list of pages matching configured tags.
+    // Listing pages: render a dynamic list of pages that have ALL configured tags.
     // Must check BEFORE the R2 entry read — listing pages have no uploaded files.
     if (page.kind === "listing") {
       const matchTags = page.match_tags;

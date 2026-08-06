@@ -461,9 +461,10 @@ describe("serveEntry", () => {
       updated_at: "2026-06-03T00:00:00.000Z",
     });
 
-    // Assign tags
-    await tagsRepo.setForPage("page00post1", ["blog"]);
-    await tagsRepo.setForPage("page00post2", ["tech"]);
+    // Assign tags — Post One and Post Two have ALL required tags (blog + tech)
+    // Post Three missing tech — should NOT match
+    await tagsRepo.setForPage("page00post1", ["blog", "tech"]);
+    await tagsRepo.setForPage("page00post2", ["blog", "tech"]);
     await tagsRepo.setForPage("page00post3", ["blog"]);
 
     // Verify data is correctly set up
