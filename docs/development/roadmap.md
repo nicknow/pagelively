@@ -809,3 +809,70 @@ remains above the 85/85/80/85 threshold at 99.39/97.23/98.19/99.68 (statements/b
 Bundle size: **190.21 KiB raw / 44.17 KiB gzip** (from 168.74 KiB raw / 39.11 KiB gzip at T3
 close). The increase reflects the inline prompt template, unlock handler, asset-serving logic,
 and data-model additions — no new runtime dependencies were added.
+
+---
+
+## 11. T5–T6: Better Markdown rendering + save confirmation toast (2026-08-06)
+
+### Slice table
+
+| ID   | Slice                                                                             | Size | Status  | Depends on |
+| ---- | --------------------------------------------------------------------------------- | ---- | ------- | ---------- |
+| T5-A | Template system module + default template CSS (typography, dark mode, responsive) | M    | built   | —          |
+| T5-B | Wire template into `renderMarkdown` pipeline, update tests                        | M    | planned | T5-A       |
+| T6   | Save confirmation toast on metadata PATCH success in edit form                    | S    | planned | —          |
+
+**Order: T5-A → T5-B → T6** (T5-A/B are architectural; T6 is independent and could be done in
+parallel but is sequenced after for simplicity).
+
+### Dependency graph
+
+```
+T5-A (template module + CSS)
+   └── T5-B (wire into renderMarkdown)
+
+T6 (save toast) — independent
+```
+
+### Acceptance criteria (abbreviated; full detail in `.work/planner/work-item-plan.md`)
+
+**T5-A:**
+
+- `src/templates/default.ts` exports `renderDefaultTemplate(content)` and `DEFAULT_TEMPLATE_CSS`
+- Default template outputs a valid HTML doc with inline `<style>` containing rich CSS
+- CSS covers: typography (headings, paragraphs, code, links, lists), responsive images, tables,
+  blockquotes, `.source-link` styling, dark mode via `@media (prefers-color-scheme: dark)`
+- CSS uses custom properties; no external resources; no `<base>` tag
+- No `<base>` in the template (OQ-14 contract preserved)
+
+**T5-B:**
+
+- `MarkdownRenderOptions` gains `template?: string` (default `"default"`)
+- `renderMarkdown()` uses the template system; unknown template names fall back to `"default"`
+- All existing markdown tests updated for the new template output (byte-for-byte pin updated)
+- `showSource` and `allowRawHtml` still work; `injectBase` composition still produces one base
+- Bundle size gate stays green
+
+**T6:**
+
+- Edit form PATCH 200 success: `showToast('Page updated.', 'success')` before delayed reload
+- Reload deferred by 1.5 s (`setTimeout`)
+- Error path unchanged (error box only, no toast)
+- Existing admin UI tests pass; new tests pin the `showToast` and `setTimeout` calls in the JS
+
+### Risk register additions
+
+| #   | Risk                                                    | L×I | Mitigation                                                                 |
+| --- | ------------------------------------------------------- | --- | -------------------------------------------------------------------------- |
+| R25 | **Bundle size from inline CSS** (~3–5 KB raw)           | M×M | `npm run build` gate; current 44 KiB gzip vs 3 MB free limit.              |
+| R26 | **CSS stripped/mangled** by marked or replacement logic | L×M | CSS is in `<head>`, `marked` never touches; tests pin exact CSS.           |
+| R27 | **Browser compatibility** of advanced CSS features      | L×L | Stick to well-supported features; `prefers-color-scheme` widely supported. |
+| R28 | **User interaction during toast delay**                 | L×L | 1.5 s delay is short; no functional harm.                                  |
+| R29 | **Double-submit race** on edit form                     | L×M | Out of current slice scope; existing behavior unchanged.                   |
+
+### Open questions
+
+| ID    | Question                                             | Options                                                      | Recommendation                        | Decider   | Blocks | Status             |
+| ----- | ---------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------- | --------- | ------ | ------------------ |
+| OQ-25 | Template selection storage for future multi-template | (a) New `template` column, (b) hardcoded, (c) page JSON only | **(c)** hardcoded `"default"` for now | architect | T5     | open → recommended |
+| OQ-26 | Unknown template name at render time                 | (a) Throw, (b) minimal fallback, (c) default fallback        | **(c)** default fallback              | architect | T5     | open → recommended |
