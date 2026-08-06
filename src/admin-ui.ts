@@ -1814,7 +1814,8 @@ function editContent(
           body: JSON.stringify(body),
         });
         if (res.ok) {
-          window.location.reload();
+          showToast('Page updated.', 'success');
+          setTimeout(function() { window.location.reload(); }, 1500);
         } else {
           const data = await res.json().catch(() => ({ error: 'Update failed' }));
           editError.textContent = data.message || data.error || 'Update failed';
