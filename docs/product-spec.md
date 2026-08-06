@@ -211,9 +211,12 @@ images (png/jpg/jpeg/gif/webp/svg/avif), css, js, and common font formats, and i
 On upload of a `.md` file:
 1. Store the raw Markdown in R2 as `source.md`.
 2. Render it to HTML with a compact, Workers‑compatible renderer (e.g. `marked`).
-3. Wrap the HTML in a minimal template (readable typography, responsive) that includes the
-   `<base>` tag pointing at the page's CDN folder (§6). If **show source** is enabled, the
-   template links to the raw file on the CDN host (`…/pages/{id}/{rev}/source.md`).
+3. Wrap the HTML in a rich template (readable typography, responsive, dark‑mode‑aware) that
+   uses inline CSS with design tokens (custom properties), responsive layout, and dark mode
+   via `prefers-color-scheme`. The `<base>` tag is injected at serve time (§6), not in the
+   template itself. The template system is extensible — additional templates can be added in
+   the future without changing the render pipeline (see §17). If **show source** is enabled,
+   the template links to the raw file on the CDN host (`…/pages/{id}/{rev}/source.md`).
 4. Store the result as `index.html` and set it as the entry.
 
 - `raw_markdown_path` on the Page records where the original lives, so it's always
