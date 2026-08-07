@@ -1,6 +1,6 @@
 {
   "name": "pagelively",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "description": "Single-user, Cloudflare-hosted static content publisher (Worker + R2 + D1 + Cloudflare Access). Spec: docs/product-spec.md",
   "type": "module",
