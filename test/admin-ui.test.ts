@@ -281,6 +281,29 @@ describe("index.ts — admin UI", () => {
     expect(text).not.toContain("alert(");
   });
 
+  it("T6: edit page success path shows 'Page updated.' toast before a delayed reload", async () => {
+    const db = env.DB;
+    const pageId = "page0000T6";
+    await insertPage(db, { id: pageId, slug: "t6-toast", title: "T6 Toast", kind: "html" });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "index.html",
+      r2_key: `pages/${pageId}/1/index.html`,
+      content_type: "text/html; charset=utf-8",
+      size: 100,
+    });
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // AC1 & AC4: the success path calls showToast with exact text 'Page updated.' and type 'success'
+    expect(text).toContain("showToast('Page updated.', 'success')");
+    // AC2: the reload is delayed by 1.5s via setTimeout
+    expect(text).toContain("setTimeout(function() { window.location.reload(); }, 1500)");
+    // AC3: error path still shows the edit-error box (no toast, no direct reload)
+    expect(text).toContain("editError.textContent = data.message || data.error || 'Update failed'");
+    expect(text).toContain("editError.classList.add('visible')");
+  });
+
   it("edit page splits add-files into a multiple-only picker and a separate folder picker", async () => {
     const db = env.DB;
     const pageId = "page000006";

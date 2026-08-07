@@ -3,6 +3,25 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.3.0] — Markdown template system with dark mode
+
+### Added
+
+- **Markdown template system** — public Markdown pages now render through a full HTML template
+  with readable typography, responsive layout, and automatic dark mode via
+  `@media (prefers-color-scheme: dark)` (no JavaScript). Templates live in a new
+  `src/templates/` module behind an extensible registry; unknown template names fall back to
+  the `"default"` template rather than failing. `MarkdownRenderOptions` gains an internal
+  `template?: string` field, laying the groundwork for future per-page theme selection without
+  requiring a migration today. The `<base>`-injection, `{{CONTENT}}` slot, `showSource`, and
+  raw-HTML contracts are all unchanged. See ADR 0053.
+
+### Changed
+
+- **Edit form save confirmation** — saving page metadata now shows a green "Page updated."
+  success toast, then reloads after a 1.5-second delay, instead of reloading immediately. The
+  error path is unchanged.
+
 ## [1.2.0] — Tags, listing pages, settings, and UI polish
 
 ### Added

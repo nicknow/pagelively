@@ -173,10 +173,11 @@ my-page/
 
 ## Status
 
-**v1.1.0 released.** Per-page password protection, multi-domain deployment support, and the
-full CI/CD branching workflow. All features are implemented and covered by the automated test
-suite — run `npm test` for current results. The suite includes a gate that fails the build if
-the Worker bundle grows past the Workers free-tier size limit (see
+**v1.3.0 released.** Tags and listing pages, per-page password protection, multi-domain
+deployment support, a rich Markdown template system with automatic dark mode, and the full
+CI/CD branching workflow. All features are implemented and covered by the automated test suite
+— run `npm test` for current results. The suite includes a gate that fails the build if the
+Worker bundle grows past the Workers free-tier size limit (see
 [`test/build-size.test.ts`](test/build-size.test.ts)).
 
 ## Contributing
