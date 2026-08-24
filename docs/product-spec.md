@@ -104,11 +104,15 @@ an optional **slug**, and one or more stored **files**.
 - `html` — an HTML document, optionally with accompanying asset files.
 - `markdown` — a Markdown document rendered to HTML, optionally with accompanying images.
 - `bundle` — a generalization: an entry document plus a folder of assets.
+- `raw-markdown` — a Markdown file published **verbatim as plain text**: no rendering, no
+  template, no `index.html`. Visiting the URL shows the raw Markdown itself (S24, ADR 0054).
 
 Every Page has one **entry** file (the thing served at the page root):
 - image page → the image
 - html page → the `.html`
 - markdown page → the generated `index.html` (raw `.md` kept alongside)
+- raw‑markdown page → the stored `source.md`, byte-for-byte verbatim (stored with content type
+  `text/plain; charset=utf-8` so browsers display it inline; `show_source` is always 0)
 
 **Identifiers:**
 - **id** — short, generated, URL‑safe (e.g. 8–10 char nanoid). Always exists, never changes,
@@ -190,7 +194,10 @@ stale assets (see caching, §11).
 - For **Markdown**, the app controls the rendered output, so references are relative by
   construction and always resolve.
 - **Single image / raw‑file pages** have no wrapping document; the Worker simply 301‑redirects
-  the entry URL to the object on the CDN host.
+  the entry URL to the object on the CDN host. **Raw‑markdown pages** behave the same way when
+  public — the redirect target is the verbatim `source.md` object (served as `text/plain`,
+  displayed inline). Password‑protected raw pages are the exception: they stream Worker bytes
+  with `Cache-Control: no-store` and never reveal the CDN host (§11, ADR 0041 decision 6).
 - The `/{slug}` → `/{slug}/` redirect is still applied for clean URLs.
 
 **Constraints:**
@@ -350,7 +357,13 @@ lib like `fflate`). Multi‑file/folder upload already covers most needs, so zip
 **Entry request (Worker host).** `GET pages.acme.com/{slug}/` (or `/p/{id}/`):
 1. Resolve slug/id → page (`rev`, `entry_path`, kind) via D1.
 2. For html/markdown pages, return the entry HTML with the `<base>` tag injected (§6). For
-   image/raw pages, 301 to the object on the CDN host.
+   image/raw pages, 301 to the object on the CDN host. Raw‑markdown pages follow the image
+   pattern when public: `/{slug}/` and `/p/{id}/` 301 to
+   `{ASSET_BASE_URL}/pages/{id}/{rev}/source.md`, whose stored content type is
+   `text/plain; charset=utf-8` so the browser displays the raw text inline (not a download).
+   If the page is password‑protected, no redirect ever happens: after unlock the Worker streams
+   the stored bytes itself with `Cache-Control: no-store` — the CDN host must not appear in any
+   protected response (ADR 0041 decision 6).
 3. `text/html; charset=utf-8` for documents; correct MIME otherwise.
 
 **Asset requests (CDN host).** `cdn.pages.acme.com/pages/{id}/{rev}/…` are served directly from

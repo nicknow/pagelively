@@ -132,7 +132,7 @@ Upload and publish a page. The endpoint accepts **either** `multipart/form-data`
   (OQ-05): stored as `index.html` + `source.md`, and `entry_path` is `"index.html"` (not the
   original upload path — that path is never written to R2 under its own name).
 
-**Raw markdown pages (`kind: "raw-markdown"`, S24-B, OQ-27/28/30/31/32):** set
+**Raw markdown pages (`kind: "raw-markdown"`, S24-B, OQ-27/28/30/31/32, ADR 0054):** set
 `manifest.kind` to `"raw-markdown"` on a multipart upload, or `kind: "raw-markdown"` in the
 JSON paste body. The upload must be **exactly one `.md`/`.markdown` file** — anything else is
 rejected with `400 invalid_raw_upload`. The file is stored verbatim (no rendering) as the
@@ -141,7 +141,10 @@ inline; no `index.html` ever exists for a raw page. `entry_path` is `"source.md"
 `raw_md_path` is `null`, and `show_source` is forced to `0` (a `showSource` value in a raw
 request body is ignored). Replacing the `.md` via `POST /api/pages/:id/files` stores the new
 content verbatim and bumps the rev; deleting `source.md` individually is rejected like any
-entry deletion. Mode switching (rendered ↔ raw) after create is not supported.
+entry deletion. Mode switching (rendered ↔ raw) after create is not supported (rejected, not
+deferred — ADR 0054 decision 5). Public raw entries 301 to the CDN `source.md` object;
+password-protected raw pages stream Worker bytes with the stored content type and
+`Cache-Control: no-store` (spec §11).
 
 **Slug handling (OQ-15/T1, ADR 0036):** a user-supplied `manifest.slug` is cleaned before
 validation and storage: surrounding whitespace and case are normalized (`"  My Post "` →
@@ -203,7 +206,8 @@ Edit a page's metadata: `slug`, `title`, `visibility`, or `showSource`.
 All fields are optional. `slug` may be `null` to remove the slug. `title` is capped at 256
 characters (same limit as publish). Metadata edits do **not** bump `rev` (ADR 0012). For
 Markdown pages, toggling `showSource` re-renders the stored `index.html` at the current rev and
-purges the cache.
+purges the cache. On `raw-markdown` pages a `showSource` patch is a **no-op** — `show_source`
+is always 0 for raw rows and the value is discarded rather than persisted.
 
 **Slug handling:** the same cleaning as publish applies (OQ-15/T1, ADR 0036) — `"  New Slug "`
 is stored and echoed as `new-slug`. `slug: null` clears the slug; a whitespace-only string is
@@ -236,6 +240,8 @@ file: `file:<relative-path>` (same convention as `POST /api/pages`).
   - `index.html` for HTML pages is stored as `index.html`.
   - `.md` uploads for Markdown pages re-render to `index.html` + `source.md`.
   - `.md` uploads matching a bundle's Markdown entry re-render to `index.html` + `source.md`.
+  - `.md` uploads for raw-markdown pages are stored **verbatim** as `source.md` (no rendering)
+    with content type `text/plain; charset=utf-8`; the rev bumps via the normal path.
   - The bundle's HTML entry path is stored as-is.
 
 Invalid paths (`%`, `../`, leading `/`, `\`) are rejected.
@@ -265,7 +271,7 @@ are supported.
   - The original HTML path for HTML pages and for bundle pages whose entry is HTML (e.g.
     `site/index.html` in a bundle with that entry).
   - The raw Markdown source (`source.md`/`pages.raw_md_path`) for markdown/bundle-with-md
-    pages is also protected.
+    pages is also protected, as is the `source.md` entry of raw-markdown pages.
   - The image filename (`pages.entry_path`) for image pages.
 
 **Response:** `200 OK` with the updated page + `files`.
@@ -308,8 +314,10 @@ Delete a page and all its stored objects.
 
 ## Spec references
 
+- §4 — Content model (page kinds, incl. `raw-markdown`)
 - §5 — URL & routing scheme
 - §8 — Storage schema (`pages` and `files` tables)
 - §9 — Authentication
 - §10 — Admin UI & upload flows
 - §11 — Caching (`no-store` for admin/API)
+- ADR 0054 — Raw markdown hosting decisions

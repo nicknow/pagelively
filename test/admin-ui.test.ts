@@ -2344,4 +2344,205 @@ describe("index.ts — admin UI", () => {
     const sharedBlock = scriptBlocks.length >= 2 ? scriptBlocks[1] : "";
     expect(sharedBlock).toContain("function parseTags(");
   });
+
+  // ── S24-D: raw-markdown admin UI ───────────────────────────────────────────
+
+  it("S24-D: upload tab has a 'Raw markdown (no HTML)' page-kind option", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    const radio =
+      text.match(/<input[^>]*\bname="page-kind"[^>]*\bvalue="raw-markdown"[^>]*>/)?.[0] ?? "";
+    expect(radio).not.toBe("");
+    expect(text).toContain("Raw markdown");
+    // The listing option must remain untouched alongside the new option.
+    expect(
+      text.match(/<input[^>]*\bname="page-kind"[^>]*\bvalue="listing"[^>]*>/)?.[0] ?? "",
+    ).not.toBe("");
+    expect(
+      text.match(/<input[^>]*\bname="page-kind"[^>]*\bvalue="regular"[^>]*checked[^>]*>/)?.[0] ??
+        "",
+    ).not.toBe("");
+  });
+
+  it("S24-D: paste tab has the same raw-markdown page-kind option", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    const radio =
+      text.match(/<input[^>]*\bname="paste-page-kind"[^>]*\bvalue="raw-markdown"[^>]*>/)?.[0] ?? "";
+    expect(radio).not.toBe("");
+    expect(
+      text.match(/<input[^>]*\bname="paste-page-kind"[^>]*\bvalue="listing"[^>]*>/)?.[0] ?? "",
+    ).not.toBe("");
+  });
+
+  it("S24-D: buildManifest sends kind='raw-markdown' (and no showSource) when raw is selected", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // Raw branch sets only the kind — showSource stays out of the manifest
+    // (the API forces show_source=0 for raw pages).
+    expect(text).toContain("manifest.kind = 'raw-markdown'");
+    // The listing branch is preserved verbatim.
+    expect(text).toContain("manifest.kind = 'listing'");
+  });
+
+  it("S24-D: upload kind toggle hides show-source, entry, and regular fields for raw", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // togglePageKind must treat raw like listing for entry/regular fields...
+    expect(text).toContain("isListing || isRaw");
+    // ...but hide the show-source control specifically for raw (a raw page IS
+    // its own source; the checkbox is meaningless).
+    expect(text).toContain("show-source-field");
+    expect(text).toContain("raw-page-fields");
+  });
+
+  it("S24-D: paste payload sends kind='raw-markdown' + format markdown without showSource", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("payload.kind = 'raw-markdown'");
+    expect(text).toContain("payload.format = 'markdown'");
+    // Errors still surface through the shared error box on the raw path too.
+    expect(text).toContain("body.message || body.error || 'Publish failed'");
+  });
+
+  it("S24-D: paste kind toggle hides the paste show-source field for raw", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("paste-show-source-field");
+    expect(text).toContain("paste-raw-fields");
+  });
+
+  it("S24-D: dashboard shows a raw-markdown kind badge with a dedicated icon", async () => {
+    const db = env.DB;
+    await insertPage(db, {
+      id: "page00rawdash",
+      slug: "raw-notes",
+      title: "Raw Notes",
+      kind: "raw-markdown",
+      entry_path: "source.md",
+      raw_md_path: null,
+      show_source: 0,
+    });
+    const res = await fetchAdmin("/admin", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    const row = text.match(/<tr>[\s\S]*?Raw Notes[\s\S]*?<\/tr>/)?.[0] ?? "";
+    expect(row).not.toBe("");
+    expect(row).toContain("kind-raw-markdown");
+    expect(row).toContain('href="#icon-file-text"');
+  });
+
+  it("S24-D: icon sprite defines icon-file-text following the sprite conventions", async () => {
+    const res = await fetchAdmin("/admin", await validToken());
+    const text = await res.text();
+    const symbol =
+      text.match(/<symbol[^>]*id="icon-file-text"[^>]*viewBox="0 0 24 24"[^>]*>/)?.[0] ?? "";
+    expect(symbol).not.toBe("");
+    expect(symbol).toContain('stroke-linecap="round"');
+    expect(symbol).toContain('stroke-linejoin="round"');
+    expect(symbol).toContain('fill="none"');
+    expect(symbol).toContain('stroke="currentColor"');
+  });
+
+  it("S24-D: edit page hides show_source for raw pages and keeps source.md protected-listed", async () => {
+    const db = env.DB;
+    const pageId = "page00rawedit";
+    await insertPage(db, {
+      id: pageId,
+      slug: "raw-edit",
+      title: "Raw Edit",
+      kind: "raw-markdown",
+      entry_path: "source.md",
+      raw_md_path: null,
+      show_source: 0,
+    });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "source.md",
+      r2_key: `pages/${pageId}/1/source.md`,
+      content_type: "text/plain; charset=utf-8",
+      size: 42,
+    });
+
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // No show_source control at all — the whole page IS the source.
+    expect(text).not.toContain('name="showSource"');
+    expect(text).not.toContain("Show source link");
+    // The file list still shows the protected source.md entry row.
+    expect(text).toContain("source.md");
+    const fileRow = text.match(/<li class="file-row">[\s\S]*?<\/li>/)?.[0] ?? "";
+    expect(fileRow).toContain("Protected");
+    // And there is no separate View-source affordance beyond the badge/link set.
+    expect(text).not.toContain("View source");
+  });
+
+  it("S24-D: edit page STILL shows show_source checkbox for rendered markdown pages", async () => {
+    const db = env.DB;
+    const pageId = "page00mdedit";
+    await insertPage(db, {
+      id: pageId,
+      slug: "md-edit",
+      title: "Md Edit",
+      kind: "markdown",
+      entry_path: "index.html",
+      raw_md_path: "source.md",
+      show_source: 1,
+    });
+
+    const res = await fetchAdmin(`/admin/edit/${pageId}`, await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    const checkbox = text.match(/<input[^>]*\bname="showSource"[^>]*value="true"[^>]*>/)?.[0] ?? "";
+    expect(checkbox).not.toBe("");
+    expect(checkbox).toContain("checked");
+    expect(text).toContain("Show source link");
+  });
+
+  // ── S24-D validator additions (edge/regression gaps found in review) ──────
+
+  it("S24-D (validator): raw radios are NOT default-checked on either tab (JS-disabled fallback stays Regular)", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // Without JS no toggle runs, so the pre-checked kind must remain
+    // "regular": a pre-checked raw radio would render entry/show-source fields
+    // while the server-side fallback would publish something else entirely.
+    const rawUpload =
+      text.match(/<input[^>]*name="page-kind"[^>]*value="raw-markdown"[^>]*>/)?.[0] ?? "";
+    expect(rawUpload).not.toBe("");
+    expect(rawUpload).not.toContain("checked");
+    const rawPaste =
+      text.match(/<input[^>]*name="paste-page-kind"[^>]*value="raw-markdown"[^>]*>/)?.[0] ?? "";
+    expect(rawPaste).not.toBe("");
+    expect(rawPaste).not.toContain("checked");
+  });
+
+  it("S24-D (validator): the raw branches of buildManifest and the paste submit never assign showSource", async () => {
+    const res = await fetchAdmin("/admin/upload", await validToken());
+    expect(res.status).toBe(200);
+    const text = await res.text();
+
+    // buildManifest: isolate the raw-markdown else-if branch and prove it sets
+    // only the kind — show_source is forced to 0 server-side and must not be sent.
+    const bm = text.match(/function buildManifest\(\) \{[\s\S]*?\n      \}/)?.[0] ?? "";
+    expect(bm).not.toBe("");
+    expect(bm).toContain("manifest.kind = 'raw-markdown'");
+    const rawBmBranch =
+      bm.match(/else if \(kindValue === 'raw-markdown'\) \{[\s\S]*?\}/)?.[0] ?? "";
+    expect(rawBmBranch).not.toBe("");
+    expect(rawBmBranch).not.toContain("showSource");
+
+    // Paste submit: same property — the raw payload carries content/format/kind only.
+    const rawPasteBranch = text.match(/else if \(isPasteRaw\) \{[\s\S]*?\} else \{/)?.[0] ?? "";
+    expect(rawPasteBranch).toContain("payload.kind = 'raw-markdown'");
+    expect(rawPasteBranch).not.toContain("showSource");
+  });
 });

@@ -876,3 +876,54 @@ T6 (save toast) — independent
 | ----- | ---------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------- | --------- | ------ | ------------------ |
 | OQ-25 | Template selection storage for future multi-template | (a) New `template` column, (b) hardcoded, (c) page JSON only | **(c)** hardcoded `"default"` for now | architect | T5     | open → recommended |
 | OQ-26 | Unknown template name at render time                 | (a) Throw, (b) minimal fallback, (c) default fallback        | **(c)** default fallback              | architect | T5     | open → recommended |
+
+---
+
+## 12. S24 — Raw markdown hosting (2026-08-24)
+
+Operator request: host raw markdown without HTML conversion — visiting a raw page (slug or id
+URL) serves the raw markdown only as text. The full planning context (design summary, slice
+plan, open questions OQ-27..OQ-33 with human-approved recommendations) is in
+`.work/planner/raw-md-{slice-plan,open-questions}.md`; all locked decisions are recorded in
+`docs/adr/0054-raw-markdown-hosting.md`.
+
+### Slice table
+
+| ID    | Slice                                                                  | Size | Status | Depends on         |
+| ----- | ---------------------------------------------------------------------- | ---- | ------ | ------------------ |
+| S24-A | Model: extend `PageKind` with `"raw-markdown"` (repos + API union)     | S    | built  | OQ-27              |
+| S24-B | Publish/edit API: raw upload + paste + file-replace semantics          | M    | built  | S24-A, OQ-29/31/32 |
+| S24-C | Public serving: entry 301 (public) / Worker bytes no-store (protected) | M    | built  | S24-B, OQ-28/29    |
+| S24-D | Admin UI (kind option, badge, edit-page suppression), docs, closeout   | S    | built  | S24-C, OQ-29/33    |
+
+### Open-questions log (OQ-27..OQ-33)
+
+| ID    | Question                                                                  | Status                |
+| ----- | ------------------------------------------------------------------------- | --------------------- |
+| OQ-27 | New `PageKind` `"raw-markdown"` vs per-page render flag                   | **closed** — ADR 0054 |
+| OQ-28 | Entry normalized to `source.md` vs original filename                      | **closed** — ADR 0054 |
+| OQ-29 | Public entry → 301 to CDN object vs Worker-streamed bytes                 | **closed** — ADR 0054 |
+| OQ-30 | Object content type `text/plain; charset=utf-8` (inline display)          | **closed** — ADR 0054 |
+| OQ-31 | Per-object content-type override; global `.md` mapping untouched          | **closed** — ADR 0054 |
+| OQ-32 | `manifest.kind` surface; post-create mode toggle **rejected** by operator | **closed** — ADR 0054 |
+| OQ-33 | Cache/protection reuse per ADR-0041-consistent recommendations            | **closed** — ADR 0054 |
+
+### Decisions of note (full detail in ADR 0054)
+
+- Public raw pages mirror public images: `301` to `{ASSET_BASE_URL}/pages/{id}/{rev}/source.md`
+  via the reused image dispatch branch in `src/entry-serve.ts`; `src/router.ts` unchanged.
+- Protected raw pages prompt first, then stream Worker bytes with the **stored** R2
+  `httpMetadata` content type and `Cache-Control: no-store` — never a redirect.
+- New typed error `invalid_raw_upload` (zero-file requests keep the pre-existing `no_files`);
+  `show_source` forced to 0 at create/paste and PATCH-normalized to a no-op on raw rows.
+- Replacement `.md` files are stored verbatim as `source.md` through the normal rev-bump path;
+  post-create asset adds are allowed and inert. BOM-strip parity with rendered `.md` uploads.
+
+### Known limitations / live follow-ups
+
+- **Dead-object edge (accepted):** a public raw page whose R2 object was deleted directly keeps
+  301ing to the dead CDN URL until a file replace (rev bump) or page delete — identical to image
+  pages (public serving does no R2 read).
+- **R2 cache-extension caveat:** the R2 public-bucket default cache-extension set may not include
+  `.md` (roadmap §6); a Cache Everything / custom cache rule may be needed. Live verification is
+  an item in `docs/operations/smoke-test-checklist.md` §S24.
