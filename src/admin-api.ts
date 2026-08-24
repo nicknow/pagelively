@@ -76,7 +76,9 @@ function extractIdFromPath(pathname: string): string | undefined {
 const MAX_TITLE_LENGTH = 256;
 const MAX_SLUG_SUFFIX_ATTEMPTS = 1000;
 
-type PageKind = "image" | "html" | "markdown" | "bundle" | "listing";
+// S24-A (OQ-27, approved): "raw-markdown" added here and in
+// src/pages-repository.ts — duplicated on purpose, keep in lockstep.
+type PageKind = "image" | "html" | "markdown" | "bundle" | "listing" | "raw-markdown";
 
 function isHtmlPath(path: string): boolean {
   const lower = path.toLowerCase();
