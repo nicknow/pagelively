@@ -52,6 +52,16 @@ describe("parsePublishForm", () => {
     expect(result.files[0].path).toBe("index.md");
   });
 
+  it("S24-B: carries manifest kind 'raw-markdown' through the multipart path", async () => {
+    const form = new FormData();
+    form.append("manifest", JSON.stringify({ kind: "raw-markdown" }));
+    form.append("file:notes.md", makeFile("notes.md", "# Raw", "text/markdown"));
+
+    const result = await parsePublishForm(makeRequest(form));
+    expect(result.manifest.kind).toBe("raw-markdown");
+    expect(result.files[0].path).toBe("notes.md");
+  });
+
   it("returns an empty manifest and empty files when the form is empty", async () => {
     const result = await parsePublishForm(makeRequest(new FormData()));
     expect(result.manifest).toEqual({});
@@ -361,6 +371,16 @@ describe("parsePublishJson", () => {
       visibility: "unlisted",
       showSource: true,
     });
+  });
+
+  it("S24-B: carries kind 'raw-markdown' through to the manifest", async () => {
+    const result = await parsePublishJson(
+      makeJsonRequest({ content: "# Hi", format: "markdown", kind: "raw-markdown" }),
+    );
+    expect(result.manifest.kind).toBe("raw-markdown");
+    // The synthetic file is the ordinary markdown paste shape; the raw branch
+    // downstream (admin-api) normalizes it — the parser stays kind-agnostic.
+    expect(result.files[0].path).toBe("pasted.md");
   });
 
   it("ignores unknown fields in the JSON body", async () => {

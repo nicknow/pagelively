@@ -443,4 +443,65 @@ describe("S17 paste — POST /api/pages application/json", () => {
     expect(count?.n).toBe(0);
     expect(await listKeys(bucket, "pages/")).toEqual([]);
   });
+
+  // S24-B (OQ-32): the paste endpoint accepts kind:"raw-markdown" and flows
+  // into the same raw branch as multipart uploads — one verbatim source.md,
+  // content type text/plain; charset=utf-8, no rendering, no index.html.
+  describe("S24-B — raw-markdown paste", () => {
+    it("stores pasted markdown verbatim as source.md with no template wrapper or html", async () => {
+      const token = await validToken();
+      const content = "# Raw paste\n\nVerbatim *content* — <script>kept</script>";
+      const { body, headers } = pasteJson({
+        content,
+        format: "markdown",
+        kind: "raw-markdown",
+        slug: "raw-paste",
+        title: "Raw Paste",
+      });
+
+      const res = await fetchApi("/api/pages", "POST", body, token, headers);
+
+      expect(res.status).toBe(201);
+      const bodyJson = (await res.json()) as Record<string, unknown>;
+      expect(bodyJson.kind).toBe("raw-markdown");
+      expect(bodyJson.entry_path).toBe("source.md");
+      expect(bodyJson.raw_md_path).toBeNull();
+      expect(bodyJson.show_source).toBe(0);
+      const files = bodyJson.files as Record<string, unknown>[];
+      expect(files).toHaveLength(1);
+      expect(files[0]).toMatchObject({
+        path: "source.md",
+        content_type: "text/plain; charset=utf-8",
+      });
+
+      const pageId = bodyJson.id as string;
+      expect(await listKeys(bucket, `pages/${pageId}/`)).toEqual([`pages/${pageId}/1/source.md`]);
+      const obj = await bucket.get(`pages/${pageId}/1/source.md`);
+      const stored = await new Response(obj!.body).text();
+      // Byte-for-byte verbatim — no markdown template wrapper, no rendered html.
+      expect(stored).toBe(content);
+      expect(stored).not.toContain("<html");
+      expect(obj!.httpMetadata).toMatchObject({ contentType: "text/plain; charset=utf-8" });
+    });
+
+    it("ignores showSource in a raw paste body and normalizes it to 0", async () => {
+      const token = await validToken();
+      const { body, headers } = pasteJson({
+        content: "# Raw\n",
+        format: "markdown",
+        kind: "raw-markdown",
+        showSource: true,
+      });
+
+      const res = await fetchApi("/api/pages", "POST", body, token, headers);
+
+      expect(res.status).toBe(201);
+      const bodyJson = (await res.json()) as Record<string, unknown>;
+      expect(bodyJson.kind).toBe("raw-markdown");
+      expect(bodyJson.show_source).toBe(0);
+      const pageId = bodyJson.id as string;
+      // No rendering happened for the ignored flag.
+      expect(await listKeys(bucket, `pages/${pageId}/`)).toEqual([`pages/${pageId}/1/source.md`]);
+    });
+  });
 });
