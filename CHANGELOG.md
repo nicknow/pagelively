@@ -12,7 +12,7 @@ All notable changes to this project are documented here. Format loosely follows
   stored as a single `source.md` object with content type `text/plain; charset=utf-8`, so
   visiting the slug/id URL redirects to the CDN object and the browser displays the raw
   Markdown as text. Available on both upload and paste tabs; the dashboard shows a dedicated
-  kind badge and the edit page hides the show-source control (the page *is* the source).
+  kind badge and the edit page hides the show-source control (the page _is_ the source).
   Password-protected raw pages are streamed by the Worker with `Cache-Control: no-store`,
   never exposing the CDN URL. Mode switching between rendered and raw is explicitly not
   supported. See ADR 0054.
