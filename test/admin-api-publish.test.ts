@@ -1185,3 +1185,230 @@ describe("S17 — POST /api/pages (publish)", () => {
     });
   });
 });
+
+// S24-B — raw-markdown publish (OQ-27/28/30/31/32, approved). A raw page is
+// exactly one .md/.markdown file stored verbatim as source.md with content
+// type "text/plain; charset=utf-8" (per-object override; the global table is
+// untouched). No index.html ever exists for a raw page.
+describe("S24-B — POST /api/pages raw-markdown kind", () => {
+  const db = env.DB;
+  const bucket = env.BUCKET;
+
+  beforeEach(async () => {
+    await clearFilesAndPages(db);
+    await clearBucket(bucket);
+    const keys = await generateKeyPair("access-key-1");
+    privateKey = keys.privateKey;
+    const mock = createMockFetch({ keys: [keys.jwk] });
+    vi.stubGlobal("fetch", mock.fetchFn);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function makeRawForm(content: string, manifest: Record<string, unknown> = {}): FormData {
+    const form = new FormData();
+    appendManifest(form, { kind: "raw-markdown", ...manifest });
+    appendFile(form, "notes.md", makeFile("notes.md", content, "text/markdown"));
+    return form;
+  }
+
+  it("happy path: one notes.md + kind=raw-markdown stores a single verbatim source.md object", async () => {
+    const token = await validToken();
+    const content = "# Notes\n\nSome *markdown* with <script>angles</script> kept verbatim.";
+    const res = await fetchApi("/api/pages", "POST", makeRawForm(content), token);
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.kind).toBe("raw-markdown");
+    expect(body.entry_path).toBe("source.md");
+    expect(body.raw_md_path).toBeNull();
+    expect(body.show_source).toBe(0);
+    expect(body.rev).toBe(1);
+
+    // Exactly one file row: source.md with the literal override content type.
+    const files = body.files as Record<string, unknown>[];
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatchObject({
+      path: "source.md",
+      content_type: "text/plain; charset=utf-8",
+    });
+    expect(files[0].r2_key).toBe(`pages/${body.id}/1/source.md`);
+
+    // R2 contains ONLY pages/{id}/1/source.md — byte-equal, no index.html.
+    const pageId = body.id as string;
+    const keys = await listKeys(bucket, `pages/${pageId}/`);
+    expect(keys).toEqual([`pages/${pageId}/1/source.md`]);
+    const obj = await bucket.get(`pages/${pageId}/1/source.md`);
+    expect(obj).not.toBeNull();
+    const stored = new Uint8Array(await obj!.arrayBuffer());
+    expect(stored).toEqual(new TextEncoder().encode(content));
+    expect(obj!.httpMetadata).toMatchObject({ contentType: "text/plain; charset=utf-8" });
+  });
+
+  it("strips a leading UTF-8 BOM from the raw upload (consistent with .md handling)", async () => {
+    const token = await validToken();
+    const res = await fetchApi("/api/pages", "POST", makeRawForm("\uFEFF# Bommed\n\nRaw."), token);
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    const obj = await bucket.get(`pages/${body.id as string}/1/source.md`);
+    const text = await new Response(obj!.body).text();
+    expect(text).toBe("# Bommed\n\nRaw.");
+    expect(text).not.toContain("\uFEFF");
+  });
+
+  it("rejects two uploaded files with 400 invalid_raw_upload and writes no R2 objects", async () => {
+    const token = await validToken();
+    const form = new FormData();
+    appendManifest(form, { kind: "raw-markdown" });
+    appendFile(form, "notes.md", makeFile("notes.md", "# One", "text/markdown"));
+    appendFile(form, "pic.png", makeFile("pic.png", "PNG", "image/png"));
+
+    const res = await fetchApi("/api/pages", "POST", form, token);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "invalid_raw_upload" });
+    // No orphan objects from the rejected upload.
+    expect(await listKeys(bucket, "pages/")).toEqual([]);
+  });
+
+  it("rejects an upload with zero .md files with 400 invalid_raw_upload", async () => {
+    const token = await validToken();
+    const form = new FormData();
+    appendManifest(form, { kind: "raw-markdown" });
+    appendFile(form, "pic.png", makeFile("pic.png", "PNG", "image/png"));
+
+    const res = await fetchApi("/api/pages", "POST", form, token);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "invalid_raw_upload" });
+    expect(await listKeys(bucket, "pages/")).toEqual([]);
+  });
+
+  it("back-compat pin: absent kind + single .md still renders a markdown page", async () => {
+    const token = await validToken();
+    const form = new FormData();
+    appendFile(form, "notes.md", makeFile("notes.md", "# Hello\n\nWorld.", "text/markdown"));
+
+    const res = await fetchApi("/api/pages", "POST", form, token);
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.kind).toBe("markdown");
+    expect(body.entry_path).toBe("index.html");
+    expect(body.raw_md_path).toBe("source.md");
+    const pageId = body.id as string;
+    const keys = await listKeys(bucket, `pages/${pageId}/1/`);
+    expect(keys).toEqual(
+      expect.arrayContaining([`pages/${pageId}/1/index.html`, `pages/${pageId}/1/source.md`]),
+    );
+    const mdObj = await bucket.get(`pages/${pageId}/1/source.md`);
+    expect(mdObj!.httpMetadata).toMatchObject({ contentType: "text/markdown" });
+  });
+
+  it("normalizes showSource:true on a raw upload to show_source 0", async () => {
+    const token = await validToken();
+    const res = await fetchApi(
+      "/api/pages",
+      "POST",
+      makeRawForm("# Raw\n", { showSource: true }),
+      token,
+    );
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.kind).toBe("raw-markdown");
+    expect(body.show_source).toBe(0);
+  });
+
+  it("tags/password/visibility/slug behave exactly as for other kinds", async () => {
+    const token = await validToken();
+    const res = await fetchApi(
+      "/api/pages",
+      "POST",
+      makeRawForm("# Protected notes\n", {
+        slug: "raw-tagged",
+        title: "Raw Tagged",
+        visibility: "unlisted",
+        password: "secret123",
+        tags: ["docs", "raw"],
+      }),
+      token,
+    );
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.slug).toBe("raw-tagged");
+    expect(body.title).toBe("Raw Tagged");
+    expect(body.visibility).toBe("unlisted");
+    expect(body.has_password).toBe(true);
+    expect(body.tags).toEqual(["docs", "raw"]);
+  });
+
+  it("returns 409 unchanged when the slug conflicts on a raw upload", async () => {
+    const token = await validToken();
+    await insertPage(db, { id: "existing02", slug: "taken-raw", title: "Existing" });
+
+    const res = await fetchApi(
+      "/api/pages",
+      "POST",
+      makeRawForm("# Raw\n", { slug: "taken-raw" }),
+      token,
+    );
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: "slug_conflict",
+      message: 'Slug "taken-raw" is already taken.',
+    });
+  });
+
+  it("rolls back cleanly when D1 fails after the R2 write (raw-shaped)", async () => {
+    const token = await validToken();
+    const brokenDb = createWriteFailingDb(db);
+    const brokenEnv = makeEnv({
+      DB: brokenDb,
+      ACCESS_TEAM_DOMAIN: TEAM_DOMAIN,
+      ACCESS_AUD: ACCESS_AUD,
+    });
+
+    const form = makeRawForm("# Rollback\n");
+    const res = await worker.fetch(
+      new Request("https://pages.example.com/api/pages", {
+        method: "POST",
+        body: form,
+        headers: { "Cf-Access-Jwt-Assertion": token },
+      }),
+      brokenEnv,
+      createExecutionContext(),
+    );
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({
+      error: "db_write_failed",
+      message: "Database write failed.",
+    });
+    // The R2 write is undone — no orphan source.md remains.
+    expect(await listKeys(bucket, "pages/")).toEqual([]);
+  });
+
+  // Validator pin: the no_files guard fires BEFORE kind validation, so a raw
+  // request with zero files reports no_files (not invalid_raw_upload) and
+  // writes nothing.
+  it("zero-file raw request is rejected with 400 no_files before the raw-kind check", async () => {
+    const token = await validToken();
+    const form = new FormData();
+    appendManifest(form, { kind: "raw-markdown" });
+
+    const res = await fetchApi("/api/pages", "POST", form, token);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "no_files",
+      message: "No files were uploaded.",
+    });
+    expect(await listKeys(bucket, "pages/")).toEqual([]);
+  });
+});

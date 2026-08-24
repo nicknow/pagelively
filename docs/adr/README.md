@@ -58,6 +58,8 @@ memory.
 | 0043 | [S23-B implementation details — schema migration 0002, password_hash mapping, unlocks repository](0043-s23-b-schema-repositories.md)            | Accepted                         |
 | 0044 | [Multi-domain collision guard in setup.mjs](0044-multi-domain-collision-guard.md)                                                               | Accepted                         |
 | 0050 | [S7 edit page visual enhancements — kind icons, lock icon, kind badge icon](0050-s7-edit-page-visual-enhancements.md)                           | Accepted                         |
+| 0053 | [Markdown template system — extractable templates with rich CSS, dark mode, and registry](0053-markdown-template-system.md)                     | Accepted                         |
+| 0054 | [Raw markdown hosting — verbatim `source.md` pages via a new page kind](0054-raw-markdown-hosting.md)                                           | Accepted                         |
 
 > **Numbering note:** ADR numbers are assigned sequentially, but some numbers are intentionally
 > unused. 0034 was reserved for an OAuth fail-fast slice that was deferred; 0037 was reserved for

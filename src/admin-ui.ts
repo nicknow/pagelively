@@ -950,6 +950,9 @@ const ICON_SPRITE = `<svg style="display:none" aria-hidden="true">
   <symbol id="icon-file-bundle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /><rect x="9" y="12" width="6" height="2" /><rect x="9" y="16" width="4" height="2" />
   </symbol>
+  <symbol id="icon-file-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /><line x1="9" y1="13" x2="15" y2="13" /><line x1="9" y1="17" x2="13" y2="17" />
+  </symbol>
   <symbol id="icon-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
   </symbol>
@@ -1026,6 +1029,8 @@ function dashboardContent(config: AppConfig, pages: PageRecord[], requestUrl: UR
         markdown: "file-markdown",
         image: "file-image",
         bundle: "file-bundle",
+        // S24-D: raw pages get their own plain-text glyph (ADR 0047 sprite).
+        "raw-markdown": "file-text",
       };
       const kindIcon = kindIconMap[page.kind] ?? "file";
       const kindSvg = `<svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-${kindIcon}"></use></svg>`;
@@ -1166,7 +1171,7 @@ function uploadContent(): string {
             <label><input type="radio" name="visibility" value="unlisted"> Unlisted</label>
           </div>
         </div>
-        <div class="form-group">
+        <div class="form-group" id="show-source-field">
           <label class="checkbox-label">
             <input type="checkbox" name="show_source" id="show_source" value="true">
             Show source link (for Markdown pages)
@@ -1183,8 +1188,12 @@ function uploadContent(): string {
           <span class="field-label">Page kind</span>
           <div class="radio-group">
             <label><input type="radio" name="page-kind" value="regular" checked data-kind-regular> Regular page</label>
+            <label><input type="radio" name="page-kind" value="raw-markdown" data-kind-raw> Raw markdown (no HTML)</label>
             <label><input type="radio" name="page-kind" value="listing" data-kind-listing> Listing page</label>
           </div>
+        </div>
+        <div id="raw-page-fields" class="hidden">
+          <p class="file-hint">The uploaded .md file is published verbatim as plain text (text/plain) — no rendering, no source link.</p>
         </div>
         <div id="listing-page-fields" class="hidden">
           <div class="form-group">
@@ -1240,7 +1249,7 @@ function uploadContent(): string {
             <label><input type="radio" name="paste-visibility" value="unlisted"> Unlisted</label>
           </div>
         </div>
-        <div class="form-group">
+        <div class="form-group" id="paste-show-source-field">
           <label class="checkbox-label">
             <input type="checkbox" name="paste-show-source" id="paste-show-source" value="true">
             Show source link (for Markdown pages)
@@ -1250,8 +1259,12 @@ function uploadContent(): string {
           <span class="field-label">Page kind</span>
           <div class="radio-group">
             <label><input type="radio" name="paste-page-kind" value="regular" checked data-kind-regular> Regular page</label>
+            <label><input type="radio" name="paste-page-kind" value="raw-markdown" data-kind-raw> Raw markdown (no HTML)</label>
             <label><input type="radio" name="paste-page-kind" value="listing" data-kind-listing> Listing page</label>
           </div>
+        </div>
+        <div id="paste-raw-fields" class="hidden">
+          <p class="file-hint">The pasted markdown is published verbatim as plain text (text/plain) — no rendering, no source link.</p>
         </div>
         <div id="paste-listing-fields" class="hidden">
           <div class="form-group">
@@ -1385,7 +1398,7 @@ function uploadContent(): string {
       }
 
       function buildManifest() {
-        const isListing = document.querySelector('input[name="page-kind"]:checked').value === 'listing';
+        const kindValue = document.querySelector('input[name="page-kind"]:checked').value;
         const pwd = document.getElementById('password').value;
         const manifest = {
           slug: document.getElementById('slug').value || undefined,
@@ -1393,9 +1406,13 @@ function uploadContent(): string {
           visibility: form.querySelector('input[name="visibility"]:checked').value,
           password: pwd || undefined,
         };
-        if (isListing) {
+        if (kindValue === 'listing') {
           manifest.kind = 'listing';
           manifest.matchTags = document.getElementById('listing-match-tags').value || undefined;
+        } else if (kindValue === 'raw-markdown') {
+          // S24-D: raw pages carry only the kind — show_source is forced to 0
+          // server-side and must not be sent (OQ-30/33).
+          manifest.kind = 'raw-markdown';
         } else {
           manifest.showSource = document.getElementById('show_source').checked;
           manifest.entry = entryField.classList.contains('hidden') ? undefined : entrySelect.value;
@@ -1430,12 +1447,17 @@ function uploadContent(): string {
       filesInput.addEventListener('change', function() { syncManagedFiles(); updateEntryPicker(); });
       folderInput.addEventListener('change', function() { syncManagedFiles(); updateEntryPicker(); });
 
-      // Page kind toggle: show/hide listing vs regular fields
+      // Page kind toggle: show/hide listing vs raw vs regular fields
       function togglePageKind() {
-        var isListing = document.querySelector('input[name="page-kind"]:checked').value === 'listing';
+        var kind = document.querySelector('input[name="page-kind"]:checked').value;
+        var isListing = kind === 'listing';
+        var isRaw = kind === 'raw-markdown';
         document.getElementById('listing-page-fields').classList.toggle('hidden', !isListing);
-        document.getElementById('regular-page-fields').classList.toggle('hidden', isListing);
-        document.getElementById('entry-field').classList.toggle('hidden', isListing);
+        document.getElementById('regular-page-fields').classList.toggle('hidden', isListing || isRaw);
+        document.getElementById('entry-field').classList.toggle('hidden', isListing || isRaw);
+        // S24-D: a raw page IS its own source — hide the show-source control.
+        document.getElementById('show-source-field').classList.toggle('hidden', isRaw);
+        document.getElementById('raw-page-fields').classList.toggle('hidden', !isRaw);
       }
       document.querySelectorAll('input[name="page-kind"]').forEach(function(el) {
         el.addEventListener('change', togglePageKind);
@@ -1443,9 +1465,13 @@ function uploadContent(): string {
 
       // Paste kind toggle
       function togglePasteKind() {
-        var isListing = document.querySelector('input[name="paste-page-kind"]:checked').value === 'listing';
+        var kind = document.querySelector('input[name="paste-page-kind"]:checked').value;
+        var isListing = kind === 'listing';
+        var isRaw = kind === 'raw-markdown';
         document.getElementById('paste-listing-fields').classList.toggle('hidden', !isListing);
-        document.getElementById('paste-regular-fields').classList.toggle('hidden', isListing);
+        document.getElementById('paste-regular-fields').classList.toggle('hidden', isListing || isRaw);
+        document.getElementById('paste-show-source-field').classList.toggle('hidden', isRaw);
+        document.getElementById('paste-raw-fields').classList.toggle('hidden', !isRaw);
       }
       document.querySelectorAll('input[name="paste-page-kind"]').forEach(function(el) {
         el.addEventListener('change', togglePasteKind);
@@ -1530,7 +1556,9 @@ function uploadContent(): string {
         errorBox.classList.remove('visible');
         errorBox.textContent = '';
         const files = selectedFiles();
-        const isPasteListing = pasteForm.querySelector('input[name="paste-page-kind"]:checked').value === 'listing';
+        const pasteKind = pasteForm.querySelector('input[name="paste-page-kind"]:checked').value;
+        const isPasteListing = pasteKind === 'listing';
+        const isPasteRaw = pasteKind === 'raw-markdown';
         if (!isPasteListing && files.length === 0 && pasteContent.value.trim() === '') {
           errorBox.textContent = 'Provide either files or paste content.';
           errorBox.classList.add('visible');
@@ -1551,6 +1579,12 @@ function uploadContent(): string {
         if (isPasteListing) {
           payload.kind = 'listing';
           payload.matchTags = document.getElementById('paste-match-tags').value || undefined;
+        } else if (isPasteRaw) {
+          // S24-D: raw paste publishes verbatim as text/plain; show_source is
+          // not sent (the API forces 0 for raw pages).
+          payload.kind = 'raw-markdown';
+          payload.content = pasteContent.value;
+          payload.format = 'markdown';
         } else {
           const pasteFormat = pasteForm.querySelector('input[name="paste-format"]:checked').value;
           var pasteTags = parseTags(document.getElementById('paste-tags').value);
@@ -1619,6 +1653,8 @@ function pageKindIcon(kind: string): string {
     markdown: "file-markdown",
     image: "file-image",
     bundle: "file-bundle",
+    // S24-D: raw pages get their own plain-text glyph (ADR 0047 sprite).
+    "raw-markdown": "file-text",
   };
   const icon = kindIconMap[kind] ?? "file";
   return `<svg class="icon" width="16" height="16" aria-hidden="true"><use href="#icon-${icon}"></use></svg>`;
@@ -1664,6 +1700,17 @@ function editContent(
   const publicChecked = page.visibility === "public" ? "checked" : "";
   const unlistedChecked = page.visibility === "unlisted" ? "checked" : "";
   const showSourceChecked = page.show_source === 1 ? "checked" : "";
+  // S24-D: raw pages ARE their source — no show_source control and no
+  // separate "view source" affordance (the whole response is the source).
+  const showSourceField =
+    page.kind === "raw-markdown"
+      ? ""
+      : `<div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" name="showSource" value="true" ${showSourceChecked}>
+          Show source link
+        </label>
+      </div>`;
   const kindSvg = pageKindIcon(page.kind);
   const tagsValue = escapeHtml(tags.join(", "));
   const matchTagsValue = escapeHtml(page.match_tags ?? "");
@@ -1701,12 +1748,7 @@ function editContent(
           <label><input type="radio" name="visibility" value="unlisted" ${unlistedChecked}> Unlisted</label>
         </div>
       </div>
-      <div class="form-group">
-        <label class="checkbox-label">
-          <input type="checkbox" name="showSource" value="true" ${showSourceChecked}>
-          Show source link
-        </label>
-      </div>
+      ${showSourceField}
       <div class="form-group">
         <label class="field-label" for="edit-tags">Tags <span class="hint">(optional, comma-separated)</span></label>
         <input type="text" name="tags" id="edit-tags" value="${tagsValue}" placeholder="blog, tech, announcement">

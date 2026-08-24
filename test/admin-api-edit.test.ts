@@ -3,7 +3,12 @@ import { env } from "cloudflare:workers";
 import { createExecutionContext } from "cloudflare:test";
 import worker from "../src/index";
 import { AppError } from "../src/errors";
-import { handlePatchPage, handleAddFiles, handleDeleteFile } from "../src/admin-api";
+import {
+  handlePatchPage,
+  handleAddFiles,
+  handleDeleteFile,
+  isProtectedEntryPath,
+} from "../src/admin-api";
 import { createTestCacheService } from "../src/cache-service";
 import { createConfig } from "../src/config";
 import { createPagesRepository } from "../src/pages-repository";
@@ -2201,5 +2206,224 @@ describe("S18 — edit & delete API", () => {
       const keys = await listKeys(bucket, `pages/${pageId}/2/`);
       expect(keys).toEqual([]);
     });
+  });
+});
+
+// S24-B — raw-markdown edit/file ops. A raw page is a single source.md object
+// (entry_path = "source.md", raw_md_path = null); replacements are stored
+// verbatim with no rendering, and source.md is protected from individual
+// deletion like every entry.
+describe("S24-B — raw-markdown file operations", () => {
+  const db = env.DB;
+  const bucket = env.BUCKET;
+
+  beforeEach(async () => {
+    await clearFilesAndPages(db);
+    await clearBucket(bucket);
+    const keys = await generateKeyPair("access-key-1");
+    privateKey = keys.privateKey;
+    const mock = createMockFetch({ keys: [keys.jwk] });
+    vi.stubGlobal("fetch", mock.fetchFn);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Seed a raw page at rev 1 with its source.md object + D1 row. */
+  async function seedRawPage(pageId: string, content: string) {
+    await insertPage(db, {
+      id: pageId,
+      slug: "raw-notes",
+      title: "Raw Notes",
+      kind: "raw-markdown",
+      entry_path: "source.md",
+    });
+    await bucket.put(`pages/${pageId}/1/source.md`, content, {
+      httpMetadata: { contentType: "text/plain; charset=utf-8" },
+    });
+    await insertFile(db, {
+      page_id: pageId,
+      path: "source.md",
+      r2_key: `pages/${pageId}/1/source.md`,
+      content_type: "text/plain; charset=utf-8",
+      size: content.length,
+    });
+  }
+
+  it("servedEntryPath resolves page.entry_path for raw — source.md is the protected entry", async () => {
+    const pageId = "rawentry01";
+    await seedRawPage(pageId, "# v1\n");
+    const pagesRepository = createPagesRepository(db);
+    const page = await pagesRepository.getById(pageId);
+    expect(page).not.toBeNull();
+    // servedEntryPath falls through to entry_path ("source.md") for the raw
+    // kind; isProtectedEntryPath therefore guards exactly source.md.
+    expect(isProtectedEntryPath(page!, "source.md")).toBe(true);
+    expect(isProtectedEntryPath(page!, "index.html")).toBe(false);
+    expect(isProtectedEntryPath(page!, "extra.txt")).toBe(false);
+  });
+
+  it("replaces a .md on a raw page verbatim: rev bump, old rev folder retained, no index.html", async () => {
+    const pageId = "rawrepl001";
+    await seedRawPage(pageId, "# v1\n");
+    const token = await validToken();
+
+    const form = new FormData();
+    appendFile(form, "updated.md", makeFile("updated.md", "# v2 updated body\n", "text/markdown"));
+    const res = await fetchApi(`/api/pages/${pageId}/files`, "POST", form, token);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.rev).toBe(2);
+    expect(body.entry_path).toBe("source.md");
+    expect(body.raw_md_path).toBeNull();
+    const files = body.files as Record<string, unknown>[];
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatchObject({
+      path: "source.md",
+      r2_key: `pages/${pageId}/2/source.md`,
+      content_type: "text/plain; charset=utf-8",
+    });
+
+    // Old rev folder retained (existing GC policy), new rev byte-equal.
+    const allKeys = await listKeys(bucket, `pages/${pageId}/`);
+    expect(allKeys).toEqual([`pages/${pageId}/1/source.md`, `pages/${pageId}/2/source.md`]);
+    expect(allKeys).toEqual(expect.not.arrayContaining([expect.stringContaining("index.html")]));
+    const obj = await bucket.get(`pages/${pageId}/2/source.md`);
+    const stored = await new Response(obj!.body).text();
+    expect(stored).toBe("# v2 updated body\n");
+    expect(obj!.httpMetadata).toMatchObject({ contentType: "text/plain; charset=utf-8" });
+  });
+
+  it("adds a non-markdown asset to a raw page without treating it as an entry replacement", async () => {
+    const pageId = "rawasset01";
+    await seedRawPage(pageId, "# v1\n");
+    const token = await validToken();
+
+    const form = new FormData();
+    appendFile(form, "extra.txt", makeFile("extra.txt", "plain text asset", "text/plain"));
+    const res = await fetchApi(`/api/pages/${pageId}/files`, "POST", form, token);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.rev).toBe(2);
+    const files = (
+      await db
+        .prepare("SELECT * FROM files WHERE page_id = ?")
+        .bind(pageId)
+        .all<Record<string, unknown>>()
+    ).results;
+    expect(files.map((f) => f.path).sort()).toEqual(["extra.txt", "source.md"]);
+    // The original markdown is carried into the new rev untouched.
+    const obj = await bucket.get(`pages/${pageId}/2/source.md`);
+    expect(await new Response(obj!.body).text()).toBe("# v1\n");
+  });
+
+  it("rejects individual deletion of source.md with the existing protected-entry message", async () => {
+    const pageId = "rawdel0001";
+    await seedRawPage(pageId, "# keep\n");
+    const token = await validToken();
+
+    const res = await fetchApi(`/api/pages/${pageId}/files/source.md`, "DELETE", null, token);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "entry_not_deletable",
+      message:
+        "The rendered page files (index.html and source.md) are part of the page and cannot be deleted individually. Delete the page to remove it.",
+    });
+    // Nothing was mutated: rev still 1, object still present.
+    const row = await db.prepare("SELECT rev FROM pages WHERE id = ?").bind(pageId).first<{
+      rev: number;
+    }>();
+    expect(row?.rev).toBe(1);
+    expect(await bucket.get(`pages/${pageId}/1/source.md`)).not.toBeNull();
+  });
+
+  it("PATCH showSource:true on a raw page is normalized to 0 with no re-render and no rev bump", async () => {
+    const pageId = "rawpatch01";
+    await seedRawPage(pageId, "# inert\n");
+    const token = await validToken();
+
+    const res = await fetchApi(
+      `/api/pages/${pageId}`,
+      "PATCH",
+      JSON.stringify({ showSource: true }),
+      token,
+      { "Content-Type": "application/json" },
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.kind).toBe("raw-markdown");
+    expect(body.show_source).toBe(0);
+    expect(body.rev).toBe(1);
+    // needsReRender stayed inert: no index.html was ever created.
+    expect(await listKeys(bucket, `pages/${pageId}/`)).toEqual([`pages/${pageId}/1/source.md`]);
+  });
+
+  // Validator pin: metadata PATCHes other than show_source (title/slug/tags/
+  // password) follow the normal meta-edit policy on a raw row — no rev bump,
+  // no re-render, R2 untouched.
+  it("PATCH title/slug/tags/password on a raw page does not bump rev or touch R2", async () => {
+    const pageId = "rawmeta001";
+    await seedRawPage(pageId, "# stable\n");
+    const token = await validToken();
+
+    const res = await fetchApi(
+      `/api/pages/${pageId}`,
+      "PATCH",
+      JSON.stringify({
+        title: "Renamed Raw",
+        slug: "renamed-raw",
+        tags: ["meta", "raw"],
+        password: "secret123",
+      }),
+      token,
+      { "Content-Type": "application/json" },
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.kind).toBe("raw-markdown");
+    expect(body.title).toBe("Renamed Raw");
+    expect(body.slug).toBe("renamed-raw");
+    expect(body.tags).toEqual(["meta", "raw"]);
+    expect(body.has_password).toBe(true);
+    expect(body.entry_path).toBe("source.md");
+    expect(body.raw_md_path).toBeNull();
+    // Meta-edit: no rev bump, no objects rewritten.
+    expect(body.rev).toBe(1);
+    expect(await listKeys(bucket, `pages/${pageId}/`)).toEqual([`pages/${pageId}/1/source.md`]);
+  });
+
+  // Validator pin: a .markdown extension satisfies the raw single-document rule
+  // and is normalized to source.md like a .md upload (plan §S24-B edge cases).
+  it("accepts a .markdown file for kind=raw-markdown and normalizes it to source.md", async () => {
+    await clearFilesAndPages(db);
+    await clearBucket(bucket);
+    const keys = await generateKeyPair("access-key-1");
+    privateKey = keys.privateKey;
+    vi.stubGlobal("fetch", createMockFetch({ keys: [keys.jwk] }).fetchFn);
+    try {
+      const token = await validToken();
+      const form = new FormData();
+      form.append("manifest", JSON.stringify({ kind: "raw-markdown" }));
+      appendFile(form, "readme.markdown", makeFile("readme.markdown", "# Md\n", "text/markdown"));
+
+      const res = await fetchApi("/api/pages", "POST", form, token);
+
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.entry_path).toBe("source.md");
+      const pageId = body.id as string;
+      expect(await listKeys(bucket, `pages/${pageId}/`)).toEqual([`pages/${pageId}/1/source.md`]);
+      const obj = await bucket.get(`pages/${pageId}/1/source.md`);
+      expect(await new Response(obj!.body).text()).toBe("# Md\n");
+      expect(obj!.httpMetadata).toMatchObject({ contentType: "text/plain; charset=utf-8" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

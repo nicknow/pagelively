@@ -104,7 +104,16 @@ scheme/trailing slash defensively and prepends `https://`.
 ## Domain model (shared types)
 
 ```ts
-type PageKind = "image" | "html" | "markdown" | "bundle"; // §4
+type PageKind =
+  | "image"
+  | "html"
+  | "markdown"
+  | "bundle"
+  | "listing" // listing pages feature (unnumbered commit 79c4af4)
+  // S24-A (OQ-27): single source.md served verbatim — entry_path = "source.md",
+  // raw_md_path = null, show_source forced 0; object content type text/plain; charset=utf-8 via
+  // per-object override at publish time (OQ-31). Full behavior lands in S24-B/C/D (ADR 0054).
+  | "raw-markdown";
 type Visibility = "public" | "unlisted"; // §8 (forward-looking)
 type CacheRouteClass =
   | "entry" // /{slug}/, /p/{id}/, home page

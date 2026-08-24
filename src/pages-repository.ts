@@ -17,7 +17,10 @@ import { AppError } from "./errors";
 import { validateId } from "./ids";
 import { validateSlug } from "./slug";
 
-type PageKind = "image" | "html" | "markdown" | "bundle" | "listing";
+// S24-A (OQ-27, approved): "raw-markdown" — a single source.md object served
+// verbatim (entry_path = "source.md", raw_md_path = null, show_source forced 0).
+// Kept in lockstep with the duplicate union in src/admin-api.ts.
+type PageKind = "image" | "html" | "markdown" | "bundle" | "listing" | "raw-markdown";
 type Visibility = "public" | "unlisted";
 
 export interface PageRecord {

@@ -530,3 +530,255 @@ describe("serveEntry", () => {
     expect(text).toContain("Empty List");
   });
 });
+
+// ── S24-C: raw-markdown page serving ─────────────────────────────────────
+//
+// A raw-markdown page is a single source.md object served verbatim as text:
+// public entries mirror the image-kind pattern (301 to the CDN object, no R2
+// read, no base injection); protected entries are Worker bytes with no-store,
+// never a 301 (ADR 0041 decision 6).
+
+describe("S24-C — raw-markdown serving", () => {
+  const db = env.DB;
+  const bucket = env.BUCKET;
+  const objects = createObjectStore(bucket);
+
+  const RAW_BODY = "# Raw notes\n\nVerbatim *markdown* — served as text.\n";
+  const RAW_CONTENT_TYPE = "text/plain; charset=utf-8";
+
+  async function seedRawPage(
+    id: string,
+    slug: string | null,
+    overrides: { rev?: number } = {},
+  ): Promise<void> {
+    await insertPage(db, {
+      id,
+      slug,
+      kind: "raw-markdown",
+      rev: overrides.rev ?? 1,
+      entry_path: "source.md",
+    });
+    await objects.put(id, overrides.rev ?? 1, "source.md", RAW_BODY, RAW_CONTENT_TYPE);
+  }
+
+  /** No response surface may reference the CDN host (ADR 0041 decision 6). */
+  function expectNoCdnUrl(res: Response): void {
+    for (const [name, value] of res.headers.entries()) {
+      expect(`${name}: ${value}`).not.toContain("cdn.example.com");
+    }
+  }
+
+  beforeEach(async () => {
+    await clearPages(db);
+    await clearBucket(bucket);
+  });
+
+  it("301-redirects a public raw page's slug URL to the CDN source.md object", async () => {
+    await seedRawPage("pageraw001", "my-notes", { rev: 3 });
+
+    const res = await serveEntry(new Request("https://pages.example.com/my-notes/"), makeDeps());
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get("Location")).toBe(
+      "https://cdn.example.com/pages/pageraw001/3/source.md",
+    );
+    expect(res.headers.get("Cache-Control")).toBe(
+      "public, max-age=300, stale-while-revalidate=3600",
+    );
+    expect(res.headers.get("Cache-Tag")).toBe("page-pageraw001");
+    // A redirect carries no body and never touches the stored object.
+    expect(await res.text()).toBe("");
+  });
+
+  it("301-redirects a public raw page's id URL identically", async () => {
+    await seedRawPage("pageraw002", null);
+
+    const res = await serveEntry(
+      new Request("https://pages.example.com/p/pageraw002/"),
+      makeDeps(),
+    );
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get("Location")).toBe(
+      "https://cdn.example.com/pages/pageraw002/1/source.md",
+    );
+    expect(res.headers.get("Cache-Tag")).toBe("page-pageraw002");
+  });
+
+  it("shows the password prompt for a protected raw page before any content path (gate precedence)", async () => {
+    await seedRawPage("pageraw003", "locked-raw");
+    await createPagesRepository(db).setPasswordHash("pageraw003", await hashPassword("secret1"));
+
+    const res = await serveEntry(new Request("https://pages.example.com/locked-raw/"), makeDeps());
+
+    // The gate fires before kind dispatch: a prompt, not a CDN 301 and not bytes.
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Location")).toBeNull();
+    expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(res.headers.get("Cache-Tag")).toBeNull();
+    const text = await res.text();
+    expect(text).toContain("This page is password protected.");
+    expect(text).toContain('action="/p/pageraw003/unlock"');
+    expect(text).not.toContain(RAW_BODY);
+    expectNoCdnUrl(res);
+  });
+
+  it("serves an unlocked protected raw page as Worker bytes: verbatim, text/plain, no-store, no CDN URL", async () => {
+    await seedRawPage("pageraw004", "unlocked-raw", { rev: 2 });
+    await createPagesRepository(db).setPasswordHash("pageraw004", await hashPassword("secret1"));
+    const token = generateToken();
+    await createUnlocksRepository(db).create("pageraw004", await hashToken(token));
+
+    const res = await serveEntry(
+      new Request("https://pages.example.com/p/pageraw004/", {
+        headers: { Cookie: `pl_unlock=${formatUnlockCookie("pageraw004", token)}` },
+      }),
+      makeDeps(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Location")).toBeNull();
+    expect(res.headers.get("Content-Type")).toBe(RAW_CONTENT_TYPE);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(res.headers.get("Cache-Tag")).toBeNull();
+
+    // Byte-equal to the stored markdown — no base injection, no rewriting.
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect(bytes).toEqual(new TextEncoder().encode(RAW_BODY));
+    expectNoCdnUrl(res);
+  });
+
+  it("returns a clean 404 when a protected raw page's object is missing", async () => {
+    await insertPage(db, {
+      id: "pageraw005",
+      slug: "ghost-raw",
+      kind: "raw-markdown",
+      entry_path: "source.md",
+    });
+    await createPagesRepository(db).setPasswordHash("pageraw005", await hashPassword("secret1"));
+    const token = generateToken();
+    await createUnlocksRepository(db).create("pageraw005", await hashToken(token));
+
+    const res = await serveEntry(
+      new Request("https://pages.example.com/ghost-raw/", {
+        headers: { Cookie: `pl_unlock=${formatUnlockCookie("pageraw005", token)}` },
+      }),
+      makeDeps(),
+    );
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("a listing page linking a raw page resolves through the same public 301", async () => {
+    const { createTagsRepository } = await import("../src/tags-repository");
+    const tagsRepo = createTagsRepository(env.DB);
+
+    await insertPage(db, {
+      id: "pageralist",
+      slug: "raw-index",
+      title: "Raw Index",
+      kind: "listing",
+      match_tags: "docs",
+    });
+    await insertPage(db, {
+      id: "pageraw006",
+      slug: "linked-raw",
+      title: "Linked Raw",
+      kind: "raw-markdown",
+      entry_path: "source.md",
+    });
+    await tagsRepo.setForPage("pageraw006", ["docs"]);
+
+    const deps = { ...makeDeps(), tagsRepository: tagsRepo };
+    const listing = await serveEntry(new Request("https://pages.example.com/raw-index/"), deps);
+    expect(listing.status).toBe(200);
+    const html = await listing.text();
+    expect(html).toContain('href="/linked-raw/"');
+
+    // Following that link hits the same raw-page serving path → 301.
+    const follow = await serveEntry(
+      new Request("https://pages.example.com/linked-raw/"),
+      makeDeps(),
+    );
+    expect(follow.status).toBe(301);
+    expect(follow.headers.get("Location")).toBe(
+      "https://cdn.example.com/pages/pageraw006/1/source.md",
+    );
+  });
+
+  // Edge pin (validator): ASSET_BASE_URL with a trailing slash must still
+  // yield a clean Location. Normalization lives in createConfig (strips /+$),
+  // so this exercises the real wiring rather than injecting into deps.config.
+  it("builds a clean Location even when ASSET_BASE_URL has a trailing slash", async () => {
+    await seedRawPage("pageraw007", "slashy-base");
+
+    const slashyConfig = createConfig({
+      ...env,
+      // Deliberately malformed at the type level (generated Env pins the
+      // placeholder literal); createConfig must normalize it regardless.
+      ASSET_BASE_URL: "https://cdn.example.com/" as unknown as Env["ASSET_BASE_URL"],
+    });
+    const deps = { ...makeDeps(), config: slashyConfig };
+
+    const res = await serveEntry(new Request("https://pages.example.com/slashy-base/"), deps);
+
+    expect(slashyConfig.assetBaseUrl).toBe("https://cdn.example.com");
+    expect(res.status).toBe(301);
+    expect(res.headers.get("Location")).toBe(
+      "https://cdn.example.com/pages/pageraw007/1/source.md",
+    );
+  });
+
+  // Visibility only hides pages from listings; direct URLs keep working for
+  // every kind — pin it for raw so a future visibility check doesn't silently
+  // break raw deep links.
+  it("serves an unlisted raw page by its direct URL like every other kind", async () => {
+    await insertPage(db, {
+      id: "pageraw008",
+      slug: "quiet-raw",
+      kind: "raw-markdown",
+      entry_path: "source.md",
+      visibility: "unlisted",
+    });
+    await objects.put("pageraw008", 1, "source.md", RAW_BODY, RAW_CONTENT_TYPE);
+
+    const res = await serveEntry(new Request("https://pages.example.com/quiet-raw/"), makeDeps());
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get("Location")).toBe(
+      "https://cdn.example.com/pages/pageraw008/1/source.md",
+    );
+  });
+
+  // ADR 0041: the pl_unlock cookie is scoped per page id. A valid cookie for
+  // one page must never unlock a DIFFERENT protected raw page — the gate fires
+  // before kind dispatch, so this must yield the prompt, not bytes or a 301.
+  it("does not let another page's unlock cookie open a protected raw page", async () => {
+    await seedRawPage("pageraw009", "guarded-raw");
+    await createPagesRepository(db).setPasswordHash("pageraw009", await hashPassword("secret1"));
+    // A second REAL protected page (the unlocks table has an FK on pages.id).
+    await insertPage(db, {
+      id: "pageraw0aa",
+      slug: "other-locked",
+      kind: "raw-markdown",
+      entry_path: "source.md",
+    });
+    await createPagesRepository(db).setPasswordHash("pageraw0aa", await hashPassword("secret2"));
+    const token = generateToken();
+    await createUnlocksRepository(db).create("pageraw0aa", await hashToken(token));
+
+    const res = await serveEntry(
+      new Request("https://pages.example.com/guarded-raw/", {
+        headers: { Cookie: `pl_unlock=${formatUnlockCookie("pageraw0aa", token)}` },
+      }),
+      makeDeps(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Location")).toBeNull();
+    expect(await res.text()).toContain("This page is password protected.");
+    expectNoCdnUrl(res);
+  });
+});

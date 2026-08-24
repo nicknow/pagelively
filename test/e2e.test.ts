@@ -14,6 +14,7 @@ import {
 // S23 password helpers (used in the end-to-end journey below).
 import { verifyPassword } from "../src/password";
 import { hashToken } from "../src/password-token";
+import { createSettingsRepository } from "../src/settings-repository";
 
 // S22 — full local end-to-end journey (extended 2026-08-01 — ADR 0032).
 //
@@ -943,5 +944,176 @@ describe("S23 — Password-protected page", () => {
     // CDN base href confirms it's public.
     expect(text).toContain(`<base href="https://cdn.example.com/pages/${pageId}/1/index.html">`);
     expect(text).not.toContain("This page is password protected.");
+  });
+});
+
+// S24-C — raw-markdown public serving journey. One uninterrupted leg against
+// the running Worker: publish a raw page → slug + id serve via the CDN 301 →
+// HOME default_page pointing at the raw page serves through the same path →
+// file replace bumps rev and the redirect follows it → page delete leaves a
+// clean 404. Mirrors plan §S24-C acceptance criteria.
+describe("S24 — Raw-markdown page", () => {
+  const RAW_SLUG = "raw-journey";
+  const RAW_V1 = "# pagelively-e2e-raw-marker\n\nRaw body.\n";
+  const RAW_V2 = "# pagelively-e2e-raw-v2-marker\n\nReplaced body.\n";
+  let rawId = "";
+  let privateKey: CryptoKey;
+
+  beforeAll(async () => {
+    const keys = await generateKeyPair("access-key-3");
+    privateKey = keys.privateKey;
+    vi.stubGlobal("fetch", createMockFetch({ keys: [keys.jwk] }).fetchFn);
+
+    // Clean slate (including settings, so default_page starts unset).
+    await env.DB.prepare("DELETE FROM page_tags").run();
+    await env.DB.prepare("DELETE FROM files").run();
+    await env.DB.prepare("DELETE FROM pages").run();
+    await env.DB.prepare("DELETE FROM settings").run();
+    let cursor: string | undefined;
+    do {
+      const list = await env.BUCKET.list({ cursor, limit: 1000 });
+      const keysToDelete = list.objects.map((o) => o.key);
+      if (keysToDelete.length > 0) await env.BUCKET.delete(keysToDelete);
+      cursor = list.truncated ? list.cursor : undefined;
+    } while (cursor);
+  });
+
+  afterAll(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function makeEnv(overrides: Record<string, unknown> = {}): Env {
+    return { ...env, ...overrides } as Env;
+  }
+
+  function buildAccessPayload(): object {
+    const now = Math.floor(Date.now() / 1000);
+    return {
+      iss: TEAM_DOMAIN_URL,
+      aud: [ACCESS_AUD],
+      iat: now,
+      exp: now + 3600,
+      email: "admin@example.com",
+    };
+  }
+
+  async function validToken(): Promise<string> {
+    return signJwt(privateKey, "access-key-3", buildAccessPayload());
+  }
+
+  async function fetchPublic(path: string) {
+    return worker.fetch(
+      new Request(`https://pages.example.com${path}`),
+      makeEnv(),
+      createExecutionContext(),
+    );
+  }
+
+  async function fetchApi(path: string, method: string, body: BodyInit | null): Promise<Response> {
+    return worker.fetch(
+      new Request(`https://pages.example.com${path}`, {
+        method,
+        body,
+        headers: { "Cf-Access-Jwt-Assertion": await validToken() },
+      }),
+      makeEnv({ ACCESS_TEAM_DOMAIN: TEAM_DOMAIN, ACCESS_AUD: ACCESS_AUD }),
+      createExecutionContext(),
+    );
+  }
+
+  function appendFile(form: FormData, path: string, content: string): void {
+    form.append(
+      `file:${path}`,
+      new File([new TextEncoder().encode(content)], path, { type: "text/markdown" }),
+    );
+  }
+
+  it("step 1: publish a raw-markdown page via the multipart API", async () => {
+    const form = new FormData();
+    form.append(
+      "manifest",
+      JSON.stringify({ slug: RAW_SLUG, title: "Raw Journey", kind: "raw-markdown" }),
+    );
+    appendFile(form, "notes.md", RAW_V1);
+
+    const res = await fetchApi("/api/pages", "POST", form);
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.kind).toBe("raw-markdown");
+    expect(body.slug).toBe(RAW_SLUG);
+    expect(body.entry_path).toBe("source.md");
+    expect(body.raw_md_path).toBeNull();
+    expect(body.show_source).toBe(0);
+    rawId = body.id as string;
+
+    // Exactly one verbatim object; no index.html anywhere.
+    const obj = await env.BUCKET.get(`pages/${rawId}/1/source.md`);
+    expect(obj).not.toBeNull();
+    expect(await new Response(obj!.body).text()).toBe(RAW_V1);
+    expect(obj!.httpMetadata).toMatchObject({ contentType: "text/plain; charset=utf-8" });
+  });
+
+  it("step 2: slug and id URLs both 301 to the CDN source.md object", async () => {
+    const slugRes = await fetchPublic(`/${RAW_SLUG}/`);
+    expect(slugRes.status).toBe(301);
+    expect(slugRes.headers.get("Location")).toBe(
+      `https://cdn.example.com/pages/${rawId}/1/source.md`,
+    );
+    expect(slugRes.headers.get("Cache-Control")).toBe(
+      "public, max-age=300, stale-while-revalidate=3600",
+    );
+    expect(slugRes.headers.get("Cache-Tag")).toBe(`page-${rawId}`);
+
+    const idRes = await fetchPublic(`/p/${rawId}/`);
+    expect(idRes.status).toBe(301);
+    expect(idRes.headers.get("Location")).toBe(
+      `https://cdn.example.com/pages/${rawId}/1/source.md`,
+    );
+  });
+
+  it("step 3: replacing the .md bumps rev; the redirect follows the new rev object", async () => {
+    const form = new FormData();
+    appendFile(form, "updated.md", RAW_V2);
+    const res = await fetchApi(`/api/pages/${rawId}/files`, "POST", form);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.rev).toBe(2);
+
+    const serve = await fetchPublic(`/${RAW_SLUG}/`);
+    expect(serve.status).toBe(301);
+    expect(serve.headers.get("Location")).toBe(
+      `https://cdn.example.com/pages/${rawId}/2/source.md`,
+    );
+
+    // The new rev's bytes are the replacement, stored verbatim.
+    const obj = await env.BUCKET.get(`pages/${rawId}/2/source.md`);
+    expect(await new Response(obj!.body).text()).toBe(RAW_V2);
+  });
+
+  it("step 4: HOME default_page pointing at the raw page serves through the same 301 path", async () => {
+    await createSettingsRepository(env.DB).set("default_page", RAW_SLUG);
+    try {
+      const res = await fetchPublic("/");
+      expect(res.status).toBe(301);
+      expect(res.headers.get("Location")).toBe(
+        `https://cdn.example.com/pages/${rawId}/2/source.md`,
+      );
+    } finally {
+      await createSettingsRepository(env.DB).set("default_page", "");
+    }
+  });
+
+  it("step 5: DELETE removes the page; the slug then 404s clean with no orphan objects", async () => {
+    const res = await fetchApi(`/api/pages/${rawId}`, "DELETE", null);
+    expect(res.status).toBe(204);
+
+    const after = await fetchPublic(`/${RAW_SLUG}/`);
+    expect(after.status).toBe(404);
+    expect(after.headers.get("Cache-Control")).toBe("no-store");
+
+    const list = await env.BUCKET.list({ prefix: `pages/${rawId}/` });
+    expect(list.objects).toHaveLength(0);
   });
 });

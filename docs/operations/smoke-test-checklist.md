@@ -544,3 +544,46 @@ public, max-age=300, stale-while-revalidate=3600` with a `Cache-Tag: page-{id}`;
 - [ ] Creating a listing page via the paste form works the same way.
 - [ ] Editing a listing page shows the "Match tags" input pre-filled; changing it updates the listing content on save.
 - [ ] Editing a regular page does not show the "Match tags" input.
+
+## S24 — Raw markdown pages (added during S24-D, ADR 0054)
+
+The raw-markdown publish/edit/serving behavior is exercised end-to-end by unit tests against
+the emulated Worker (`test/e2e.test.ts` "S24 — Raw-markdown page"), but these seams cannot be
+proven locally: real R2 public-bucket serving, real edge caching of `.md` objects, and real
+browser display behavior. Publish one **public** raw page and one **password-protected** raw
+page from the live deployment before relying on the feature.
+
+Create + dashboard:
+
+- [ ] On `/admin/upload`, both tabs show a "Raw markdown (no HTML)" option in the Page-kind radios; selecting it hides the show-source control and shows an explanatory hint.
+- [ ] Creating a raw page via the UI (one `.md` file, raw option selected) succeeds and lands back on `/admin`; the row shows a `raw-markdown` badge with the plain-text file icon. The paste tab path works the same way with markdown content.
+- [ ] `GET /api/pages/{id}` shows `kind: "raw-markdown"`, `entry_path: "source.md"`, `raw_md_path: null`, `show_source: 0`, exactly one file row with `content_type: "text/plain; charset=utf-8"`.
+
+Public serving:
+
+- [ ] `GET /{slug}/` returns `301` with `Location` ending `/pages/{id}/{rev}/source.md`,
+      `Cache-Control: public, max-age=300, stale-while-revalidate=3600`, and
+      `Cache-Tag: page-{id}`. Same via `/p/{id}/`.
+- [ ] The CDN URL returns `Content-Type: text/plain; charset=utf-8` and a real browser visit
+      displays the markdown text **inline** (not a download dialog).
+- [ ] A file replace bumps `{rev}` and the slug/id redirect follows the new rev immediately
+      (purge-on-mutation works).
+
+Protected serving:
+
+- [ ] With no unlock cookie, `GET /p/{id}/` returns the password prompt (200, `no-store`) — never a redirect.
+- [ ] After unlocking in a browser, the entry streams as text with
+      `Content-Type: text/plain; charset=utf-8` and `Cache-Control: no-store`; no response header
+      or body contains the CDN host.
+
+Platform caveats:
+
+- [ ] **`.md` cache-extension check:** request the CDN `source.md` URL twice and inspect
+      `Cf-Cache-Status`. R2 public-bucket default cache-extension sets may not include `.md`
+      (roadmap §6) — if responses are never cached (`DYNAMIC`/absent rather than `HIT`), add a
+      Cache Everything / custom cache rule for the bucket domain and re-check. Record the outcome
+      here.
+- [ ] **Dead-object caveat (accepted, ADR 0054):** deleting the underlying R2 object directly
+      (out-of-band) leaves a public raw page 301ing to the dead CDN URL until the file is
+      replaced (rev bump) or the page is deleted — identical to image pages. Confirm recovery
+      works via either route if this ever happens.
