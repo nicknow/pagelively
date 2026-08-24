@@ -8,6 +8,10 @@
  *   href; protected images are served as bytes, never a 301 to the CDN
  *   (ADR 0041 decision 6).
  * - public image pages → 301 redirect to the CDN object.
+ * - S24-C: raw-markdown pages follow the same pattern — a public entry 301s
+ *   to the CDN `source.md` object; an unlocked protected entry is served as
+ *   Worker bytes with its stored `text/plain` content type, never a 301
+ *   (ADR 0041 decision 6).
  * - public html / markdown / bundle pages → fetch the entry HTML from R2,
  *   inject the `<base href="{ASSET_BASE_URL}/pages/{id}/{rev}/{entry_path}">`
  *   tag, and return it with entry cache headers.
@@ -162,10 +166,15 @@ export async function serveEntry(
         ? buildProtectedBaseHref(request, page)
         : buildBaseHref(deps.config, page.id, page.rev, page.entry_path);
 
-    if (page.kind === "image") {
+    // Image and raw-markdown pages (S24-C) are pure object surfaces: a public
+    // entry is a 301 to the CDN object (spec §6/§11 — the Worker stays out of
+    // the hot path; for raw pages the target is the verbatim source.md), and
+    // an unlocked protected entry is Worker bytes — a 301 to the CDN would
+    // leak the object URL and bypass the gate (ADR 0041 decision 6). The
+    // protected branch streams the stored object with its stored content type
+    // ("text/plain; charset=utf-8" for raw pages, set at publish time).
+    if (page.kind === "image" || page.kind === "raw-markdown") {
       if (page.password_hash !== null) {
-        // Protected images are served as Worker bytes — a 301 to the CDN would
-        // leak the object URL and bypass the gate (ADR 0041 decision 6).
         const stored = await deps.objects.get(page.id, page.rev, page.entry_path);
         if (!stored) {
           return clean404Response(url);

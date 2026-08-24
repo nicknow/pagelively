@@ -76,7 +76,16 @@ function extractIdFromPath(pathname: string): string | undefined {
 const MAX_TITLE_LENGTH = 256;
 const MAX_SLUG_SUFFIX_ATTEMPTS = 1000;
 
-type PageKind = "image" | "html" | "markdown" | "bundle" | "listing";
+// S24-A (OQ-27, approved): "raw-markdown" added here and in
+// src/pages-repository.ts — duplicated on purpose, keep in lockstep.
+type PageKind = "image" | "html" | "markdown" | "bundle" | "listing" | "raw-markdown";
+
+// S24-B (OQ-30/31): raw-markdown pages store their object with this literal
+// content type so browsers display the text inline (`text/markdown` typically
+// triggers a download). This is a per-object override at publish time only —
+// the global mimeTypeFor table and src/content-type.ts stay byte-identical
+// (existing rendered pages keep `text/markdown` on their source.md objects).
+const RAW_MARKDOWN_CONTENT_TYPE = "text/plain; charset=utf-8";
 
 function isHtmlPath(path: string): boolean {
   const lower = path.toLowerCase();
@@ -158,7 +167,24 @@ function validateManifest(
 function determineKindAndEntry(
   files: ParsedPublishForm["files"],
   manifestEntry?: string,
+  requestedKind?: string,
 ): { kind: PageKind; entry: string } {
+  // S24-B (OQ-32): an explicit raw-markdown request bypasses detection — it
+  // requires exactly one uploaded file with a .md/.markdown extension. A
+  // dedicated code beats reusing ambiguous_entry here: that error's advice
+  // ("provide manifest.entry") would be wrong for a raw page, whose entry is
+  // always normalized to source.md regardless of the upload name.
+  if (requestedKind === "raw-markdown") {
+    if (files.length !== 1 || !isMarkdownPath(files[0].path)) {
+      throw new AppError(
+        "invalid_raw_upload",
+        400,
+        "A raw-markdown page must be published with exactly one .md or .markdown file.",
+      );
+    }
+    return { kind: "raw-markdown", entry: files[0].path };
+  }
+
   const documents = files.filter((f) => isDocumentPath(f.path));
   const images = files.filter((f) => isImageContentType(f.contentType));
 
@@ -269,6 +295,17 @@ function buildR2Files(
         contentType: CHARSET_HTML,
         size: htmlBytes.byteLength,
       });
+    } else if (kind === "raw-markdown") {
+      // S24-B (OQ-28/30/31): the file IS the page — stored verbatim under the
+      // canonical name with the inline-displayable override content type.
+      // No index.html is ever emitted for a raw page. Exactly one file reaches
+      // here (determineKindAndEntry validated the raw combination).
+      r2Files.push({
+        path: "source.md",
+        content: file.content,
+        contentType: RAW_MARKDOWN_CONTENT_TYPE,
+        size: file.size,
+      });
     } else {
       r2Files.push({
         path: file.path,
@@ -360,7 +397,7 @@ export async function handleCreatePage(
   const actualKind = isListing ? "listing" : undefined;
   const { kind, entry } = actualKind
     ? { kind: "listing" as PageKind, entry: "index.html" }
-    : determineKindAndEntry(files, manifest.entry);
+    : determineKindAndEntry(files, manifest.entry, manifest.kind);
   const { slug: cleanedSlug } = validateManifest(manifest, files);
 
   const id = generateId();
@@ -380,7 +417,9 @@ export async function handleCreatePage(
   }
 
   const slug = await resolveSlug(cleanedSlug, title, pagesRepository, id);
-  const showSource = manifest.showSource === true ? 1 : 0;
+  // S24-B (OQ-33): a raw page IS its source — show_source is meaningless and
+  // forced to 0 regardless of the manifest.
+  const showSource = kind === "raw-markdown" ? 0 : manifest.showSource === true ? 1 : 0;
   const tags = manifest.tags ?? [];
 
   // S23: password validation before any side effects
@@ -411,10 +450,15 @@ export async function handleCreatePage(
   // under that name), or the entry object lookup at serve time 404s.
   const rawMdPath: string | null =
     kind === "markdown" || (kind === "bundle" && isMarkdownPath(entry)) ? "source.md" : null;
+  // S24-B (OQ-28): raw pages keep raw_md_path null (this structurally keeps the
+  // show_source re-render path inert) and their entry is the canonical
+  // source.md itself.
   const entryPath =
-    kind === "html" || kind === "markdown" || (kind === "bundle" && isMarkdownPath(entry))
-      ? "index.html"
-      : entry;
+    kind === "raw-markdown"
+      ? "source.md"
+      : kind === "html" || kind === "markdown" || (kind === "bundle" && isMarkdownPath(entry))
+        ? "index.html"
+        : entry;
 
   const newPage: NewPage = {
     id,
@@ -474,6 +518,10 @@ function isEntryReplacement(page: PageRecord, path: string): boolean {
   if (page.kind === "markdown") {
     return isMarkdownPath(path);
   }
+  // S24-B: a raw page's replacement .md becomes the new source.md (verbatim).
+  if (page.kind === "raw-markdown") {
+    return isMarkdownPath(path);
+  }
   // html or bundle
   return path === page.entry_path;
 }
@@ -491,6 +539,8 @@ function servedEntryPath(page: PageRecord): string {
   if (page.kind === "markdown" || (page.kind === "bundle" && page.raw_md_path !== null)) {
     return "index.html";
   }
+  // html/bundle fall through to their stored entry; S24-B: a raw page falls
+  // through to page.entry_path too, which is "source.md" by construction.
   return page.entry_path;
 }
 
@@ -524,6 +574,18 @@ function prepareEntryFiles(
   allowRawHtml: boolean,
   showSource: boolean,
 ): Array<{ path: string; content: ArrayBuffer; contentType: string; size: number }> {
+  // S24-B: a raw page's replacement .md is stored verbatim as source.md —
+  // no rendering, no index.html, override content type (OQ-30/31).
+  if (page.kind === "raw-markdown" && isMarkdownPath(file.path)) {
+    return [
+      {
+        path: "source.md",
+        content: file.content,
+        contentType: RAW_MARKDOWN_CONTENT_TYPE,
+        size: file.size,
+      },
+    ];
+  }
   if (
     (page.kind === "markdown" || (page.kind === "bundle" && isMarkdownPath(page.entry_path))) &&
     isMarkdownPath(file.path)
@@ -710,6 +772,14 @@ export async function handlePatchPage(
     throw new AppError("invalid_json", 400, "Request body must be valid JSON.");
   }
   const patch = validatePatchBody(body);
+
+  // S24-B (OQ-33): raw pages keep show_source 0 by construction. needsReRender
+  // is already inert for them (raw_md_path is null), but updateMeta would
+  // otherwise store the patched value and desynchronize the row — normalize
+  // any show_source PATCH on a raw page to a no-op instead.
+  if (page.kind === "raw-markdown") {
+    delete patch.show_source;
+  }
 
   if (typeof patch.slug === "string" && patch.slug !== page.slug) {
     // Clean the user-entered slug first (OQ-15/T1, ADR 0036): trim, normalize,

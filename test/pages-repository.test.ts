@@ -893,6 +893,173 @@ describe("createPagesRepository", () => {
     });
   });
 
+  // --- S24-A: PageKind gains "raw-markdown" ---
+
+  describe('kind "raw-markdown" (S24-A)', () => {
+    const at = "2026-01-01T00:00:00.000Z";
+
+    const rawRecord = (id: string, slug: string | null) =>
+      pageRecord({
+        id,
+        slug,
+        title: "Raw Notes",
+        kind: "raw-markdown",
+        rev: 1,
+        // OQ-27/29 (approved): entry_path is normalized to "source.md"; the
+        // source lives in entry_path itself, so raw_md_path stays null and
+        // show_source is forced 0 (nothing to toggle — no rendered output).
+        entry_path: "source.md",
+        raw_md_path: null,
+        show_source: 0,
+        visibility: "public",
+        created_at: at,
+        updated_at: at,
+      });
+
+    it("create() inserts a raw-markdown page and getById reads it back intact via toPageRecord", async () => {
+      const page = {
+        id: "rawmd00001",
+        slug: "my-notes",
+        title: "Raw Notes",
+        kind: "raw-markdown" as const,
+        rev: 1,
+        entry_path: "source.md",
+        raw_md_path: null,
+        show_source: 0 as const,
+        visibility: "public" as const,
+        created_at: at,
+        updated_at: at,
+      };
+      const created = await repo.create(page);
+      expect(created).toEqual({ ...page, password_hash: null, match_tags: null });
+
+      const fetched = await repo.getById(page.id);
+      expect(fetched).toEqual(rawRecord(page.id, page.slug));
+    });
+
+    it("getBySlug returns the raw-markdown record intact", async () => {
+      await insertPage(db, {
+        id: "rawmd00002",
+        slug: "slug-raw",
+        title: "Raw Notes",
+        kind: "raw-markdown",
+        rev: 1,
+        entry_path: "source.md",
+        raw_md_path: null,
+        show_source: 0,
+        visibility: "public",
+        created_at: at,
+        updated_at: at,
+      });
+
+      const fetched = await repo.getBySlug("slug-raw");
+      expect(fetched).toEqual(rawRecord("rawmd00002", "slug-raw"));
+    });
+
+    it("list includes the raw-markdown record intact", async () => {
+      await insertPage(db, {
+        id: "rawmd00003",
+        slug: "listed-raw",
+        title: "Raw Notes",
+        kind: "raw-markdown",
+        rev: 1,
+        entry_path: "source.md",
+        raw_md_path: null,
+        show_source: 0,
+        visibility: "public",
+        created_at: at,
+        updated_at: at,
+      });
+
+      const listed = await repo.list();
+      expect(listed).toHaveLength(1);
+      expect(listed[0]).toEqual(rawRecord("rawmd00003", "listed-raw"));
+    });
+
+    it(
+      "still round-trips an unknown/garbage kind string — PINNED lenient behavior: " +
+        "toPageRecord casts kind without validating (kind is free TEXT in D1); " +
+        "do NOT add validation in this slice",
+      async () => {
+        const id = "garbagek001";
+        await insertPage(db, {
+          id,
+          slug: "garbage-kind",
+          title: "Weird",
+          // Intentional garbage value: exercises the deliberate pass-through.
+          kind: "weird" as unknown as PageRecord["kind"],
+          rev: 1,
+          entry_path: "index.html",
+          raw_md_path: null,
+          show_source: 0,
+          visibility: "public",
+          created_at: at,
+          updated_at: at,
+        });
+
+        const fetched = await repo.getById(id);
+        expect(fetched).toEqual(
+          pageRecord({
+            id,
+            slug: "garbage-kind",
+            title: "Weird",
+            kind: "weird" as unknown as PageRecord["kind"],
+            rev: 1,
+            entry_path: "index.html",
+            raw_md_path: null,
+            show_source: 0,
+            visibility: "public",
+            created_at: at,
+            updated_at: at,
+          }),
+        );
+      },
+    );
+
+    it("reads every pre-existing kind back identically (regression pin)", async () => {
+      const kinds = ["image", "html", "markdown", "bundle", "listing"] as const;
+      let i = 0;
+      for (const kind of kinds) {
+        i += 1;
+        const id = `regress${String(i).padStart(5, "0")}`;
+        const slug = `regress-${kind}`;
+        const entryPath = kind === "image" ? "photo.jpg" : "index.html";
+        const rawMdPath = kind === "markdown" ? "source.md" : null;
+        await insertPage(db, {
+          id,
+          slug,
+          title: `Regress ${kind}`,
+          kind,
+          rev: 2,
+          entry_path: entryPath,
+          raw_md_path: rawMdPath,
+          show_source: kind === "markdown" ? 1 : 0,
+          visibility: "public",
+          created_at: at,
+          updated_at: at,
+        });
+
+        const fetched = await repo.getById(id);
+        expect(fetched!.kind).toBe(kind);
+        expect(fetched).toEqual(
+          pageRecord({
+            id,
+            slug,
+            title: `Regress ${kind}`,
+            kind,
+            rev: 2,
+            entry_path: entryPath,
+            raw_md_path: rawMdPath,
+            show_source: kind === "markdown" ? 1 : 0,
+            visibility: "public",
+            created_at: at,
+            updated_at: at,
+          }),
+        );
+      }
+    });
+  });
+
   // --- failure modes ---
 
   describe("failure modes", () => {
